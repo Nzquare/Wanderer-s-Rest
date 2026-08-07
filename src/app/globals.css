@@ -1,26 +1,85 @@
 @import "tailwindcss";
 
+/*
+ * Wanderer's Rest brand tokens (§48).
+ * Dark purple = brand/navigation. Teal = primary actions/active states.
+ * Status colors are reserved for table/order/shift state, never decoration.
+ * Operational screens (Cashier/Staff/Back Office) stay on this restrained
+ * palette; only Customer/Member screens are allowed extra fantasy flourish,
+ * layered on top of these same tokens rather than replacing them.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f6fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e3e0ec;
+  --foreground: #201a2e;
+  --foreground-muted: #6b6478;
+
+  --brand-950: #170f26;
+  --brand-900: #241a3d;
+  --brand-800: #322451;
+  --brand-700: #40306a;
+  --brand-600: #503c85;
+
+  --teal-600: #0d9488;
+  --teal-500: #14b8a6;
+  --teal-400: #2dd4bf;
+
+  --status-success: #16a34a;
+  --status-warning: #d97706;
+  --status-danger: #dc2626;
+  --status-neutral: #6b7280;
+  --status-active: #0d9488;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+
+  --color-brand-950: var(--brand-950);
+  --color-brand-900: var(--brand-900);
+  --color-brand-800: var(--brand-800);
+  --color-brand-700: var(--brand-700);
+  --color-brand-600: var(--brand-600);
+
+  --color-teal-600: var(--teal-600);
+  --color-teal-500: var(--teal-500);
+  --color-teal-400: var(--teal-400);
+
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-active: var(--status-active);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #14101f;
+    --surface: #1d1730;
+    --surface-raised: #251d3c;
+    --border: #382c53;
+    --foreground: #f1eef9;
+    --foreground-muted: #a99fc0;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Large-touch-target baseline for operational screens (§47). */
+button,
+[role="button"] {
+  touch-action: manipulation;
 }

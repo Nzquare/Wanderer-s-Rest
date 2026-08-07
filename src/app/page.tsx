@@ -1,69 +1,71 @@
-import Image from "next/image";
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { getCurrentStaff } from "@/server/auth/current-user";
+import { canAccessBackOffice, canAccessCashier } from "@/server/rbac/can";
+import { logoutAction } from "@/server/auth/actions";
 
-export default function Home() {
+// A logged-in staff member lands here once. If only one app is reachable
+// with their permissions, skip straight to it — the chooser only appears
+// for staff (Owner/Manager, typically) who can actually use more than one.
+export default async function Home() {
+  const staff = await getCurrentStaff();
+  if (!staff) redirect("/login");
+
+  const apps = [
+    {
+      href: "/back-office",
+      label: "Back Office",
+      description: "Settings, menu, staff, reports",
+      available: canAccessBackOffice(staff),
+    },
+    {
+      href: "/cashier",
+      label: "Cashier POS",
+      description: "Tables, orders, checkout, shifts",
+      available: canAccessCashier(staff),
+    },
+    {
+      href: "/staff",
+      label: "Staff Mobile",
+      description: "Tables, orders, timers, games",
+      available: true,
+    },
+  ];
+
+  const reachable = apps.filter((a) => a.available);
+  if (reachable.length === 1) redirect(reachable[0].href);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-brand-950 px-4 py-12">
+      <div className="text-center">
+        <p className="text-sm uppercase tracking-[0.3em] text-teal-400">
+          Wanderer&apos;s Rest
+        </p>
+        <h1 className="mt-2 text-2xl font-semibold text-white">
+          Welcome back, {staff.displayName ?? staff.name}
+        </h1>
+      </div>
+
+      <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-3">
+        {reachable.map((app) => (
+          <Link
+            key={app.href}
+            href={app.href}
+            className="flex flex-col gap-1 rounded-2xl border border-white/10 bg-surface p-6 text-foreground shadow-xl transition-transform hover:scale-[1.02]"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            <span className="text-lg font-semibold">{app.label}</span>
+            <span className="text-sm text-foreground-muted">
+              {app.description}
+            </span>
+          </Link>
+        ))}
+      </div>
+
+      <form action={logoutAction}>
+        <button className="text-sm text-white/50 hover:text-white/80">
+          Sign out
+        </button>
+      </form>
+    </main>
   );
 }
