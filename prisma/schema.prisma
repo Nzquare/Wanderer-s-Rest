@@ -1,0 +1,937 @@
+// Wanderer's Rest POS + CRM — data model
+// See AGENTS.md / project README for architecture notes.
+// Historical-data rule (spec §45): orders/sessions store price & rule SNAPSHOTS
+// (via *Snapshot fields and Json snapshot blobs) so changing Settings/menu/promotions
+// later never rewrites the meaning of a past transaction.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity / RBAC (§2, §40, §43)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Staff {
+  id           String      @id @default(cuid())
+  name         String
+  displayName  String?
+  loginId      String      @unique
+  pinHash      String?
+  passwordHash String?
+  roleId       String
+  role         Role        @relation(fields: [roleId], references: [id])
+  status       StaffStatus @default(ACTIVE)
+  startDate    DateTime?
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  auditLogs                 AuditLog[]
+  createdSessions           TableSession[]      @relation("SessionCreatedBy")
+  closedSessions             TableSession[]      @relation("SessionClosedBy")
+  addedPlayers               SessionPlayer[]
+  orders                     Order[]
+  payments                   Payment[]
+  issuedRefunds               Refund[]            @relation("RefundStaff")
+  approvedRefunds             Refund[]            @relation("RefundApprovedBy")
+  appliedDiscounts             AppliedDiscount[]   @relation("DiscountAppliedBy")
+  approvedDiscountOverrides   AppliedDiscount[]   @relation("DiscountOverrideApprovedBy")
+  expAdjustments               ExpHistory[]
+  awardedAchievements         MemberAchievement[]
+  redeemedBenefits             BenefitRedemption[]
+  recordedGames                 GameSession[]
+  createdReservations         Reservation[]
+  openedShifts                 Shift[]             @relation("ShiftOpenedBy")
+  closedShifts                 Shift[]             @relation("ShiftClosedBy")
+}
+
+enum Permission {
+  MANAGE_TABLES
+  MANAGE_RESERVATIONS
+  TAKE_ORDERS
+  MANAGE_TIMERS
+  APPLY_DISCOUNTS
+  VOID_TRANSACTION
+  REFUND_TRANSACTION
+  MANAGE_MENU
+  MANAGE_GAMES
+  MANAGE_MEMBERS
+  AWARD_ACHIEVEMENTS
+  ADJUST_EXP
+  VIEW_REPORTS
+  MANAGE_STAFF
+  MANAGE_SETTINGS
+  OPEN_SHIFT
+  CLOSE_SHIFT
+  OVERRIDE_LOCKED_TRANSACTION
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  staff       Staff[]
+}
+
+model RolePermission {
+  id         String     @id @default(cuid())
+  roleId     String
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission
+
+  @@unique([roleId, permission])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  staffId       String?
+  staff         Staff?   @relation(fields: [staffId], references: [id])
+  action        String
+  entityType    String
+  entityId      String?
+  previousValue Json?
+  newValue      Json?
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tables / Sessions / Timers (§4, §5, §6, §7)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum TableStatus {
+  AVAILABLE
+  RESERVED
+  PLAYING
+  PAUSED
+  READY_TO_CHECKOUT
+  CHECKOUT_IN_PROGRESS
+  CLEANING
+  CLOSED
+  UNAVAILABLE
+}
+
+model RestaurantTable {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  name      String
+  capacity  Int
+  area      String?
+  active    Boolean     @default(true)
+  qrEnabled Boolean     @default(true)
+  qrToken   String      @unique @default(cuid())
+  notes     String?
+  status    TableStatus @default(AVAILABLE)
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  sessions     TableSession[]
+  reservations Reservation[]
+}
+
+enum PricingModel {
+  HOURLY
+  FIXED
+  PACKAGE
+}
+
+model PricingType {
+  id                 String       @id @default(cuid())
+  code               String       @unique
+  name               String
+  model              PricingModel @default(HOURLY)
+  hourlyRate         Decimal?     @db.Decimal(12, 2)
+  fixedPrice         Decimal?     @db.Decimal(12, 2)
+  perPerson          Boolean      @default(true)
+  dailyCap           Decimal?     @db.Decimal(12, 2)
+  gracePeriodMinutes Int          @default(15)
+  startTime          String?
+  endTime            String?
+  activeDays         Json?
+  activeFrom         DateTime?
+  activeTo           DateTime?
+  active             Boolean      @default(true)
+  sortOrder          Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  sessions TableSession[]
+}
+
+model Package {
+  id                String    @id @default(cuid())
+  name              String
+  description       String?
+  price             Decimal   @db.Decimal(12, 2)
+  pricePerPerson    Boolean   @default(false)
+  durationMinutes   Int?
+  includedTableTime Boolean   @default(true)
+  includedMenuItems Json?
+  depositRequired   Boolean   @default(false)
+  depositAmount     Decimal?  @db.Decimal(12, 2)
+  activeFrom        DateTime?
+  activeTo          DateTime?
+  maxParticipants   Int?
+  notes             String?
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  sessions TableSession[]
+}
+
+enum SessionStatus {
+  OPEN
+  PAUSED
+  READY_FOR_CHECKOUT
+  CHECKOUT_IN_PROGRESS
+  CLOSED
+}
+
+enum SessionPaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+  VOIDED
+}
+
+model TableSession {
+  id            String               @id @default(cuid())
+  tableId       String
+  table         RestaurantTable      @relation(fields: [tableId], references: [id])
+  status        SessionStatus        @default(OPEN)
+  paymentStatus SessionPaymentStatus @default(UNPAID)
+  startTime     DateTime             @default(now())
+  endTime       DateTime?
+  playerCount   Int
+  pricingTypeId String?
+  pricingType   PricingType?         @relation(fields: [pricingTypeId], references: [id])
+  packageId     String?
+  package       Package?             @relation(fields: [packageId], references: [id])
+  memberId      String?
+  member        Member?              @relation(fields: [memberId], references: [id])
+  reservationId String?              @unique
+  reservation   Reservation?         @relation(fields: [reservationId], references: [id])
+  notes         String?
+
+  // Finalized bill snapshot (computed by src/server/domain/billing.ts at checkout)
+  billSnapshot        Json?
+  subtotalTableFee    Decimal @default(0) @db.Decimal(12, 2)
+  subtotalFoodDrink   Decimal @default(0) @db.Decimal(12, 2)
+  discountTotal       Decimal @default(0) @db.Decimal(12, 2)
+  taxAmount           Decimal @default(0) @db.Decimal(12, 2)
+  serviceChargeAmount Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount         Decimal @default(0) @db.Decimal(12, 2)
+  expAwarded          Int     @default(0)
+
+  createdById String
+  createdBy   Staff   @relation("SessionCreatedBy", fields: [createdById], references: [id])
+  closedById  String?
+  closedBy    Staff?  @relation("SessionClosedBy", fields: [closedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  players            SessionPlayer[]
+  orders             Order[]
+  gameSessions       GameSession[]
+  payments           Payment[]
+  appliedDiscounts   AppliedDiscount[]
+  expHistory         ExpHistory[]
+  memberAchievements MemberAchievement[]
+  receipt            Receipt?
+  benefitRedemptions BenefitRedemption[] @relation("BenefitRelatedSession")
+
+  @@index([tableId, status])
+}
+
+enum PlayerTimerStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+}
+
+model SessionPlayer {
+  id                  String            @id @default(cuid())
+  sessionId           String
+  session             TableSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  label               String?
+  status              PlayerTimerStatus @default(ACTIVE)
+  startTime           DateTime          @default(now())
+  pausedAt            DateTime?
+  accumulatedPausedMs BigInt            @default(0)
+  endTime             DateTime?
+  addedById           String?
+  addedBy             Staff?            @relation(fields: [addedById], references: [id])
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([sessionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Menu / Modifiers / Combos (§10, §11, §12, §13)
+// ─────────────────────────────────────────────────────────────────────────
+
+model MenuCategory {
+  id        String   @id @default(cuid())
+  nameTh    String
+  nameEn    String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items      MenuItem[]
+  comboSlots ComboSlot[]
+}
+
+model MenuItem {
+  id               String       @id @default(cuid())
+  categoryId       String
+  category         MenuCategory @relation(fields: [categoryId], references: [id])
+  nameTh           String
+  nameEn           String
+  descriptionTh    String?
+  descriptionEn    String?
+  photoUrl         String?
+  basePrice        Decimal      @db.Decimal(12, 2)
+  active           Boolean      @default(true)
+  soldOut          Boolean      @default(false)
+  featured         Boolean      @default(false)
+  seasonal         Boolean      @default(false)
+  isNew            Boolean      @default(false)
+  staffOnly        Boolean      @default(false)
+  customerVisible  Boolean      @default(true)
+  discountEligible Boolean      @default(true)
+  isCombo          Boolean      @default(false)
+  sortOrder        Int          @default(0)
+  dietaryTags      Json?
+  allergenTags     Json?
+  availableDays       Json?
+  availableStartTime  String?
+  availableEndTime    String?
+  availableFrom       DateTime?
+  availableTo         DateTime?
+  trackQuantity       Boolean   @default(false)
+  remainingQuantity   Int?
+  notes            String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  modifierGroups MenuItemModifierGroup[]
+  comboSlots     ComboSlot[]
+  orderItems     OrderItem[]
+
+  @@index([categoryId])
+}
+
+model ModifierGroup {
+  id          String   @id @default(cuid())
+  nameTh      String
+  nameEn      String
+  required    Boolean  @default(false)
+  multiSelect Boolean  @default(false)
+  minSelect   Int      @default(0)
+  maxSelect   Int      @default(1)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  options   ModifierOption[]
+  menuItems MenuItemModifierGroup[]
+}
+
+model ModifierOption {
+  id              String        @id @default(cuid())
+  groupId         String
+  group           ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  nameTh          String
+  nameEn          String
+  priceAdjustment Decimal       @default(0) @db.Decimal(12, 2)
+  active          Boolean       @default(true)
+  soldOut         Boolean       @default(false)
+  sortOrder       Int           @default(0)
+
+  orderItemModifiers OrderItemModifier[]
+}
+
+model MenuItemModifierGroup {
+  id              String        @id @default(cuid())
+  menuItemId      String
+  menuItem        MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  modifierGroupId String
+  modifierGroup   ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  sortOrder       Int           @default(0)
+
+  @@unique([menuItemId, modifierGroupId])
+}
+
+model ComboSlot {
+  id          String       @id @default(cuid())
+  comboItemId String
+  comboItem   MenuItem     @relation(fields: [comboItemId], references: [id], onDelete: Cascade)
+  nameTh      String
+  nameEn      String
+  categoryId  String?
+  category    MenuCategory? @relation(fields: [categoryId], references: [id])
+  minSelect   Int          @default(1)
+  maxSelect   Int          @default(1)
+  extraCharge Decimal      @default(0) @db.Decimal(12, 2)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Orders (§14, §15, §16)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum OrderSource {
+  CASHIER
+  STAFF
+  CUSTOMER_QR
+}
+
+enum OrderStatus {
+  SUBMITTED
+  CANCELLED
+}
+
+model Order {
+  id          String       @id @default(cuid())
+  sessionId   String
+  session     TableSession @relation(fields: [sessionId], references: [id])
+  source      OrderSource
+  orderedById String?
+  orderedBy   Staff?       @relation(fields: [orderedById], references: [id])
+  status      OrderStatus  @default(SUBMITTED)
+  notes       String?
+  createdAt   DateTime     @default(now())
+
+  items OrderItem[]
+
+  @@index([sessionId])
+}
+
+model OrderItem {
+  id                String   @id @default(cuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId        String
+  menuItem          MenuItem @relation(fields: [menuItemId], references: [id])
+  nameSnapshotTh    String
+  nameSnapshotEn    String
+  quantity          Int      @default(1)
+  unitPriceSnapshot Decimal  @db.Decimal(12, 2)
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  modifiers OrderItemModifier[]
+}
+
+model OrderItemModifier {
+  id               String         @id @default(cuid())
+  orderItemId      String
+  orderItem        OrderItem      @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  modifierOptionId String
+  modifierOption   ModifierOption @relation(fields: [modifierOptionId], references: [id])
+  nameSnapshotTh   String
+  nameSnapshotEn   String
+  priceSnapshot    Decimal        @db.Decimal(12, 2)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Payments / Receipts / Void-Refund (§20, §21, §22)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PaymentMethod {
+  CASH
+  PROMPTPAY
+  CARD
+  OTHER
+}
+
+enum PaymentRecordStatus {
+  COMPLETED
+  VOIDED
+  REFUNDED
+}
+
+model Payment {
+  id        String              @id @default(cuid())
+  sessionId String
+  session   TableSession        @relation(fields: [sessionId], references: [id])
+  shiftId   String?
+  shift     Shift?              @relation(fields: [shiftId], references: [id])
+  amount    Decimal             @db.Decimal(12, 2)
+  method    PaymentMethod
+  staffId   String
+  staff     Staff               @relation(fields: [staffId], references: [id])
+  reference String?
+  notes     String?
+  status    PaymentRecordStatus @default(COMPLETED)
+  createdAt DateTime            @default(now())
+
+  refunds Refund[]
+
+  @@index([sessionId])
+  @@index([shiftId])
+}
+
+model Refund {
+  id           String   @id @default(cuid())
+  paymentId    String
+  payment      Payment  @relation(fields: [paymentId], references: [id])
+  amount       Decimal  @db.Decimal(12, 2)
+  reason       String
+  staffId      String
+  staff        Staff    @relation("RefundStaff", fields: [staffId], references: [id])
+  approvedById String?
+  approvedBy   Staff?   @relation("RefundApprovedBy", fields: [approvedById], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model Receipt {
+  id            String       @id @default(cuid())
+  sessionId     String       @unique
+  session       TableSession @relation(fields: [sessionId], references: [id])
+  receiptNumber String       @unique
+  snapshot      Json
+  printedCount  Int          @default(0)
+  createdAt     DateTime     @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Discounts / Promotions (§19)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  MENU_ITEM_DISCOUNT
+  TABLE_FEE_DISCOUNT
+  PACKAGE_DISCOUNT
+  FREE_ITEM
+  ACHIEVEMENT_BENEFIT
+  SPECIAL_PRICE
+}
+
+model Promotion {
+  id                     String       @id @default(cuid())
+  name                   String
+  type                   DiscountType
+  value                  Decimal      @db.Decimal(12, 2)
+  startDate              DateTime?
+  endDate                DateTime?
+  activeDays             Json?
+  startTime              String?
+  endTime                String?
+  eligibleMenuItemIds    Json?
+  eligiblePricingTypeIds Json?
+  minimumSpend           Decimal?     @db.Decimal(12, 2)
+  memberOnly             Boolean      @default(false)
+  stackable              Boolean      @default(false)
+  active                 Boolean      @default(true)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  appliedDiscounts AppliedDiscount[]
+}
+
+model AppliedDiscount {
+  id                   String             @id @default(cuid())
+  sessionId            String
+  session              TableSession       @relation(fields: [sessionId], references: [id])
+  promotionId          String?
+  promotion            Promotion?         @relation(fields: [promotionId], references: [id])
+  benefitRedemptionId  String?            @unique
+  benefitRedemption    BenefitRedemption? @relation(fields: [benefitRedemptionId], references: [id])
+  label                String
+  amount               Decimal            @db.Decimal(12, 2)
+  appliedById          String
+  appliedBy            Staff              @relation("DiscountAppliedBy", fields: [appliedById], references: [id])
+  overrideApprovedById String?
+  overrideApprovedBy   Staff?             @relation("DiscountOverrideApprovedBy", fields: [overrideApprovedById], references: [id])
+  createdAt            DateTime           @default(now())
+
+  @@index([sessionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Membership / EXP / Rank / Class (§23–29)
+// ─────────────────────────────────────────────────────────────────────────
+
+model AdventurerClass {
+  id     String  @id @default(cuid())
+  nameTh String
+  nameEn String
+  icon   String?
+  active Boolean @default(true)
+
+  members Member[]
+}
+
+model Rank {
+  id               String  @id @default(cuid())
+  order            Int     @unique
+  nameTh           String
+  nameEn           String
+  icon             String?
+  descriptionTh    String?
+  descriptionEn    String?
+  levelsRequired   Int     @default(20)
+  extraRequirement Json?
+
+  members Member[]
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+model Member {
+  id               String           @id @default(cuid())
+  memberCode       String           @unique
+  nameTh           String?
+  nameEn           String?
+  adventurerName   String
+  phone            String?          @unique
+  lineUserId       String?          @unique
+  joinDate         DateTime         @default(now())
+  classId          String?
+  class            AdventurerClass? @relation(fields: [classId], references: [id])
+  rankId           String?
+  rank             Rank?            @relation(fields: [rankId], references: [id])
+  lifetimeExp      Int              @default(0)
+  lifetimeSpending Decimal          @default(0) @db.Decimal(12, 2)
+  visits           Int              @default(0)
+  status           MemberStatus     @default(ACTIVE)
+  lastVisit        DateTime?
+  staffNotes       String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  sessions           TableSession[]
+  expHistory         ExpHistory[]
+  memberAchievements MemberAchievement[]
+  gameSessions       GameSession[]
+  reservations       Reservation[]
+
+  @@index([adventurerName])
+}
+
+enum ExpReason {
+  PURCHASE
+  BONUS
+  EVENT
+  ADMIN_ADJUSTMENT
+  REFUND
+  CORRECTION
+}
+
+model ExpHistory {
+  id               String        @id @default(cuid())
+  memberId         String
+  member           Member        @relation(fields: [memberId], references: [id])
+  sessionId        String?
+  session          TableSession? @relation(fields: [sessionId], references: [id])
+  amount           Int
+  reason           ExpReason
+  staffId          String?
+  staff            Staff?        @relation(fields: [staffId], references: [id])
+  lifetimeExpAfter Int
+  note             String?
+  createdAt        DateTime      @default(now())
+
+  @@index([memberId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Achievements (§30–33)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum AchievementCategory {
+  VISITS
+  GAMES
+  SPENDING
+  LEVEL
+  RANK
+  EVENTS
+  SOCIAL
+  SECRET
+  SPECIAL
+}
+
+enum AchievementType {
+  AUTOMATIC
+  MANUAL
+}
+
+enum AchievementTriggerType {
+  VISIT_COUNT
+  RANK_REACHED
+  LEVEL_REACHED
+  UNIQUE_GAMES_COUNT
+  COOP_GAMES_COUNT
+  CATEGORY_GAMES_COUNT
+  CATEGORIES_PLAYED_COUNT
+  SPECIFIC_GAME_PLAYED
+  TOTAL_GAMES_COUNT
+  LIFETIME_SPEND
+  CUSTOM
+}
+
+enum BenefitType {
+  FREE_ITEM
+  FIXED_DISCOUNT
+  PERCENT_DISCOUNT
+  FREE_TABLE_TIME
+  SPECIAL_PRICE
+  FREE_DRINK
+  PRIVILEGE
+  CUSTOM
+}
+
+model Achievement {
+  id            String                  @id @default(cuid())
+  code          String                  @unique
+  nameTh        String
+  nameEn        String
+  descriptionTh String?
+  descriptionEn String?
+  icon          String?
+  category      AchievementCategory
+  type          AchievementType
+  hidden        Boolean                 @default(false)
+  repeatable    Boolean                 @default(false)
+  active        Boolean                 @default(true)
+  startDate     DateTime?
+  endDate       DateTime?
+  triggerType   AchievementTriggerType?
+  triggerValue  Json?
+  hasReward     Boolean                 @default(false)
+  benefitType   BenefitType?
+  benefitConfig Json?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  memberAchievements MemberAchievement[]
+}
+
+model MemberAchievement {
+  id            String        @id @default(cuid())
+  memberId      String
+  member        Member        @relation(fields: [memberId], references: [id])
+  achievementId String
+  achievement   Achievement   @relation(fields: [achievementId], references: [id])
+  unlockedAt    DateTime      @default(now())
+  progress      Json?
+  awardedById   String?
+  awardedBy     Staff?        @relation(fields: [awardedById], references: [id])
+  note          String?
+  sessionId     String?
+  session       TableSession? @relation(fields: [sessionId], references: [id])
+
+  benefit BenefitRedemption?
+
+  @@index([memberId])
+  @@index([achievementId])
+}
+
+enum BenefitStatus {
+  AVAILABLE
+  USED
+  EXPIRED
+}
+
+model BenefitRedemption {
+  id                  String            @id @default(cuid())
+  memberAchievementId String            @unique
+  memberAchievement   MemberAchievement @relation(fields: [memberAchievementId], references: [id])
+  status              BenefitStatus     @default(AVAILABLE)
+  earnedAt            DateTime          @default(now())
+  usedAt              DateTime?
+  expiresAt           DateTime?
+  usedById            String?
+  usedBy              Staff?            @relation(fields: [usedById], references: [id])
+  relatedSessionId    String?
+  relatedSession      TableSession?     @relation("BenefitRelatedSession", fields: [relatedSessionId], references: [id])
+
+  appliedDiscount AppliedDiscount?
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Games (§34–37)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum GameStatus {
+  AVAILABLE
+  IN_USE
+  MISSING
+  DAMAGED
+  ARCHIVED
+}
+
+model Game {
+  id                String     @id @default(cuid())
+  nameTh            String
+  nameEn            String
+  imageUrl          String?
+  category          String?
+  genre             String?
+  cooperative       Boolean    @default(false)
+  minPlayers        Int?
+  maxPlayers        Int?
+  estimatedMinutes  Int?
+  difficulty        String?
+  ageRecommendation String?
+  language          String?
+  shelfLocation     String?
+  totalQuantity     Int        @default(1)
+  availableQuantity Int        @default(1)
+  status            GameStatus @default(AVAILABLE)
+  notes             String?
+  active            Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  gameSessions GameSession[]
+
+  @@index([category])
+}
+
+model GameSession {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   TableSession @relation(fields: [sessionId], references: [id])
+  gameId    String
+  game      Game         @relation(fields: [gameId], references: [id])
+  memberId  String?
+  member    Member?      @relation(fields: [memberId], references: [id])
+  staffId   String
+  staff     Staff        @relation(fields: [staffId], references: [id])
+  notes     String?
+  playedAt  DateTime     @default(now())
+
+  @@index([sessionId])
+  @@index([gameId])
+  @@index([memberId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reservations (§9)
+// ─────────────────────────────────────────────────────────────────────────
+
+model ReservationType {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  nameTh               String
+  nameEn               String
+  requiresDeposit      Boolean  @default(false)
+  defaultDepositAmount Decimal? @db.Decimal(12, 2)
+  active               Boolean  @default(true)
+
+  reservations Reservation[]
+}
+
+enum DepositStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  REFUNDED
+  FORFEITED
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Reservation {
+  id                      String            @id @default(cuid())
+  customerName            String
+  phone                   String
+  date                    DateTime
+  startTime               DateTime
+  expectedDurationMinutes Int
+  partySize               Int
+  typeId                  String
+  type                    ReservationType   @relation(fields: [typeId], references: [id])
+  tableId                 String?
+  table                   RestaurantTable?  @relation(fields: [tableId], references: [id])
+  memberId                String?
+  member                  Member?           @relation(fields: [memberId], references: [id])
+  depositAmount           Decimal?          @db.Decimal(12, 2)
+  depositStatus           DepositStatus     @default(NOT_REQUIRED)
+  notes                   String?
+  status                  ReservationStatus @default(PENDING)
+  createdById             String
+  createdBy               Staff             @relation(fields: [createdById], references: [id])
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+
+  session TableSession?
+
+  @@index([date])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shifts (§41)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+model Shift {
+  id                String      @id @default(cuid())
+  openedById        String
+  openedBy          Staff       @relation("ShiftOpenedBy", fields: [openedById], references: [id])
+  closedById        String?
+  closedBy          Staff?      @relation("ShiftClosedBy", fields: [closedById], references: [id])
+  openedAt          DateTime    @default(now())
+  closedAt          DateTime?
+  startingCash      Decimal     @db.Decimal(12, 2)
+  actualCashCounted Decimal?    @db.Decimal(12, 2)
+  expectedCash      Decimal?    @db.Decimal(12, 2)
+  cashDifference    Decimal?    @db.Decimal(12, 2)
+  notes             String?
+  status            ShiftStatus @default(OPEN)
+
+  payments Payment[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Settings (§44) — key/value so new config never needs a migration
+// ─────────────────────────────────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
