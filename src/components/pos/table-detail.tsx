@@ -9,6 +9,8 @@ import { TableStatusBadge } from "@/components/ui/status-badge";
 import { LiveTimer } from "./live-timer";
 import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
+import { OrderPanel } from "./order-panel";
+import { OrderList } from "./order-list";
 import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -152,7 +154,7 @@ export function TableDetail({
     return <p className="text-sm text-foreground-muted">Loading table…</p>;
   }
 
-  const { table, session, liveBill } = data;
+  const { table, session, grandTotal } = data;
 
   return (
     <div className="space-y-4">
@@ -179,7 +181,7 @@ export function TableDetail({
             <div>
               <p className="text-xs text-foreground-muted">Current bill</p>
               <p className="text-3xl font-semibold text-foreground">
-                ฿{liveBill?.total.toFixed(0) ?? 0}
+                ฿{grandTotal.toFixed(0)}
               </p>
             </div>
             <div className="flex gap-2">
@@ -250,6 +252,35 @@ export function TableDetail({
               />
             ))}
           </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground-muted">
+              Orders
+            </p>
+            <OrderList
+              orders={session.orders.map((o) => ({
+                id: o.id,
+                source: o.source,
+                createdAt: String(o.createdAt),
+                items: o.items.map((i) => ({
+                  id: i.id,
+                  nameSnapshotEn: i.nameSnapshotEn,
+                  quantity: i.quantity,
+                  unitPriceSnapshot: i.unitPriceSnapshot,
+                  modifiers: i.modifiers.map((m) => ({
+                    id: m.id,
+                    nameSnapshotEn: m.nameSnapshotEn,
+                  })),
+                })),
+              }))}
+            />
+          </div>
+
+          <OrderPanel
+            sessionId={session.id}
+            tableId={tableId}
+            source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
+          />
 
           <MemberLinkPanel
             sessionId={session.id}

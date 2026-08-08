@@ -97,6 +97,10 @@ export const sessionsRouter = router({
             players: true,
             pricingType: true,
             member: { select: { id: true, adventurerName: true } },
+            orders: {
+              where: { status: "SUBMITTED" },
+              include: { items: true },
+            },
           },
           take: 1,
         },
@@ -119,7 +123,16 @@ export const sessionsRouter = router({
           pricingType: toPricingConfig(session.pricingType),
           players: session.players.map(toPlayerRecord),
         });
-        liveTotal = fee.total;
+        const foodDrinkSubtotal = session.orders.reduce(
+          (sum, order) =>
+            sum +
+            order.items.reduce(
+              (s, item) => s + toNum(item.unitPriceSnapshot) * item.quantity,
+              0,
+            ),
+          0,
+        );
+        liveTotal = fee.total + foodDrinkSubtotal;
         activePlayers = session.players.filter(
           (p) => p.status !== "STOPPED",
         ).length;
@@ -174,14 +187,26 @@ export const sessionsRouter = router({
       const session = await loadLiveSession(ctx.prisma, table.id);
 
       let liveBill = null;
+      let foodDrinkSubtotal = 0;
+      let grandTotal = 0;
       if (session) {
         liveBill = computeTableFee({
           pricingType: toPricingConfig(session.pricingType),
           players: session.players.map(toPlayerRecord),
         });
+        foodDrinkSubtotal = session.orders.reduce(
+          (sum, order) =>
+            sum +
+            order.items.reduce(
+              (s, item) => s + toNum(item.unitPriceSnapshot) * item.quantity,
+              0,
+            ),
+          0,
+        );
+        grandTotal = liveBill.total + foodDrinkSubtotal;
       }
 
-      return { table, session, liveBill };
+      return { table, session, liveBill, foodDrinkSubtotal, grandTotal };
     }),
 
   openTable: permissionProcedure(Permission.MANAGE_TABLES)
