@@ -1,17 +1,113 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, permissionProcedure } from "../trpc";
+import { router, permissionProcedure, cashierProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
+import type { Prisma } from "@/generated/prisma/client";
 
-const OPEN_ORDER_STATUSES = ["OPEN", "PAUSED", "READY_FOR_CHECKOUT"] as const;
+export const OPEN_ORDER_STATUSES = ["OPEN", "PAUSED", "READY_FOR_CHECKOUT"] as const;
 
-const cartItemSchema = z.object({
+export const cartItemSchema = z.object({
   menuItemId: z.string(),
   quantity: z.number().int().min(1).max(50),
   notes: z.string().max(200).optional(),
   modifierOptionIds: z.array(z.string()).default([]),
 });
+
+export type CartItemInput = z.infer<typeof cartItemSchema>;
+
+/**
+ * Shared order-creation path for every source (§14) — Cashier, Staff, and
+ * Customer QR all funnel through this so price snapshotting (§45) and
+ * availability checks never drift between them.
+ */
+export async function createOrder(
+  prisma: Prisma.TransactionClient,
+  params: {
+    sessionId: string;
+    source: "CASHIER" | "STAFF" | "CUSTOMER_QR";
+    orderedById: string | null;
+    notes?: string;
+    items: CartItemInput[];
+  },
+) {
+  const session = await prisma.tableSession.findUnique({
+    where: { id: params.sessionId },
+  });
+  if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Table session not found." });
+  if (!OPEN_ORDER_STATUSES.includes(session.status as (typeof OPEN_ORDER_STATUSES)[number])) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "This table isn't open for new orders.",
+    });
+  }
+
+  const menuItemIds = params.items.map((i) => i.menuItemId);
+  const menuItems = await prisma.menuItem.findMany({
+    where: { id: { in: menuItemIds } },
+  });
+  const menuItemMap = new Map(menuItems.map((m) => [m.id, m]));
+
+  const allModifierOptionIds = params.items.flatMap((i) => i.modifierOptionIds);
+  const modifierOptions = allModifierOptionIds.length
+    ? await prisma.modifierOption.findMany({ where: { id: { in: allModifierOptionIds } } })
+    : [];
+  const modifierOptionMap = new Map(modifierOptions.map((o) => [o.id, o]));
+
+  for (const item of params.items) {
+    const menuItem = menuItemMap.get(item.menuItemId);
+    if (!menuItem || !menuItem.active) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "One of the items is no longer available.",
+      });
+    }
+    if (menuItem.soldOut) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `${menuItem.nameEn} is sold out.` });
+    }
+  }
+
+  const order = await prisma.order.create({
+    data: {
+      sessionId: session.id,
+      source: params.source,
+      orderedById: params.orderedById,
+      notes: params.notes,
+      items: {
+        create: params.items.map((item) => {
+          const menuItem = menuItemMap.get(item.menuItemId)!;
+          return {
+            menuItemId: menuItem.id,
+            nameSnapshotTh: menuItem.nameTh,
+            nameSnapshotEn: menuItem.nameEn,
+            quantity: item.quantity,
+            unitPriceSnapshot:
+              toNum(menuItem.basePrice) +
+              item.modifierOptionIds.reduce(
+                (sum, id) => sum + toNum(modifierOptionMap.get(id)?.priceAdjustment),
+                0,
+              ),
+            notes: item.notes,
+            modifiers: {
+              create: item.modifierOptionIds
+                .map((id) => modifierOptionMap.get(id))
+                .filter((o): o is NonNullable<typeof o> => !!o)
+                .map((o) => ({
+                  modifierOptionId: o.id,
+                  nameSnapshotTh: o.nameTh,
+                  nameSnapshotEn: o.nameEn,
+                  priceSnapshot: toNum(o.priceAdjustment),
+                })),
+            },
+          };
+        }),
+      },
+    },
+    include: { items: { include: { modifiers: true } } },
+  });
+
+  return order;
+}
 
 export const ordersRouter = router({
   add: permissionProcedure(Permission.TAKE_ORDERS)
@@ -24,86 +120,59 @@ export const ordersRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await ctx.prisma.tableSession.findUnique({
-        where: { id: input.sessionId },
+      const order = await createOrder(ctx.prisma, {
+        ...input,
+        orderedById: ctx.staff.id,
       });
-      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
-      if (!OPEN_ORDER_STATUSES.includes(session.status as (typeof OPEN_ORDER_STATUSES)[number])) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This table isn't open for new orders.",
-        });
-      }
-
-      const menuItemIds = input.items.map((i) => i.menuItemId);
-      const menuItems = await ctx.prisma.menuItem.findMany({
-        where: { id: { in: menuItemIds } },
-      });
-      const menuItemMap = new Map(menuItems.map((m) => [m.id, m]));
-
-      const allModifierOptionIds = input.items.flatMap((i) => i.modifierOptionIds);
-      const modifierOptions = allModifierOptionIds.length
-        ? await ctx.prisma.modifierOption.findMany({
-            where: { id: { in: allModifierOptionIds } },
-          })
-        : [];
-      const modifierOptionMap = new Map(modifierOptions.map((o) => [o.id, o]));
-
-      for (const item of input.items) {
-        const menuItem = menuItemMap.get(item.menuItemId);
-        if (!menuItem || !menuItem.active) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "One of the items is no longer available.",
-          });
-        }
-        if (menuItem.soldOut) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `${menuItem.nameEn} is sold out.`,
-          });
-        }
-      }
-
-      const order = await ctx.prisma.order.create({
-        data: {
-          sessionId: session.id,
-          source: input.source,
-          orderedById: ctx.staff.id,
-          notes: input.notes,
-          items: {
-            create: input.items.map((item) => {
-              const menuItem = menuItemMap.get(item.menuItemId)!;
-              return {
-                menuItemId: menuItem.id,
-                nameSnapshotTh: menuItem.nameTh,
-                nameSnapshotEn: menuItem.nameEn,
-                quantity: item.quantity,
-                unitPriceSnapshot:
-                  toNum(menuItem.basePrice) +
-                  item.modifierOptionIds.reduce(
-                    (sum, id) => sum + toNum(modifierOptionMap.get(id)?.priceAdjustment),
-                    0,
-                  ),
-                notes: item.notes,
-                modifiers: {
-                  create: item.modifierOptionIds
-                    .map((id) => modifierOptionMap.get(id))
-                    .filter((o): o is NonNullable<typeof o> => !!o)
-                    .map((o) => ({
-                      modifierOptionId: o.id,
-                      nameSnapshotTh: o.nameTh,
-                      nameSnapshotEn: o.nameEn,
-                      priceSnapshot: toNum(o.priceAdjustment),
-                    })),
-                },
-              };
-            }),
-          },
-        },
-        include: { items: { include: { modifiers: true } } },
-      });
-
       return { orderId: order.id };
+    }),
+
+  /** Orders from Staff phones or Customer QR the cashier hasn't seen yet (§17). */
+  listUnacknowledged: cashierProcedure.query(async ({ ctx }) => {
+    const orders = await ctx.prisma.order.findMany({
+      where: {
+        acknowledgedAt: null,
+        source: { in: ["STAFF", "CUSTOMER_QR"] },
+        status: "SUBMITTED",
+      },
+      include: {
+        items: true,
+        session: { include: { table: true } },
+        orderedBy: { select: { name: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return orders.map((o) => ({
+      id: o.id,
+      tableCode: o.session.table.code,
+      tableId: o.session.tableId,
+      source: o.source,
+      staffName: o.orderedBy?.name ?? null,
+      createdAt: o.createdAt,
+      itemSummary: o.items.map((i) => `${i.quantity}× ${i.nameSnapshotEn}`).join(", "),
+    }));
+  }),
+
+  acknowledge: cashierProcedure
+    .input(z.object({ orderId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.order.update({
+        where: { id: input.orderId },
+        data: { acknowledgedAt: new Date() },
+      });
+      return { ok: true };
+    }),
+
+  acknowledgeAllForTable: cashierProcedure
+    .input(z.object({ tableId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.order.updateMany({
+        where: {
+          acknowledgedAt: null,
+          session: { tableId: input.tableId },
+        },
+        data: { acknowledgedAt: new Date() },
+      });
+      return { ok: true };
     }),
 });

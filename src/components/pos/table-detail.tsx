@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
@@ -149,6 +149,18 @@ export function TableDetail({
   const updateNotes = trpc.sessions.updateNotes.useMutation({
     onSuccess: invalidate,
   });
+  const acknowledgeAllForTable = trpc.orders.acknowledgeAllForTable.useMutation({
+    onSuccess: () => utils.orders.listUnacknowledged.invalidate(),
+  });
+
+  // Opening a table's detail page counts as the cashier having seen its
+  // orders — clears it from the alert banner (§17).
+  useEffect(() => {
+    if (basePath === "/cashier") {
+      acknowledgeAllForTable.mutate({ tableId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableId, basePath]);
 
   if (isLoading || !data) {
     return <p className="text-sm text-foreground-muted">Loading table…</p>;

@@ -1,6 +1,6 @@
-import { router, permissionProcedure } from "../trpc";
+import { router, permissionProcedure, cashierProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
-import { getAllSettings, updateSettings } from "@/server/settings/service";
+import { getAllSettings, getSettings, updateSettings } from "@/server/settings/service";
 import {
   cafeSettingsSchema,
   tablePricingDefaultsSchema,
@@ -14,6 +14,9 @@ const manage = () => permissionProcedure(Permission.MANAGE_SETTINGS);
 
 export const settingsRouter = router({
   getAll: manage().query(() => getAllSettings()),
+
+  /** Read-only — every cashier needs this to know whether/how to alert, not just Owner/Manager. */
+  getNotifications: cashierProcedure.query(() => getSettings("notifications")),
 
   updateCafe: manage()
     .input(cafeSettingsSchema.partial())

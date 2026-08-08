@@ -424,6 +424,9 @@ model Order {
   status      OrderStatus  @default(SUBMITTED)
   notes       String?
   createdAt   DateTime     @default(now())
+  // Set when a cashier has seen this order (§17) — only orders from STAFF
+  // or CUSTOMER_QR ever need this; cashier-entered orders don't alert themselves.
+  acknowledgedAt DateTime?
 
   items OrderItem[]
 

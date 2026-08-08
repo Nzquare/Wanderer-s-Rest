@@ -9,6 +9,7 @@ import { checkoutRouter } from "./checkout";
 import { settingsRouter } from "./settings";
 import { tablesRouter } from "./tables";
 import { staffRouter } from "./staff";
+import { customerRouter } from "./customer";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const })),
@@ -22,6 +23,7 @@ export const appRouter = router({
   settings: settingsRouter,
   tables: tablesRouter,
   staff: staffRouter,
+  customer: customerRouter,
 });
 
 export type AppRouter = typeof appRouter;

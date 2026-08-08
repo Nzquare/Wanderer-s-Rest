@@ -2,6 +2,7 @@ import Link from "next/link";
 import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
 import { canAccessBackOffice } from "@/server/rbac/can";
+import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
 
 const NAV_ITEMS = [
   { href: "/cashier", label: "Tables" },
@@ -64,6 +65,7 @@ export function CashierShell({
           </Link>
         ))}
       </nav>
+      <OrderAlertBanner />
       <main className="flex-1 p-3 md:p-6">{children}</main>
     </div>
   );
