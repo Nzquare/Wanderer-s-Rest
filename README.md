@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Wanderer's Rest — POS + CRM
 
-## Getting Started
+A POS and café management system for Wanderer's Rest, a fantasy-themed board
+game café. See `AGENTS.md` for the Next.js-version note, and the project's
+commit history for what's been built so far.
 
-First, run the development server:
+## Get a live link (no coding required)
+
+You need two free accounts: a database host and a place to run the app.
+This takes about 10 minutes.
+
+### 1. Create a free database (Neon)
+
+1. Go to **[neon.tech](https://neon.tech)** → sign up (free tier is enough).
+2. Create a new project — any name/region is fine.
+3. On the project dashboard, find the **connection string** (starts with
+   `postgresql://...`). Copy it — you'll paste it into Vercel in step 2.
+
+*(Supabase.com works the same way if you'd rather use that — copy its
+"connection string" / "Session pooler" URI instead.)*
+
+### 2. Deploy on Vercel
+
+1. Go to **[vercel.com](https://vercel.com)** → sign up/log in **with your
+   GitHub account** (the one that owns this repo).
+2. Click **Add New → Project**, then **Import** this repository
+   (`Nzquare/Wanderer-s-Rest`).
+3. Under **Branch**, make sure it's set to
+   `claude/wanderers-rest-pos-crm-69bqj7` (or whichever branch you were
+   given — Vercel usually lets you pick this under Project Settings →
+   Git after the first import if it's not offered up front).
+4. Open **Environment Variables** and add two:
+   | Name | Value |
+   |---|---|
+   | `DATABASE_URL` | the connection string you copied from Neon |
+   | `AUTH_SECRET` | any long random string — e.g. mash your keyboard for 40 characters, or generate one at [randomkeygen.com](https://randomkeygen.com) |
+5. Click **Deploy**. Wait ~2 minutes.
+6. You'll get a URL like `wanderers-rest.vercel.app` — that's your live
+   link. The database tables and starter data (login, tables, a couple of
+   demo menu items) are set up automatically on that first deploy.
+
+### 3. Log in
+
+Open your new link → you'll land on the sign-in screen.
+
+- **Login ID:** `owner`
+- **PIN:** `1234`
+
+⚠️ That's a placeholder login baked in for testing — change it (or add
+real staff accounts) before using this for anything real. Staff
+management UI is coming in a later build pass; for now it can be edited
+directly in the database if needed.
+
+### Redeploying after new work
+
+Every time new work is pushed to the branch Vercel is watching, it
+redeploys automatically — no steps to repeat.
+
+---
+
+## Local development (for whoever ends up coding on this)
+
+Requires Node 20+ and a local Postgres.
 
 ```bash
+npm install
+cp .env.example .env   # then fill in DATABASE_URL / AUTH_SECRET
+npx prisma migrate dev
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Run the domain-logic test suite (pricing/EXP rules) with `npm test`.
