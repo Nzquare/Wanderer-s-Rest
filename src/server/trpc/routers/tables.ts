@@ -5,7 +5,9 @@ import { Permission } from "@/server/rbac/permissions";
 
 export const tablesRouter = router({
   listAll: permissionProcedure(Permission.MANAGE_TABLES).query(({ ctx }) => {
-    return ctx.prisma.restaurantTable.findMany({ orderBy: { sortOrder: "asc" } });
+    return ctx.prisma.restaurantTable.findMany({
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+    });
   }),
 
   // Read-only, used by the QR-code label render — any staff can view it.
@@ -35,7 +37,15 @@ export const tablesRouter = router({
           message: `Table code "${input.code}" is already in use.`,
         });
       }
-      return ctx.prisma.restaurantTable.create({ data: input });
+      // New tables always land after every existing one — otherwise they'd
+      // all share sortOrder's default of 0 and interleave unpredictably
+      // with the seeded tables instead of appending to the end.
+      const last = await ctx.prisma.restaurantTable.findFirst({
+        orderBy: { sortOrder: "desc" },
+      });
+      return ctx.prisma.restaurantTable.create({
+        data: { ...input, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      });
     }),
 
   update: permissionProcedure(Permission.MANAGE_TABLES)

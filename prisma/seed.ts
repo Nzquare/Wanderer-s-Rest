@@ -163,10 +163,10 @@ async function main() {
     ["T5", "Table 5", 8, "Back Room"],
     ["T6", "Table 6", 2, "Window Nook"],
   ];
-  for (const [code, name, capacity, area] of tables) {
+  for (const [index, [code, name, capacity, area]] of tables.entries()) {
     await prisma.restaurantTable.upsert({
       where: { code },
-      create: { code, name, capacity, area },
+      create: { code, name, capacity, area, sortOrder: index },
       update: {},
     });
   }

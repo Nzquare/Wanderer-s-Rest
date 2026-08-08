@@ -89,7 +89,7 @@ export const sessionsRouter = router({
   listTables: staffProcedure.query(async ({ ctx }) => {
     const tables = await ctx.prisma.restaurantTable.findMany({
       where: { active: true },
-      orderBy: { sortOrder: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
       include: {
         sessions: {
           where: { status: { in: [...ACTIVE_SESSION_STATUSES] } },

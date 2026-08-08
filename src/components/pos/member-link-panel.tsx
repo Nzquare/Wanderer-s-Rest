@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 
@@ -50,6 +51,12 @@ export function MemberLinkPanel({
         <div>
           <p className="text-xs text-foreground-muted">Linked member</p>
           <p className="font-medium text-foreground">{member.adventurerName}</p>
+          <Link
+            href={`/back-office/members/${member.id}`}
+            className="text-xs text-teal-600 underline"
+          >
+            View profile
+          </Link>
         </div>
         <Button
           variant="outline"

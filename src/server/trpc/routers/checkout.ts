@@ -8,6 +8,7 @@ import { computeTableFee } from "@/server/domain/pricing";
 import { computeDiscountAmount } from "@/server/domain/discounts";
 import { computeBill, eligibleExpSpending } from "@/server/domain/billing";
 import { expFromSpending, computeProgression } from "@/server/domain/exp";
+import { evaluateNewlyUnlocked, type AchievementDef } from "@/server/domain/achievements";
 import { getSettings } from "@/server/settings/service";
 import { toPlayerRecord, toPricingConfig } from "./sessions";
 import type { Prisma } from "@/generated/prisma/client";
@@ -244,6 +245,7 @@ export const checkoutRouter = router({
           rankBefore: string;
           rankAfter: string;
         } | null = null;
+        let unlockedAchievements: { nameEn: string }[] = [];
 
         if (session.member) {
           const membershipSettings = await getSettings("membership");
@@ -291,6 +293,39 @@ export const checkoutRouter = router({
             rankBefore: before.rank.nameEn,
             rankAfter: after.rank.nameEn,
           };
+
+          // ── Automatic achievements (§30, §53) ─────────────────────────
+          const [catalog, unlocked] = await Promise.all([
+            tx.achievement.findMany({ where: { type: "AUTOMATIC", active: true } }),
+            tx.memberAchievement.findMany({ where: { memberId: session.member.id } }),
+          ]);
+          const newlyUnlocked = evaluateNewlyUnlocked(
+            catalog as unknown as AchievementDef[],
+            new Set(unlocked.map((u) => u.achievementId)),
+            {
+              visits: session.member.visits + 1,
+              totalLevel: after.totalLevel,
+              rankOrder: after.rank.order,
+              lifetimeSpending: toNum(session.member.lifetimeSpending) + eligible,
+            },
+          );
+          for (const achievement of newlyUnlocked) {
+            const ma = await tx.memberAchievement.create({
+              data: {
+                memberId: session.member.id,
+                achievementId: achievement.id,
+                sessionId: session.id,
+              },
+            });
+            if ((achievement as unknown as { hasReward: boolean }).hasReward) {
+              await tx.benefitRedemption.create({
+                data: { memberAchievementId: ma.id },
+              });
+            }
+          }
+          unlockedAchievements = newlyUnlocked.map((a) => ({
+            nameEn: (a as unknown as { nameEn: string }).nameEn,
+          }));
         }
 
         const receiptNumber = `WR-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
@@ -308,6 +343,7 @@ export const checkoutRouter = router({
           payments: input.payments,
           member: session.member ? { adventurerName: session.member.adventurerName } : null,
           expAwarded: expSummary?.expAwarded ?? 0,
+          unlockedAchievements,
           staff: ctx.staff.name,
           closedAt: new Date().toISOString(),
         };
@@ -347,7 +383,7 @@ export const checkoutRouter = router({
           data: { status: "CLEANING" },
         });
 
-        return { receiptNumber, bill, expSummary, snapshot };
+        return { receiptNumber, bill, expSummary, unlockedAchievements, snapshot };
       });
     }),
 

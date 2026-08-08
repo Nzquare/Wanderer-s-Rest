@@ -19,6 +19,7 @@ interface ReceiptSnapshot {
   payments: { method: string; amount: number }[];
   member: { adventurerName: string } | null;
   expAwarded: number;
+  unlockedAchievements?: { nameEn: string }[];
   staff: string;
   closedAt: string;
 }
@@ -59,6 +60,18 @@ export function ReceiptView({
             <p className="mt-1 text-sm font-medium text-foreground">
               Rank Up: {progression.rankAfter}!
             </p>
+          )}
+          {snapshot.unlockedAchievements && snapshot.unlockedAchievements.length > 0 && (
+            <div className="mt-3 space-y-1 border-t border-teal-500/30 pt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">
+                Achievement Unlocked
+              </p>
+              {snapshot.unlockedAchievements.map((a, i) => (
+                <p key={i} className="font-semibold text-foreground">
+                  {a.nameEn}
+                </p>
+              ))}
+            </div>
           )}
         </div>
       )}
