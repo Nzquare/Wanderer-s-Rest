@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { TRPCError } from "@trpc/server";
 import { router, staffProcedure } from "../trpc";
 
 /**
@@ -41,6 +42,17 @@ export const membersRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.phone) {
+        const existing = await ctx.prisma.member.findUnique({
+          where: { phone: input.phone },
+        });
+        if (existing) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `A member with phone ${input.phone} already exists (${existing.adventurerName}) — search for them instead.`,
+          });
+        }
+      }
       const member = await ctx.prisma.member.create({
         data: {
           memberCode: `WR-${nanoid(8).toUpperCase()}`,

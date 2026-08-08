@@ -6,6 +6,9 @@ import { menuRouter } from "./menu";
 import { ordersRouter } from "./orders";
 import { shiftsRouter } from "./shifts";
 import { checkoutRouter } from "./checkout";
+import { settingsRouter } from "./settings";
+import { tablesRouter } from "./tables";
+import { staffRouter } from "./staff";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const })),
@@ -16,6 +19,9 @@ export const appRouter = router({
   orders: ordersRouter,
   shifts: shiftsRouter,
   checkout: checkoutRouter,
+  settings: settingsRouter,
+  tables: tablesRouter,
+  staff: staffRouter,
 });
 
 export type AppRouter = typeof appRouter;
