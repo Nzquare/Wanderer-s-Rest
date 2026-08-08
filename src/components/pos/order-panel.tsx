@@ -25,7 +25,31 @@ interface MenuItem {
   nameEn: string;
   basePrice: number;
   soldOut: boolean;
+  photoUrl: string | null;
   modifierGroups: ModifierGroup[];
+}
+
+/** First-letter placeholder tile for items without a photo yet — still
+ * scannable at a glance, never just bare text (§47 "large menu images"). */
+function ItemThumb({ item }: { item: Pick<MenuItem, "nameEn" | "photoUrl"> }) {
+  if (item.photoUrl) {
+    // Staff-pasted URLs can come from anywhere, so a plain <img> avoids
+    // Next/Image's remote-domain allowlist friction.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={item.photoUrl}
+        alt={item.nameEn}
+        loading="lazy"
+        className="h-24 w-full rounded-lg object-cover sm:h-28"
+      />
+    );
+  }
+  return (
+    <div className="flex h-24 w-full items-center justify-center rounded-lg bg-brand-900/10 text-2xl font-semibold text-brand-700 dark:bg-white/5 dark:text-teal-400 sm:h-28">
+      {item.nameEn.charAt(0).toUpperCase()}
+    </div>
+  );
 }
 
 interface CartLine {
@@ -154,23 +178,41 @@ export function OrderPanel({
             onClick={() => startAdd(item)}
             disabled={item.soldOut}
             className={cn(
-              "rounded-xl border border-border p-3 text-left disabled:opacity-40",
+              "space-y-1.5 rounded-xl border border-border p-2 text-left disabled:opacity-40",
               !item.soldOut && "active:scale-[0.98]",
             )}
           >
-            <p className="text-sm font-medium text-foreground">{item.nameEn}</p>
-            <p className="text-sm text-foreground-muted">
-              {item.soldOut ? "Sold out" : `฿${item.basePrice}`}
+            <div className="relative">
+              <ItemThumb item={item} />
+              {item.soldOut && (
+                <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50 text-xs font-semibold text-white">
+                  Sold out
+                </span>
+              )}
+            </div>
+            <p className="truncate text-sm font-medium text-foreground">
+              {item.nameEn}
             </p>
+            <p className="text-sm text-foreground-muted">฿{item.basePrice}</p>
           </button>
         ))}
       </div>
 
       {pickingItem && (
         <div className="space-y-3 rounded-xl border border-teal-500 bg-teal-500/5 p-3">
-          <p className="text-sm font-semibold text-foreground">
-            {pickingItem.nameEn}
-          </p>
+          <div className="flex items-center gap-3">
+            {pickingItem.photoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pickingItem.photoUrl}
+                alt={pickingItem.nameEn}
+                className="h-14 w-14 rounded-lg object-cover"
+              />
+            )}
+            <p className="text-sm font-semibold text-foreground">
+              {pickingItem.nameEn}
+            </p>
+          </div>
           {pickingItem.modifierGroups.map((group) => (
             <div key={group.id}>
               <p className="text-xs text-foreground-muted">

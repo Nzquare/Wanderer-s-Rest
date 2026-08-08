@@ -92,10 +92,14 @@ export const menuRouter = router({
         basePrice: z.number().min(0),
         descriptionTh: z.string().optional(),
         descriptionEn: z.string().optional(),
+        photoUrl: z.string().url().optional().or(z.literal("")),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.menuItem.create({ data: input });
+      const { photoUrl, ...rest } = input;
+      return ctx.prisma.menuItem.create({
+        data: { ...rest, photoUrl: photoUrl || null },
+      });
     }),
 
   updateItem: permissionProcedure(Permission.MANAGE_MENU)
@@ -108,11 +112,18 @@ export const menuRouter = router({
         active: z.boolean().optional(),
         soldOut: z.boolean().optional(),
         featured: z.boolean().optional(),
+        photoUrl: z.string().url().optional().or(z.literal("")),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
-      return ctx.prisma.menuItem.update({ where: { id }, data });
+      const { id, photoUrl, ...data } = input;
+      return ctx.prisma.menuItem.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(photoUrl !== undefined ? { photoUrl: photoUrl || null } : {}),
+        },
+      });
     }),
 
   listModifierGroups: staffProcedure.query(async ({ ctx }) => {

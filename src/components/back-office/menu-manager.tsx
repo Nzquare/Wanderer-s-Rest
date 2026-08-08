@@ -52,12 +52,14 @@ function ItemForm({ categoryId }: { categoryId: string }) {
   const [nameTh, setNameTh] = useState("");
   const [nameEn, setNameEn] = useState("");
   const [basePrice, setBasePrice] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
   const utils = trpc.useUtils();
   const create = trpc.menu.createItem.useMutation({
     onSuccess: async () => {
       setNameTh("");
       setNameEn("");
       setBasePrice("");
+      setPhotoUrl("");
       await utils.menu.listForOrdering.invalidate();
     },
   });
@@ -79,6 +81,19 @@ function ItemForm({ categoryId }: { categoryId: string }) {
           onChange={(e) => setBasePrice(e.target.value)}
         />
       </div>
+      <div className="w-56">
+        <label className="text-xs text-foreground-muted">
+          Photo URL (optional)
+        </label>
+        <TextInput
+          value={photoUrl}
+          onChange={(e) => setPhotoUrl(e.target.value)}
+          placeholder="https://…"
+        />
+      </div>
+      {create.error && (
+        <p className="w-full text-xs text-status-danger">{create.error.message}</p>
+      )}
       <Button
         size="md"
         disabled={!nameEn || !nameTh || !basePrice || create.isPending}
@@ -88,10 +103,73 @@ function ItemForm({ categoryId }: { categoryId: string }) {
             nameEn,
             nameTh,
             basePrice: Number(basePrice),
+            photoUrl: photoUrl || undefined,
           })
         }
       >
         Add item
+      </Button>
+    </div>
+  );
+}
+
+function ItemPhotoEditor({
+  itemId,
+  currentPhotoUrl,
+}: {
+  itemId: string;
+  currentPhotoUrl: string | null;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentPhotoUrl ?? "");
+  const utils = trpc.useUtils();
+  const update = trpc.menu.updateItem.useMutation({
+    onSuccess: async () => {
+      setEditing(false);
+      await utils.menu.listForOrdering.invalidate();
+    },
+  });
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="flex items-center gap-2 text-xs text-teal-600 hover:underline"
+      >
+        {currentPhotoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={currentPhotoUrl}
+            alt=""
+            className="h-8 w-8 rounded-md object-cover"
+          />
+        ) : (
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-background text-foreground-muted">
+            📷
+          </span>
+        )}
+        {currentPhotoUrl ? "Change photo" : "Add photo"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <TextInput
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="https://…"
+      />
+      <Button
+        size="md"
+        variant="outline"
+        disabled={update.isPending}
+        onClick={() => update.mutate({ id: itemId, photoUrl: value })}
+      >
+        Save
+      </Button>
+      <Button size="md" variant="ghost" onClick={() => setEditing(false)}>
+        Cancel
       </Button>
     </div>
   );
@@ -291,27 +369,33 @@ export function MenuManager() {
               {cat.items.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between rounded-lg bg-background px-3 py-2 text-sm"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm"
                 >
                   <span>
                     {item.nameEn} · ฿{item.basePrice}
                   </span>
-                  <button
-                    onClick={() =>
-                      toggleSoldOut.mutate({
-                        menuItemId: item.id,
-                        soldOut: !item.soldOut,
-                      })
-                    }
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs font-medium",
-                      item.soldOut
-                        ? "bg-status-danger/15 text-status-danger"
-                        : "bg-status-success/15 text-status-success",
-                    )}
-                  >
-                    {item.soldOut ? "Sold out" : "Available"}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <ItemPhotoEditor
+                      itemId={item.id}
+                      currentPhotoUrl={item.photoUrl}
+                    />
+                    <button
+                      onClick={() =>
+                        toggleSoldOut.mutate({
+                          menuItemId: item.id,
+                          soldOut: !item.soldOut,
+                        })
+                      }
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs font-medium",
+                        item.soldOut
+                          ? "bg-status-danger/15 text-status-danger"
+                          : "bg-status-success/15 text-status-success",
+                      )}
+                    >
+                      {item.soldOut ? "Sold out" : "Available"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
