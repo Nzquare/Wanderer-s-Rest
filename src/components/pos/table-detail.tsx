@@ -215,7 +215,10 @@ export function TableDetail({
                 )}
               {basePath === "/cashier" &&
                 session.status === "READY_FOR_CHECKOUT" && (
-                  <Button variant="primary" disabled title="Checkout screen lands next build pass">
+                  <Button
+                    variant="primary"
+                    onClick={() => router.push(`/cashier/tables/${tableId}/checkout`)}
+                  >
                     Checkout →
                   </Button>
                 )}

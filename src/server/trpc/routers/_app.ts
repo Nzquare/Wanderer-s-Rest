@@ -4,6 +4,8 @@ import { pricingTypesRouter } from "./pricing-types";
 import { membersRouter } from "./members";
 import { menuRouter } from "./menu";
 import { ordersRouter } from "./orders";
+import { shiftsRouter } from "./shifts";
+import { checkoutRouter } from "./checkout";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const })),
@@ -12,6 +14,8 @@ export const appRouter = router({
   members: membersRouter,
   menu: menuRouter,
   orders: ordersRouter,
+  shifts: shiftsRouter,
+  checkout: checkoutRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { Context } from "./context";
 import type { Permission } from "@/generated/prisma/enums";
-import { can } from "@/server/rbac/can";
+import { can, canAccessCashier } from "@/server/rbac/can";
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
@@ -32,3 +32,14 @@ export function permissionProcedure(permission: Permission) {
     return next({ ctx });
   });
 }
+
+/** Anyone who can reach the Cashier app (§3) — used for checkout/payment/shift actions that aren't gated by one single named permission. */
+export const cashierProcedure = staffProcedure.use(({ ctx, next }) => {
+  if (!canAccessCashier(ctx.staff)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Cashier access required.",
+    });
+  }
+  return next({ ctx });
+});
