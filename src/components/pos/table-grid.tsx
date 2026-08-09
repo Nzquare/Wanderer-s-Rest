@@ -3,14 +3,19 @@
 import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { TableStatusBadge } from "@/components/ui/status-badge";
 import { LiveTimer } from "./live-timer";
 
 export function TableGrid({ basePath }: { basePath: "/cashier" | "/staff" }) {
+  const utils = trpc.useUtils();
   const { data: tables, isLoading } = trpc.sessions.listTables.useQuery(
     undefined,
     { refetchInterval: 10_000 },
   );
+  const markAvailable = trpc.checkout.markTableAvailable.useMutation({
+    onSuccess: () => utils.sessions.listTables.invalidate(),
+  });
 
   if (isLoading) {
     return <p className="text-sm text-foreground-muted">Loading tables…</p>;
@@ -19,8 +24,8 @@ export function TableGrid({ basePath }: { basePath: "/cashier" | "/staff" }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {tables?.map((table) => (
-        <Link key={table.id} href={`${basePath}/tables/${table.id}`}>
-          <Card className="flex h-full flex-col gap-2 transition-transform active:scale-[0.98]">
+        <Card key={table.id} className="flex h-full flex-col gap-2">
+          <Link href={`${basePath}/tables/${table.id}`} className="flex flex-1 flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-lg font-semibold text-foreground">
                 {table.code}
@@ -53,8 +58,21 @@ export function TableGrid({ basePath }: { basePath: "/cashier" | "/staff" }) {
                 {table.capacity} seats · {table.area ?? "—"}
               </p>
             )}
-          </Card>
-        </Link>
+          </Link>
+          {/* CLEANING has no active session to click into, so the reset
+              button has to live right here — otherwise the table is a dead
+              end with no way back to Available (§8: table lifecycle). */}
+          {table.status === "CLEANING" && (
+            <Button
+              size="md"
+              variant="outline"
+              disabled={markAvailable.isPending}
+              onClick={() => markAvailable.mutate({ tableId: table.id })}
+            >
+              Mark Available
+            </Button>
+          )}
+        </Card>
       ))}
     </div>
   );

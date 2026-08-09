@@ -4,7 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/cn";
+import { ToggleButton } from "@/components/ui/toggle-button";
 
 const CATEGORIES = [
   "VISITS",
@@ -216,17 +216,12 @@ export function AchievementsManager() {
                 {a.hasReward ? " · has benefit" : ""}
               </p>
             </div>
-            <button
+            <ToggleButton
+              on={a.active}
+              onLabel="Active"
+              offLabel="Inactive"
               onClick={() => toggleActive.mutate({ id: a.id, active: !a.active })}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium",
-                a.active
-                  ? "bg-status-success/15 text-status-success"
-                  : "bg-status-neutral/15 text-status-neutral",
-              )}
-            >
-              {a.active ? "Active" : "Inactive"}
-            </button>
+            />
           </Card>
         ))}
       </div>

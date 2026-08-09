@@ -4,18 +4,177 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
+import { ToggleButton } from "@/components/ui/toggle-button";
+import { PhotoUpload } from "./photo-upload";
 import { cn } from "@/lib/cn";
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500"
+      className={cn(
+        "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500",
+        props.className,
+      )}
     />
   );
 }
 
-function CategoryForm() {
+function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-teal-500"
+    />
+  );
+}
+
+// ------------------------------------------------------------------------
+// Categories — left rail: add, rename inline, delete (guarded server-side
+// if items still live in it), active/inactive.
+// ------------------------------------------------------------------------
+
+type CategoryListItem = {
+  id: string;
+  nameTh: string;
+  nameEn: string;
+  active: boolean;
+  _count: { items: number };
+};
+
+function CategoryRow({
+  category,
+  selected,
+  onSelect,
+}: {
+  category: CategoryListItem;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [nameEn, setNameEn] = useState(category.nameEn);
+  const [nameTh, setNameTh] = useState(category.nameTh);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const invalidate = () =>
+    Promise.all([
+      utils.menu.listCategories.invalidate(),
+      utils.menu.listForOrdering.invalidate(),
+    ]);
+  const update = trpc.menu.updateCategory.useMutation({
+    onSuccess: async () => {
+      setEditing(false);
+      await invalidate();
+    },
+  });
+  const remove = trpc.menu.deleteCategory.useMutation({
+    onSuccess: async () => {
+      setConfirmingDelete(false);
+      await invalidate();
+    },
+  });
+
+  if (editing) {
+    return (
+      <div className="space-y-2 rounded-xl border border-teal-500 bg-background p-3">
+        <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="English name" />
+        <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} placeholder="Thai name" />
+        <div className="flex gap-2">
+          <Button
+            size="md"
+            disabled={!nameEn || !nameTh || update.isPending}
+            onClick={() => update.mutate({ id: category.id, nameEn, nameTh })}
+          >
+            Save
+          </Button>
+          <Button size="md" variant="ghost" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex w-full flex-col gap-1 rounded-xl border p-3 text-left transition-colors",
+        selected
+          ? "border-teal-500 bg-teal-500/10"
+          : "border-border bg-background hover:border-foreground-muted",
+      )}
+    >
+      {/* Only the name/count area is the "select" button — the action row
+          below has its own buttons, and HTML doesn't allow nesting one
+          button inside another. */}
+      <button type="button" onClick={onSelect} className="flex flex-col gap-1 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-foreground">{category.nameEn}</span>
+          {!category.active && (
+            <span className="rounded-full bg-status-neutral/15 px-2 py-0.5 text-[11px] text-status-neutral">
+              Inactive
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-foreground-muted">
+          {category._count.items} item{category._count.items === 1 ? "" : "s"}
+        </p>
+      </button>
+      <div className="mt-1 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-xs text-teal-600 underline"
+        >
+          Rename
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            update.mutate({ id: category.id, active: !category.active })
+          }
+          className="text-xs text-teal-600 underline"
+        >
+          {category.active ? "Deactivate" : "Activate"}
+        </button>
+        {confirmingDelete ? (
+          <span className="flex items-center gap-2 text-xs">
+            <span className="text-status-danger">Delete?</span>
+            <button
+              type="button"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: category.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className="text-foreground-muted underline"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            className="text-xs text-status-danger underline"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+      {remove.error && confirmingDelete && (
+        <p className="text-xs text-status-danger">{remove.error.message}</p>
+      )}
+    </div>
+  );
+}
+
+function AddCategoryForm() {
   const [nameTh, setNameTh] = useState("");
   const [nameEn, setNameEn] = useState("");
   const utils = trpc.useUtils();
@@ -24,42 +183,86 @@ function CategoryForm() {
       setNameTh("");
       setNameEn("");
       await utils.menu.listCategories.invalidate();
-      await utils.menu.listForOrdering.invalidate();
     },
   });
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">English name</label>
-        <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
-      </div>
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">Thai name</label>
-        <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
-      </div>
+    <Card className="space-y-2">
+      <p className="text-sm font-medium text-foreground">Add category</p>
+      <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="English name" />
+      <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} placeholder="Thai name" />
       <Button
         size="md"
+        className="w-full"
         disabled={!nameEn || !nameTh || create.isPending}
         onClick={() => create.mutate({ nameEn, nameTh })}
       >
         Add category
       </Button>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------------------
+// Items — compact rows per selected category, click to open full editor.
+// ------------------------------------------------------------------------
+
+type OrderingItem = {
+  id: string;
+  nameEn: string;
+  basePrice: number;
+  soldOut: boolean;
+  photoUrl: string | null;
+};
+
+function ItemRow({ item, onEdit }: { item: OrderingItem; onEdit: () => void }) {
+  const utils = trpc.useUtils();
+  const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
+    onSuccess: () => utils.menu.listForOrdering.invalidate(),
+  });
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
+      <button onClick={onEdit} className="flex items-center gap-3 text-left">
+        {item.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.photoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
+        ) : (
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-foreground-muted">
+            📷
+          </span>
+        )}
+        <span>
+          {item.nameEn} · ฿{item.basePrice}
+        </span>
+      </button>
+      <div className="flex items-center gap-2">
+        <ToggleButton
+          on={!item.soldOut}
+          onLabel="Available"
+          offLabel="Sold out"
+          tone={item.soldOut ? "danger" : "default"}
+          onClick={() =>
+            toggleSoldOut.mutate({ menuItemId: item.id, soldOut: !item.soldOut })
+          }
+        />
+        <Button size="md" variant="outline" onClick={onEdit}>
+          Edit
+        </Button>
+      </div>
     </div>
   );
 }
 
-function ItemForm({ categoryId }: { categoryId: string }) {
+function QuickAddItemForm({ categoryId }: { categoryId: string }) {
   const [nameTh, setNameTh] = useState("");
   const [nameEn, setNameEn] = useState("");
   const [basePrice, setBasePrice] = useState("");
-  const [photoUrl, setPhotoUrl] = useState("");
   const utils = trpc.useUtils();
   const create = trpc.menu.createItem.useMutation({
     onSuccess: async () => {
       setNameTh("");
       setNameEn("");
       setBasePrice("");
-      setPhotoUrl("");
       await utils.menu.listForOrdering.invalidate();
     },
   });
@@ -75,161 +278,308 @@ function ItemForm({ categoryId }: { categoryId: string }) {
       </div>
       <div className="w-24">
         <label className="text-xs text-foreground-muted">Price (฿)</label>
-        <TextInput
-          type="number"
-          value={basePrice}
-          onChange={(e) => setBasePrice(e.target.value)}
-        />
+        <TextInput type="number" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} />
       </div>
-      <div className="w-56">
-        <label className="text-xs text-foreground-muted">
-          Photo URL (optional)
-        </label>
-        <TextInput
-          value={photoUrl}
-          onChange={(e) => setPhotoUrl(e.target.value)}
-          placeholder="https://…"
-        />
-      </div>
-      {create.error && (
-        <p className="w-full text-xs text-status-danger">{create.error.message}</p>
-      )}
-      <Button
-        size="md"
-        disabled={!nameEn || !nameTh || !basePrice || create.isPending}
-        onClick={() =>
-          create.mutate({
-            categoryId,
-            nameEn,
-            nameTh,
-            basePrice: Number(basePrice),
-            photoUrl: photoUrl || undefined,
-          })
-        }
-      >
-        Add item
-      </Button>
-    </div>
-  );
-}
-
-function ItemPhotoEditor({
-  itemId,
-  currentPhotoUrl,
-}: {
-  itemId: string;
-  currentPhotoUrl: string | null;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(currentPhotoUrl ?? "");
-  const utils = trpc.useUtils();
-  const update = trpc.menu.updateItem.useMutation({
-    onSuccess: async () => {
-      setEditing(false);
-      await utils.menu.listForOrdering.invalidate();
-    },
-  });
-
-  if (!editing) {
-    return (
-      <button
-        onClick={() => setEditing(true)}
-        className="flex items-center gap-2 text-xs text-teal-600 hover:underline"
-      >
-        {currentPhotoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={currentPhotoUrl}
-            alt=""
-            className="h-8 w-8 rounded-md object-cover"
-          />
-        ) : (
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-background text-foreground-muted">
-            📷
-          </span>
-        )}
-        {currentPhotoUrl ? "Change photo" : "Add photo"}
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <TextInput
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="https://…"
-      />
+      {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button
         size="md"
         variant="outline"
-        disabled={update.isPending}
-        onClick={() => update.mutate({ id: itemId, photoUrl: value })}
+        disabled={!nameEn || !nameTh || !basePrice || create.isPending}
+        onClick={() =>
+          create.mutate({ categoryId, nameEn, nameTh, basePrice: Number(basePrice) })
+        }
       >
-        Save
-      </Button>
-      <Button size="md" variant="ghost" onClick={() => setEditing(false)}>
-        Cancel
+        + Add item (edit for photo &amp; more)
       </Button>
     </div>
   );
 }
 
-function ModifierGroupForm() {
-  const [nameTh, setNameTh] = useState("");
-  const [nameEn, setNameEn] = useState("");
-  const [required, setRequired] = useState(false);
-  const [multiSelect, setMultiSelect] = useState(false);
+// ------------------------------------------------------------------------
+// Item editor — full fields + photo upload + modifier group attach/detach,
+// all in one place per the "adjust modifiers on the item itself" request.
+// ------------------------------------------------------------------------
+
+function ItemEditor({
+  itemId,
+  categories,
+  onClose,
+}: {
+  itemId: string;
+  categories: { id: string; nameEn: string }[];
+  onClose: () => void;
+}) {
   const utils = trpc.useUtils();
-  const create = trpc.menu.createModifierGroup.useMutation({
+  const { data: item } = trpc.menu.getItem.useQuery({ id: itemId });
+  const { data: allGroups } = trpc.menu.listModifierGroups.useQuery();
+
+  const invalidateAll = () =>
+    Promise.all([
+      utils.menu.getItem.invalidate({ id: itemId }),
+      utils.menu.listForOrdering.invalidate(),
+      utils.menu.listCategories.invalidate(),
+    ]);
+
+  const update = trpc.menu.updateItem.useMutation({ onSuccess: invalidateAll });
+  const attach = trpc.menu.attachModifierGroup.useMutation({ onSuccess: invalidateAll });
+  const detach = trpc.menu.detachModifierGroup.useMutation({ onSuccess: invalidateAll });
+  const remove = trpc.menu.deleteItem.useMutation({
     onSuccess: async () => {
-      setNameTh("");
-      setNameEn("");
-      await utils.menu.listModifierGroups.invalidate();
+      await invalidateAll();
+      onClose();
     },
   });
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  if (!item) {
+    return (
+      <div className="p-4 text-sm text-foreground-muted">Loading item…</div>
+    );
+  }
+
+  const attachedIds = new Set(item.modifierGroups.map((l) => l.modifierGroup.id));
+
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">English name</label>
-        <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+    <div className="max-h-[80vh] space-y-5 overflow-y-auto">
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-lg font-semibold text-foreground">Edit item</h3>
+        <button onClick={onClose} className="text-sm text-foreground-muted hover:text-foreground">
+          ✕ Close
+        </button>
       </div>
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">Thai name</label>
-        <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
+
+      <PhotoUpload
+        value={item.photoUrl}
+        onChange={(dataUrl) => update.mutate({ id: item.id, photoUrl: dataUrl })}
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="text-xs text-foreground-muted">English name</label>
+          <TextInput
+            defaultValue={item.nameEn}
+            onBlur={(e) => e.target.value !== item.nameEn && update.mutate({ id: item.id, nameEn: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Thai name</label>
+          <TextInput
+            defaultValue={item.nameTh}
+            onBlur={(e) => e.target.value !== item.nameTh && update.mutate({ id: item.id, nameTh: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Price (฿)</label>
+          <TextInput
+            type="number"
+            defaultValue={item.basePrice}
+            onBlur={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isNaN(n) && n !== item.basePrice) update.mutate({ id: item.id, basePrice: n });
+            }}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Category</label>
+          <select
+            value={item.categoryId}
+            onChange={(e) => update.mutate({ id: item.id, categoryId: e.target.value })}
+            className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nameEn}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-      <label className="flex items-center gap-1 text-xs text-foreground-muted">
-        <input
-          type="checkbox"
-          checked={required}
-          onChange={(e) => setRequired(e.target.checked)}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="text-xs text-foreground-muted">English description</label>
+          <TextArea
+            rows={2}
+            defaultValue={item.descriptionEn ?? ""}
+            onBlur={(e) => update.mutate({ id: item.id, descriptionEn: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Thai description</label>
+          <TextArea
+            rows={2}
+            defaultValue={item.descriptionTh ?? ""}
+            onBlur={(e) => update.mutate({ id: item.id, descriptionTh: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs text-foreground-muted">Staff notes</label>
+        <TextArea
+          rows={2}
+          defaultValue={item.notes ?? ""}
+          onBlur={(e) => update.mutate({ id: item.id, notes: e.target.value })}
         />
-        Required
-      </label>
-      <label className="flex items-center gap-1 text-xs text-foreground-muted">
-        <input
-          type="checkbox"
-          checked={multiSelect}
-          onChange={(e) => setMultiSelect(e.target.checked)}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-foreground-muted">Status &amp; visibility</p>
+        <div className="flex flex-wrap gap-2">
+          <ToggleButton
+            on={item.active}
+            onLabel="Active"
+            offLabel="Inactive"
+            onClick={() => update.mutate({ id: item.id, active: !item.active })}
+          />
+          <ToggleButton
+            on={!item.soldOut}
+            onLabel="Available"
+            offLabel="Sold out"
+            tone={item.soldOut ? "danger" : "default"}
+            onClick={() => update.mutate({ id: item.id, soldOut: !item.soldOut })}
+          />
+          <ToggleButton
+            on={item.featured}
+            onLabel="Featured"
+            onClick={() => update.mutate({ id: item.id, featured: !item.featured })}
+          />
+          <ToggleButton
+            on={item.seasonal}
+            onLabel="Seasonal"
+            onClick={() => update.mutate({ id: item.id, seasonal: !item.seasonal })}
+          />
+          <ToggleButton
+            on={item.isNew}
+            onLabel="New"
+            onClick={() => update.mutate({ id: item.id, isNew: !item.isNew })}
+          />
+          <ToggleButton
+            on={item.staffOnly}
+            onLabel="Staff-only"
+            onClick={() => update.mutate({ id: item.id, staffOnly: !item.staffOnly })}
+          />
+          <ToggleButton
+            on={item.customerVisible}
+            onLabel="Visible to customers"
+            offLabel="Hidden from customers"
+            onClick={() => update.mutate({ id: item.id, customerVisible: !item.customerVisible })}
+          />
+          <ToggleButton
+            on={item.discountEligible}
+            onLabel="Discount-eligible"
+            offLabel="No discounts"
+            onClick={() => update.mutate({ id: item.id, discountEligible: !item.discountEligible })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-foreground-muted">Modifier groups on this item</p>
+        {allGroups && allGroups.length > 0 ? (
+          <div className="space-y-1 rounded-lg bg-background p-2">
+            {allGroups.map((g) => {
+              const on = attachedIds.has(g.id);
+              return (
+                <div key={g.id} className="flex items-center justify-between gap-2 py-0.5">
+                  <span className="text-sm text-foreground">
+                    {g.nameEn}
+                    {g.required && <span className="text-foreground-muted"> · required</span>}
+                  </span>
+                  <ToggleButton
+                    on={on}
+                    onLabel="Attached"
+                    offLabel="Attach"
+                    onClick={() =>
+                      on
+                        ? detach.mutate({ menuItemId: item.id, modifierGroupId: g.id })
+                        : attach.mutate({ menuItemId: item.id, modifierGroupId: g.id })
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-foreground-muted">
+            No modifier groups yet — add one in the Modifier Groups tab first.
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between border-t border-border pt-3">
+        {confirmingDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-status-danger">Delete this item for good?</span>
+            <Button size="md" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate({ id: item.id })}>
+              Confirm delete
+            </Button>
+            <Button size="md" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-xs text-status-danger underline"
+          >
+            Delete item
+          </button>
+        )}
+        {remove.error && <p className="text-xs text-status-danger">{remove.error.message}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------------
+// Modifier groups — reusable across items, so managed as their own list.
+// ------------------------------------------------------------------------
+
+function ModifierOptionRow({ option }: { option: { id: string; nameEn: string; nameTh: string; priceAdjustment: unknown; active: boolean; soldOut: boolean } }) {
+  const utils = trpc.useUtils();
+  const invalidate = () =>
+    Promise.all([utils.menu.listModifierGroups.invalidate(), utils.menu.listForOrdering.invalidate()]);
+  const update = trpc.menu.updateModifierOption.useMutation({ onSuccess: invalidate });
+  const remove = trpc.menu.deleteModifierOption.useMutation({ onSuccess: invalidate });
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface px-2 py-1.5">
+      <span className="text-sm text-foreground">
+        {option.nameEn}
+        {Number(option.priceAdjustment) ? ` +฿${option.priceAdjustment}` : ""}
+      </span>
+      <div className="flex items-center gap-2">
+        <ToggleButton
+          on={!option.soldOut}
+          onLabel="Available"
+          offLabel="Sold out"
+          tone={option.soldOut ? "danger" : "default"}
+          onClick={() => update.mutate({ id: option.id, soldOut: !option.soldOut })}
         />
-        Multi-select
-      </label>
-      <Button
-        size="md"
-        disabled={!nameEn || !nameTh || create.isPending}
-        onClick={() =>
-          create.mutate({
-            nameEn,
-            nameTh,
-            required,
-            multiSelect,
-            minSelect: required ? 1 : 0,
-            maxSelect: multiSelect ? 5 : 1,
-          })
-        }
-      >
-        Add modifier group
-      </Button>
+        {confirmingDelete ? (
+          <span className="flex items-center gap-1 text-xs">
+            <button
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: option.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmingDelete(true)} className="text-xs text-status-danger underline">
+            Delete
+          </button>
+        )}
+      </div>
+      {remove.error && confirmingDelete && (
+        <p className="w-full text-xs text-status-danger">{remove.error.message}</p>
+      )}
     </div>
   );
 }
@@ -251,18 +601,10 @@ function ModifierOptionForm({ groupId }: { groupId: string }) {
   return (
     <div className="flex flex-wrap items-end gap-2">
       <div className="w-32">
-        <TextInput
-          placeholder="English"
-          value={nameEn}
-          onChange={(e) => setNameEn(e.target.value)}
-        />
+        <TextInput placeholder="English" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
       </div>
       <div className="w-32">
-        <TextInput
-          placeholder="Thai"
-          value={nameTh}
-          onChange={(e) => setNameTh(e.target.value)}
-        />
+        <TextInput placeholder="Thai" value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
       </div>
       <div className="w-20">
         <TextInput
@@ -277,12 +619,7 @@ function ModifierOptionForm({ groupId }: { groupId: string }) {
         variant="outline"
         disabled={!nameEn || !nameTh || create.isPending}
         onClick={() =>
-          create.mutate({
-            groupId,
-            nameEn,
-            nameTh,
-            priceAdjustment: Number(priceAdjustment),
-          })
+          create.mutate({ groupId, nameEn, nameTh, priceAdjustment: Number(priceAdjustment) })
         }
       >
         Add option
@@ -291,153 +628,243 @@ function ModifierOptionForm({ groupId }: { groupId: string }) {
   );
 }
 
-function AttachModifierForm({ categories }: { categories: { id: string; nameEn: string; items: { id: string; nameEn: string }[] }[] }) {
-  const { data: groups } = trpc.menu.listModifierGroups.useQuery();
-  const [itemId, setItemId] = useState("");
-  const [groupId, setGroupId] = useState("");
+function ModifierGroupCard({
+  group,
+}: {
+  group: {
+    id: string;
+    nameEn: string;
+    nameTh: string;
+    required: boolean;
+    multiSelect: boolean;
+    active: boolean;
+    options: { id: string; nameEn: string; nameTh: string; priceAdjustment: unknown; active: boolean; soldOut: boolean }[];
+  };
+}) {
   const utils = trpc.useUtils();
-  const attach = trpc.menu.attachModifierGroup.useMutation({
+  const [editingName, setEditingName] = useState(false);
+  const [nameEn, setNameEn] = useState(group.nameEn);
+  const [nameTh, setNameTh] = useState(group.nameTh);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const invalidate = () =>
+    Promise.all([utils.menu.listModifierGroups.invalidate(), utils.menu.listForOrdering.invalidate()]);
+  const update = trpc.menu.updateModifierGroup.useMutation({
     onSuccess: async () => {
-      await utils.menu.listForOrdering.invalidate();
+      setEditingName(false);
+      await invalidate();
     },
   });
-  const allItems = categories.flatMap((c) => c.items);
+  const remove = trpc.menu.deleteModifierGroup.useMutation({ onSuccess: invalidate });
+
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <select
-        value={itemId}
-        onChange={(e) => setItemId(e.target.value)}
-        className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
-      >
-        <option value="">Choose item…</option>
-        {allItems.map((i) => (
-          <option key={i.id} value={i.id}>
-            {i.nameEn}
-          </option>
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex-1 space-y-1">
+          {editingName ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <TextInput className="w-40" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+              <TextInput className="w-40" value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
+              <Button size="md" disabled={update.isPending} onClick={() => update.mutate({ id: group.id, nameEn, nameTh })}>
+                Save
+              </Button>
+              <Button size="md" variant="ghost" onClick={() => setEditingName(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <button onClick={() => setEditingName(true)} className="text-left font-medium text-foreground hover:underline">
+              {group.nameEn}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ToggleButton
+            on={group.required}
+            onLabel="Required"
+            offLabel="Optional"
+            onClick={() => update.mutate({ id: group.id, required: !group.required })}
+          />
+          <ToggleButton
+            on={group.multiSelect}
+            onLabel="Multi-select"
+            offLabel="Single-select"
+            onClick={() => update.mutate({ id: group.id, multiSelect: !group.multiSelect })}
+          />
+          <ToggleButton
+            on={group.active}
+            onLabel="Active"
+            offLabel="Inactive"
+            onClick={() => update.mutate({ id: group.id, active: !group.active })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        {group.options.map((o) => (
+          <ModifierOptionRow key={o.id} option={o} />
         ))}
-      </select>
-      <select
-        value={groupId}
-        onChange={(e) => setGroupId(e.target.value)}
-        className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
-      >
-        <option value="">Choose modifier group…</option>
-        {groups?.map((g) => (
-          <option key={g.id} value={g.id}>
-            {g.nameEn}
-          </option>
-        ))}
-      </select>
-      {attach.error && (
-        <p className="text-xs text-status-danger">{attach.error.message}</p>
-      )}
-      <Button
-        size="md"
-        variant="outline"
-        disabled={!itemId || !groupId || attach.isPending}
-        onClick={() => attach.mutate({ menuItemId: itemId, modifierGroupId: groupId })}
-      >
-        Attach to item
-      </Button>
-    </div>
+      </div>
+      <ModifierOptionForm groupId={group.id} />
+
+      <div className="border-t border-border pt-2">
+        {confirmingDelete ? (
+          <span className="flex items-center gap-2 text-xs">
+            <span className="text-status-danger">Delete this group for good?</span>
+            <button disabled={remove.isPending} onClick={() => remove.mutate({ id: group.id })} className="font-medium text-status-danger underline">
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmingDelete(true)} className="text-xs text-status-danger underline">
+            Delete group
+          </button>
+        )}
+        {remove.error && confirmingDelete && <p className="mt-1 text-xs text-status-danger">{remove.error.message}</p>}
+      </div>
+    </Card>
   );
 }
 
-export function MenuManager() {
-  const { data: categories } = trpc.menu.listForOrdering.useQuery();
-  const { data: groups } = trpc.menu.listModifierGroups.useQuery();
+function CreateModifierGroupForm() {
+  const [nameTh, setNameTh] = useState("");
+  const [nameEn, setNameEn] = useState("");
+  const [required, setRequired] = useState(false);
+  const [multiSelect, setMultiSelect] = useState(false);
   const utils = trpc.useUtils();
-  const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
-    onSuccess: () => utils.menu.listForOrdering.invalidate(),
+  const create = trpc.menu.createModifierGroup.useMutation({
+    onSuccess: async () => {
+      setNameTh("");
+      setNameEn("");
+      setRequired(false);
+      setMultiSelect(false);
+      await utils.menu.listModifierGroups.invalidate();
+    },
   });
+  return (
+    <Card className="flex flex-wrap items-end gap-2">
+      <div className="w-40">
+        <label className="text-xs text-foreground-muted">English name</label>
+        <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+      </div>
+      <div className="w-40">
+        <label className="text-xs text-foreground-muted">Thai name</label>
+        <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
+      </div>
+      <ToggleButton on={required} onLabel="Required" offLabel="Optional" onClick={() => setRequired((r) => !r)} />
+      <ToggleButton on={multiSelect} onLabel="Multi-select" offLabel="Single-select" onClick={() => setMultiSelect((m) => !m)} />
+      <Button
+        size="md"
+        disabled={!nameEn || !nameTh || create.isPending}
+        onClick={() =>
+          create.mutate({
+            nameEn,
+            nameTh,
+            required,
+            multiSelect,
+            minSelect: required ? 1 : 0,
+            maxSelect: multiSelect ? 5 : 1,
+          })
+        }
+      >
+        Add modifier group
+      </Button>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------------------
+
+export function MenuManager() {
+  const [tab, setTab] = useState<"items" | "modifiers">("items");
+  const { data: categories } = trpc.menu.listCategories.useQuery();
+  const { data: ordering } = trpc.menu.listForOrdering.useQuery();
+  const { data: groups } = trpc.menu.listModifierGroups.useQuery();
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  const activeCategoryId = selectedCategoryId ?? categories?.[0]?.id ?? null;
+  const itemsForCategory =
+    ordering?.find((c) => c.id === activeCategoryId)?.items ?? [];
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Categories</h2>
-        <Card>
-          <CategoryForm />
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Items</h2>
-        {categories?.map((cat) => (
-          <Card key={cat.id} className="space-y-3">
-            <p className="font-medium text-foreground">{cat.nameEn}</p>
-            <div className="space-y-1">
-              {cat.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm"
-                >
-                  <span>
-                    {item.nameEn} · ฿{item.basePrice}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <ItemPhotoEditor
-                      itemId={item.id}
-                      currentPhotoUrl={item.photoUrl}
-                    />
-                    <button
-                      onClick={() =>
-                        toggleSoldOut.mutate({
-                          menuItemId: item.id,
-                          soldOut: !item.soldOut,
-                        })
-                      }
-                      className={cn(
-                        "rounded-full px-3 py-1 text-xs font-medium",
-                        item.soldOut
-                          ? "bg-status-danger/15 text-status-danger"
-                          : "bg-status-success/15 text-status-success",
-                      )}
-                    >
-                      {item.soldOut ? "Sold out" : "Available"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <ItemForm categoryId={cat.id} />
-          </Card>
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <button
+          onClick={() => setTab("items")}
+          className={cn(
+            "rounded-lg px-3 py-2 text-sm font-medium",
+            tab === "items" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+          )}
+        >
+          Menu items
+        </button>
+        <button
+          onClick={() => setTab("modifiers")}
+          className={cn(
+            "rounded-lg px-3 py-2 text-sm font-medium",
+            tab === "modifiers" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+          )}
+        >
           Modifier groups
-        </h2>
-        <Card className="space-y-3">
-          <ModifierGroupForm />
-        </Card>
-        {groups?.map((g) => (
-          <Card key={g.id} className="space-y-2">
-            <p className="font-medium text-foreground">
-              {g.nameEn} {g.required && "· required"}{" "}
-              {g.multiSelect && "· multi-select"}
-            </p>
-            <ul className="text-sm text-foreground-muted">
-              {g.options.map((o) => (
-                <li key={o.id}>
-                  {o.nameEn}
-                  {Number(o.priceAdjustment) ? ` +฿${o.priceAdjustment}` : ""}
-                </li>
-              ))}
-            </ul>
-            <ModifierOptionForm groupId={g.id} />
-          </Card>
-        ))}
-      </section>
+        </button>
+      </div>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">
-          Attach modifier group to item
-        </h2>
-        <Card>
-          <AttachModifierForm categories={categories ?? []} />
-        </Card>
-      </section>
+      {tab === "items" ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+          <div className="space-y-2">
+            <AddCategoryForm />
+            {categories?.map((cat) => (
+              <CategoryRow
+                key={cat.id}
+                category={cat}
+                selected={cat.id === activeCategoryId}
+                onSelect={() => setSelectedCategoryId(cat.id)}
+              />
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {activeCategoryId ? (
+              <Card className="space-y-3">
+                <p className="font-medium text-foreground">
+                  {categories?.find((c) => c.id === activeCategoryId)?.nameEn}
+                </p>
+                <div className="space-y-1">
+                  {itemsForCategory.map((item) => (
+                    <ItemRow key={item.id} item={item} onEdit={() => setEditingItemId(item.id)} />
+                  ))}
+                  {itemsForCategory.length === 0 && (
+                    <p className="text-sm text-foreground-muted">No items in this category yet.</p>
+                  )}
+                </div>
+                <QuickAddItemForm categoryId={activeCategoryId} />
+              </Card>
+            ) : (
+              <p className="text-sm text-foreground-muted">Add a category to get started.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <CreateModifierGroupForm />
+          {groups?.map((g) => (
+            <ModifierGroupCard key={g.id} group={g} />
+          ))}
+        </div>
+      )}
+
+      <Modal open={!!editingItemId} onClose={() => setEditingItemId(null)} wide>
+        {editingItemId && (
+          <ItemEditor
+            itemId={editingItemId}
+            categories={categories ?? []}
+            onClose={() => setEditingItemId(null)}
+          />
+        )}
+      </Modal>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/cn";
+import { ToggleButton } from "@/components/ui/toggle-button";
 import { PERMISSION_LABELS } from "@/server/rbac/permissions";
 import type { Permission } from "@/generated/prisma/enums";
 
@@ -134,22 +134,17 @@ function StaffRow({
             </option>
           ))}
         </select>
-        <button
+        <ToggleButton
+          on={member.status === "ACTIVE"}
+          onLabel="Active"
+          offLabel="Inactive"
           onClick={() =>
             setStatus.mutate({
               staffId: member.id,
               status: member.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
             })
           }
-          className={cn(
-            "rounded-full px-2.5 py-1 text-xs font-medium",
-            member.status === "ACTIVE"
-              ? "bg-status-success/15 text-status-success"
-              : "bg-status-neutral/15 text-status-neutral",
-          )}
-        >
-          {member.status === "ACTIVE" ? "Active" : "Inactive"}
-        </button>
+        />
         {showPinReset ? (
           <div className="flex items-center gap-1">
             <input

@@ -120,6 +120,43 @@ function PlayerRow({
   );
 }
 
+/**
+ * Shown when a table has no active session but also isn't AVAILABLE or
+ * RESERVED — i.e. it's stuck CLEANING (after a void, or after checkout on
+ * a slow connection) or manually marked UNAVAILABLE. Opening a new
+ * session is blocked in that state, so this is the only way back.
+ */
+function NotOpenablePanel({
+  table,
+  onCleared,
+}: {
+  table: { id: string; status: string; name: string };
+  onCleared: () => void;
+}) {
+  const markAvailable = trpc.checkout.markTableAvailable.useMutation({
+    onSuccess: onCleared,
+  });
+  return (
+    <Card className="space-y-3">
+      <p className="text-sm text-foreground-muted">
+        {table.name} is currently{" "}
+        <span className="font-medium text-foreground">
+          {table.status === "CLEANING" ? "being cleaned" : table.status.toLowerCase()}
+        </span>{" "}
+        and can&apos;t be opened for a new session yet.
+      </p>
+      {table.status === "CLEANING" && (
+        <Button
+          disabled={markAvailable.isPending}
+          onClick={() => markAvailable.mutate({ tableId: table.id })}
+        >
+          {markAvailable.isPending ? "Marking…" : "Mark Available"}
+        </Button>
+      )}
+    </Card>
+  );
+}
+
 export function TableDetail({
   tableId,
   basePath,
@@ -197,7 +234,11 @@ export function TableDetail({
       </div>
 
       {!session ? (
-        <OpenTableForm tableId={tableId} onOpened={invalidate} />
+        table.status === "AVAILABLE" || table.status === "RESERVED" ? (
+          <OpenTableForm tableId={tableId} onOpened={invalidate} />
+        ) : (
+          <NotOpenablePanel table={table} onCleared={invalidate} />
+        )
       ) : (
         <div className="space-y-4">
           <Card className="flex flex-wrap items-center justify-between gap-4">

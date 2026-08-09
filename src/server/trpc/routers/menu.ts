@@ -1,8 +1,30 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@/generated/prisma/client";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
+import { logAudit } from "@/server/audit";
+
+/**
+ * A `photoUrl` is either a real http(s) URL (legacy/rare) or a client-side
+ * resized `data:image/...;base64,...` JPEG (the normal "upload a photo"
+ * path — see src/lib/image-resize.ts). Plain `z.string().url()` also
+ * accepts `data:` URLs per the WHATWG URL parser, but we're explicit here
+ * since that's not obvious at a glance.
+ */
+const photoUrlSchema = z
+  .string()
+  .refine(
+    (v) => v === "" || v.startsWith("http://") || v.startsWith("https://") || v.startsWith("data:image/"),
+    "Not a valid photo",
+  )
+  .optional();
+
+/** Foreign-key violation (option/group still referenced by historical orders). */
+function isFkViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003";
+}
 
 /** Menu structure for the ordering UI: Category -> Item -> Modifier Group -> Option (§10-13). */
 export const menuRouter = router({
@@ -73,14 +95,93 @@ export const menuRouter = router({
       return { ok: true };
     }),
 
+  // --- Categories -----------------------------------------------------
+
   listCategories: staffProcedure.query(async ({ ctx }) => {
-    return ctx.prisma.menuCategory.findMany({ orderBy: { sortOrder: "asc" } });
+    return ctx.prisma.menuCategory.findMany({
+      orderBy: { sortOrder: "asc" },
+      include: { _count: { select: { items: true } } },
+    });
   }),
 
   createCategory: permissionProcedure(Permission.MANAGE_MENU)
     .input(z.object({ nameTh: z.string().min(1), nameEn: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.menuCategory.create({ data: input });
+      const last = await ctx.prisma.menuCategory.findFirst({
+        orderBy: { sortOrder: "desc" },
+      });
+      return ctx.prisma.menuCategory.create({
+        data: { ...input, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      });
+    }),
+
+  updateCategory: permissionProcedure(Permission.MANAGE_MENU)
+    .input(
+      z.object({
+        id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
+        active: z.boolean().optional(),
+        sortOrder: z.number().int().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.prisma.menuCategory.update({ where: { id }, data });
+    }),
+
+  /**
+   * True delete — only for a category with no items left in it (move or
+   * delete them first). A category that's ever had items ordered from it
+   * stays around via its items' history regardless, so this guard is
+   * really just "don't silently orphan items" rather than a historical-data
+   * concern by itself.
+   */
+  deleteCategory: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const category = await ctx.prisma.menuCategory.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { items: true } } },
+      });
+      if (!category) throw new TRPCError({ code: "NOT_FOUND" });
+      if (category._count.items > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${category.nameEn}" still has ${category._count.items} item(s) — move or delete them first, or mark the category Inactive instead.`,
+        });
+      }
+      await ctx.prisma.menuCategory.delete({ where: { id: input.id } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "MENU_CATEGORY_DELETED",
+        entityType: "MenuCategory",
+        entityId: input.id,
+        previousValue: { nameEn: category.nameEn },
+      });
+      return { ok: true };
+    }),
+
+  // --- Items ------------------------------------------------------------
+
+  /** Full item detail for the edit drawer, including its modifier group links. */
+  getItem: staffProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const item = await ctx.prisma.menuItem.findUnique({
+        where: { id: input.id },
+        include: {
+          modifierGroups: {
+            orderBy: { sortOrder: "asc" },
+            include: { modifierGroup: true },
+          },
+        },
+      });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+      return {
+        ...item,
+        basePrice: toNum(item.basePrice),
+      };
     }),
 
   createItem: permissionProcedure(Permission.MANAGE_MENU)
@@ -92,13 +193,17 @@ export const menuRouter = router({
         basePrice: z.number().min(0),
         descriptionTh: z.string().optional(),
         descriptionEn: z.string().optional(),
-        photoUrl: z.string().url().optional().or(z.literal("")),
+        photoUrl: photoUrlSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const { photoUrl, ...rest } = input;
+      const last = await ctx.prisma.menuItem.findFirst({
+        where: { categoryId: input.categoryId },
+        orderBy: { sortOrder: "desc" },
+      });
       return ctx.prisma.menuItem.create({
-        data: { ...rest, photoUrl: photoUrl || null },
+        data: { ...rest, photoUrl: photoUrl || null, sortOrder: (last?.sortOrder ?? -1) + 1 },
       });
     }),
 
@@ -106,13 +211,22 @@ export const menuRouter = router({
     .input(
       z.object({
         id: z.string(),
+        categoryId: z.string().optional(),
         nameTh: z.string().min(1).optional(),
         nameEn: z.string().min(1).optional(),
+        descriptionTh: z.string().optional(),
+        descriptionEn: z.string().optional(),
         basePrice: z.number().min(0).optional(),
         active: z.boolean().optional(),
         soldOut: z.boolean().optional(),
         featured: z.boolean().optional(),
-        photoUrl: z.string().url().optional().or(z.literal("")),
+        seasonal: z.boolean().optional(),
+        isNew: z.boolean().optional(),
+        staffOnly: z.boolean().optional(),
+        customerVisible: z.boolean().optional(),
+        discountEligible: z.boolean().optional(),
+        notes: z.string().optional(),
+        photoUrl: photoUrlSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -126,9 +240,41 @@ export const menuRouter = router({
       });
     }),
 
+  /**
+   * True delete — only for an item that's never actually been ordered.
+   * Anything with order history stays forever (§45) and gets deactivated
+   * instead, same pattern as tables/categories.
+   */
+  deleteItem: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.prisma.menuItem.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { orderItems: true } } },
+      });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+      if (item._count.orderItems > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${item.nameEn}" has been ordered before and can't be deleted — mark it Inactive instead to take it off the menu.`,
+        });
+      }
+      await ctx.prisma.menuItem.delete({ where: { id: input.id } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "MENU_ITEM_DELETED",
+        entityType: "MenuItem",
+        entityId: input.id,
+        previousValue: { nameEn: item.nameEn },
+      });
+      return { ok: true };
+    }),
+
+  // --- Modifier groups & options -----------------------------------------
+
   listModifierGroups: staffProcedure.query(async ({ ctx }) => {
     return ctx.prisma.modifierGroup.findMany({
-      include: { options: true },
+      include: { options: { orderBy: { sortOrder: "asc" } } },
       orderBy: { nameEn: "asc" },
     });
   }),
@@ -148,6 +294,58 @@ export const menuRouter = router({
       return ctx.prisma.modifierGroup.create({ data: input });
     }),
 
+  updateModifierGroup: permissionProcedure(Permission.MANAGE_MENU)
+    .input(
+      z.object({
+        id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
+        required: z.boolean().optional(),
+        multiSelect: z.boolean().optional(),
+        minSelect: z.number().int().min(0).optional(),
+        maxSelect: z.number().int().min(1).optional(),
+        active: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.prisma.modifierGroup.update({ where: { id }, data });
+    }),
+
+  /**
+   * True delete for a modifier group. Any options under it that were ever
+   * used in an order block the delete at the DB layer (no cascade from
+   * OrderItemModifier) — caught here and turned into a friendly message
+   * pointing at Inactive instead, same as everywhere else history matters.
+   */
+  deleteModifierGroup: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const group = await ctx.prisma.modifierGroup.findUnique({
+        where: { id: input.id },
+      });
+      if (!group) throw new TRPCError({ code: "NOT_FOUND" });
+      try {
+        await ctx.prisma.modifierGroup.delete({ where: { id: input.id } });
+      } catch (err) {
+        if (isFkViolation(err)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `"${group.nameEn}" has options used in past orders and can't be deleted — mark it Inactive instead.`,
+          });
+        }
+        throw err;
+      }
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "MODIFIER_GROUP_DELETED",
+        entityType: "ModifierGroup",
+        entityId: input.id,
+        previousValue: { nameEn: group.nameEn },
+      });
+      return { ok: true };
+    }),
+
   addModifierOption: permissionProcedure(Permission.MANAGE_MENU)
     .input(
       z.object({
@@ -159,10 +357,54 @@ export const menuRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { groupId, ...rest } = input;
+      const last = await ctx.prisma.modifierOption.findFirst({
+        where: { groupId },
+        orderBy: { sortOrder: "desc" },
+      });
       return ctx.prisma.modifierOption.create({
-        data: { ...rest, groupId },
+        data: { ...rest, groupId, sortOrder: (last?.sortOrder ?? -1) + 1 },
       });
     }),
+
+  updateModifierOption: permissionProcedure(Permission.MANAGE_MENU)
+    .input(
+      z.object({
+        id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
+        priceAdjustment: z.number().optional(),
+        active: z.boolean().optional(),
+        soldOut: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.prisma.modifierOption.update({ where: { id }, data });
+    }),
+
+  /** Same history guard as deleteModifierGroup, at the option level. */
+  deleteModifierOption: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const option = await ctx.prisma.modifierOption.findUnique({
+        where: { id: input.id },
+      });
+      if (!option) throw new TRPCError({ code: "NOT_FOUND" });
+      try {
+        await ctx.prisma.modifierOption.delete({ where: { id: input.id } });
+      } catch (err) {
+        if (isFkViolation(err)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `"${option.nameEn}" has been ordered before and can't be deleted — mark it Inactive or Sold out instead.`,
+          });
+        }
+        throw err;
+      }
+      return { ok: true };
+    }),
+
+  // --- Attach / detach modifier groups on an item ------------------------
 
   attachModifierGroup: permissionProcedure(Permission.MANAGE_MENU)
     .input(z.object({ menuItemId: z.string(), modifierGroupId: z.string() }))
@@ -179,5 +421,19 @@ export const menuRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already attached." });
       }
       return ctx.prisma.menuItemModifierGroup.create({ data: input });
+    }),
+
+  detachModifierGroup: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ menuItemId: z.string(), modifierGroupId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.prisma.menuItemModifierGroup.delete({
+        where: {
+          menuItemId_modifierGroupId: {
+            menuItemId: input.menuItemId,
+            modifierGroupId: input.modifierGroupId,
+          },
+        },
+      });
+      return { ok: true };
     }),
 });

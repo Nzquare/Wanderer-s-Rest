@@ -4,7 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/cn";
+import { ToggleButton } from "@/components/ui/toggle-button";
 import { QrCodeImage } from "./qr-code-image";
 
 function CreateTableForm() {
@@ -118,33 +118,18 @@ export function TablesManager() {
                 </p>
               </div>
               <div className="flex gap-1">
-                <button
-                  onClick={() =>
-                    update.mutate({ id: table.id, active: !table.active })
-                  }
-                  title={table.active ? "Remove from use" : "Bring back into use"}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-xs font-medium",
-                    table.active
-                      ? "bg-status-success/15 text-status-success"
-                      : "bg-status-neutral/15 text-status-neutral",
-                  )}
-                >
-                  {table.active ? "Active" : "Removed"}
-                </button>
-                <button
-                  onClick={() =>
-                    update.mutate({ id: table.id, qrEnabled: !table.qrEnabled })
-                  }
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-xs font-medium",
-                    table.qrEnabled
-                      ? "bg-teal-500/15 text-teal-600"
-                      : "bg-status-neutral/15 text-status-neutral",
-                  )}
-                >
-                  QR {table.qrEnabled ? "on" : "off"}
-                </button>
+                <ToggleButton
+                  on={table.active}
+                  onLabel="Active"
+                  offLabel="Removed"
+                  onClick={() => update.mutate({ id: table.id, active: !table.active })}
+                />
+                <ToggleButton
+                  on={table.qrEnabled}
+                  onLabel="QR on"
+                  offLabel="QR off"
+                  onClick={() => update.mutate({ id: table.id, qrEnabled: !table.qrEnabled })}
+                />
               </div>
             </div>
             <div className="flex items-center justify-between">
