@@ -87,7 +87,15 @@ export function TablesManager() {
       utils.sessions.listTables.invalidate();
     },
   });
+  const remove = trpc.tables.remove.useMutation({
+    onSuccess: () => {
+      setConfirmingDeleteId(null);
+      utils.tables.listAll.invalidate();
+      utils.sessions.listTables.invalidate();
+    },
+  });
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   // Only read on the client; the QR block that uses this is hidden until a
   // table is expanded, so there's nothing to mismatch during hydration.
   const [origin] = useState(() =>
@@ -114,6 +122,7 @@ export function TablesManager() {
                   onClick={() =>
                     update.mutate({ id: table.id, active: !table.active })
                   }
+                  title={table.active ? "Remove from use" : "Bring back into use"}
                   className={cn(
                     "rounded-full px-2.5 py-1 text-xs font-medium",
                     table.active
@@ -121,7 +130,7 @@ export function TablesManager() {
                       : "bg-status-neutral/15 text-status-neutral",
                   )}
                 >
-                  {table.active ? "Active" : "Inactive"}
+                  {table.active ? "Active" : "Removed"}
                 </button>
                 <button
                   onClick={() =>
@@ -138,12 +147,42 @@ export function TablesManager() {
                 </button>
               </div>
             </div>
-            <button
-              onClick={() => setExpanded(expanded === table.id ? null : table.id)}
-              className="text-xs text-teal-600 underline"
-            >
-              {expanded === table.id ? "Hide QR code" : "Show QR code"}
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setExpanded(expanded === table.id ? null : table.id)}
+                className="text-xs text-teal-600 underline"
+              >
+                {expanded === table.id ? "Hide QR code" : "Show QR code"}
+              </button>
+              {confirmingDeleteId === table.id ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-status-danger">Delete for good?</span>
+                  <button
+                    onClick={() => remove.mutate({ id: table.id })}
+                    disabled={remove.isPending}
+                    className="text-xs font-medium text-status-danger underline"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDeleteId(null)}
+                    className="text-xs text-foreground-muted underline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDeleteId(table.id)}
+                  className="text-xs text-status-danger underline"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+            {remove.error && confirmingDeleteId === table.id && (
+              <p className="text-xs text-status-danger">{remove.error.message}</p>
+            )}
             {expanded === table.id && origin && (
               <div className="flex items-center gap-3 rounded-lg bg-background p-3">
                 <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={120} />

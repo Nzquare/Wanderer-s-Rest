@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
+import { logAudit } from "@/server/audit";
 
 export const tablesRouter = router({
   listAll: permissionProcedure(Permission.MANAGE_TABLES).query(({ ctx }) => {
@@ -72,5 +73,38 @@ export const tablesRouter = router({
     .mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.prisma.restaurantTable.update({ where: { id }, data });
+    }),
+
+  /**
+   * True delete — only allowed for a table that has never actually been
+   * used (no sessions, no reservations), e.g. a duplicate or a typo just
+   * created. A table with real history can't be deleted (§45: historical
+   * records must never disappear) — deactivate it with `update` instead,
+   * which hides it everywhere it's used operationally without losing
+   * anything it's linked to.
+   */
+  remove: permissionProcedure(Permission.MANAGE_TABLES)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const table = await ctx.prisma.restaurantTable.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { sessions: true, reservations: true } } },
+      });
+      if (!table) throw new TRPCError({ code: "NOT_FOUND" });
+      if (table._count.sessions > 0 || table._count.reservations > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${table.code} has session or reservation history and can't be deleted — mark it Inactive instead to remove it from use.`,
+        });
+      }
+      await ctx.prisma.restaurantTable.delete({ where: { id: input.id } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "TABLE_DELETED",
+        entityType: "RestaurantTable",
+        entityId: input.id,
+        previousValue: { code: table.code, name: table.name },
+      });
+      return { ok: true };
     }),
 });
