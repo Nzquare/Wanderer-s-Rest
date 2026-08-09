@@ -74,6 +74,25 @@ async function computeBreakdown(
   return { tableFee, foodDrinkItems, foodDrinkSubtotal, bill, checkoutSettings };
 }
 
+/** Feeds the game-based achievement triggers (§36) now that the Game Library exists. */
+async function getMemberGameStats(tx: Prisma.TransactionClient, memberId: string) {
+  const played = await tx.gameSession.findMany({
+    where: { memberId },
+    include: { game: { select: { category: true, cooperative: true } } },
+  });
+  const uniqueGameIds = new Set(played.map((p) => p.gameId));
+  const categories = new Set(
+    played.map((p) => p.game.category).filter((c): c is string => !!c),
+  );
+  return {
+    totalGamesCount: played.length,
+    uniqueGamesCount: uniqueGameIds.size,
+    coopGamesCount: played.filter((p) => p.game.cooperative).length,
+    categoriesPlayedCount: categories.size,
+    specificGamesPlayed: Array.from(uniqueGameIds),
+  };
+}
+
 export const checkoutRouter = router({
   getPreview: cashierProcedure
     .input(z.object({ sessionId: z.string() }))
@@ -295,9 +314,10 @@ export const checkoutRouter = router({
           };
 
           // ── Automatic achievements (§30, §53) ─────────────────────────
-          const [catalog, unlocked] = await Promise.all([
+          const [catalog, unlocked, gameStats] = await Promise.all([
             tx.achievement.findMany({ where: { type: "AUTOMATIC", active: true } }),
             tx.memberAchievement.findMany({ where: { memberId: session.member.id } }),
+            getMemberGameStats(tx, session.member.id),
           ]);
           const newlyUnlocked = evaluateNewlyUnlocked(
             catalog as unknown as AchievementDef[],
@@ -307,6 +327,7 @@ export const checkoutRouter = router({
               totalLevel: after.totalLevel,
               rankOrder: after.rank.order,
               lifetimeSpending: toNum(session.member.lifetimeSpending) + eligible,
+              ...gameStats,
             },
           );
           for (const achievement of newlyUnlocked) {

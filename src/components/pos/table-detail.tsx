@@ -11,6 +11,7 @@ import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
 import { OrderPanel } from "./order-panel";
 import { OrderList } from "./order-list";
+import { GameLogPanel } from "./game-log-panel";
 import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -296,6 +297,8 @@ export function TableDetail({
             tableId={tableId}
             source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
           />
+
+          <GameLogPanel sessionId={session.id} />
 
           <MemberLinkPanel
             sessionId={session.id}
