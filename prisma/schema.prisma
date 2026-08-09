@@ -173,7 +173,8 @@ model PricingType {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  sessions TableSession[]
+  sessions     TableSession[]
+  reservations Reservation[]
 }
 
 model Package {
@@ -195,7 +196,8 @@ model Package {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  sessions TableSession[]
+  sessions     TableSession[]
+  reservations Reservation[]
 }
 
 enum SessionStatus {
@@ -887,6 +889,10 @@ model Reservation {
   table                   RestaurantTable?  @relation(fields: [tableId], references: [id])
   memberId                String?
   member                  Member?           @relation(fields: [memberId], references: [id])
+  pricingTypeId           String?
+  pricingType             PricingType?      @relation(fields: [pricingTypeId], references: [id])
+  packageId               String?
+  package                 Package?          @relation(fields: [packageId], references: [id])
   depositAmount           Decimal?          @db.Decimal(12, 2)
   depositStatus           DepositStatus     @default(NOT_REQUIRED)
   notes                   String?
