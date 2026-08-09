@@ -13,6 +13,7 @@ import { customerRouter } from "./customer";
 import { achievementsRouter } from "./achievements";
 import { gamesRouter } from "./games";
 import { reservationsRouter } from "./reservations";
+import { reportsRouter } from "./reports";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const })),
@@ -30,6 +31,7 @@ export const appRouter = router({
   achievements: achievementsRouter,
   games: gamesRouter,
   reservations: reservationsRouter,
+  reports: reportsRouter,
 });
 
 export type AppRouter = typeof appRouter;

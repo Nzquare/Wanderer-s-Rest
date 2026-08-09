@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
+import { logAudit } from "@/server/audit";
 
 const categoryEnum = z.enum([
   "VISITS",
@@ -154,6 +155,15 @@ export const achievementsRouter = router({
           data: { memberAchievementId: memberAchievement.id },
         });
       }
+
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "ACHIEVEMENT_AWARDED",
+        entityType: "Member",
+        entityId: input.memberId,
+        newValue: { achievementId: achievement.id, achievementCode: achievement.code },
+        reason: input.note,
+      });
 
       return { ok: true };
     }),

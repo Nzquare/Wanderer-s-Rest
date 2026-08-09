@@ -153,6 +153,16 @@ export function TableDetail({
   const acknowledgeAllForTable = trpc.orders.acknowledgeAllForTable.useMutation({
     onSuccess: () => utils.orders.listUnacknowledged.invalidate(),
   });
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const voidSession = trpc.sessions.voidSession.useMutation({
+    onSuccess: () => {
+      setVoidOpen(false);
+      setVoidReason("");
+      router.push(basePath);
+      utils.sessions.listTables.invalidate();
+    },
+  });
 
   // Opening a table's detail page counts as the cashier having seen its
   // orders — clears it from the alert banner (§17).
@@ -235,8 +245,43 @@ export function TableDetail({
                     Checkout →
                   </Button>
                 )}
+              <Button variant="danger" onClick={() => setVoidOpen((v) => !v)}>
+                Void Table
+              </Button>
             </div>
           </Card>
+
+          {voidOpen && (
+            <Card className="space-y-2 border-status-danger">
+              <p className="text-sm font-medium text-foreground">
+                Void this table — this cancels it with no charge. Requires a
+                reason and is recorded against your name.
+              </p>
+              <input
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                placeholder="Reason (e.g. customer left, opened by mistake)"
+                className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-status-danger"
+              />
+              {voidSession.error && (
+                <p className="text-sm text-status-danger">{voidSession.error.message}</p>
+              )}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setVoidOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={!voidReason.trim() || voidSession.isPending}
+                  onClick={() =>
+                    voidSession.mutate({ sessionId: session.id, reason: voidReason.trim() })
+                  }
+                >
+                  {voidSession.isPending ? "Voiding…" : "Confirm Void"}
+                </Button>
+              </div>
+            </Card>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

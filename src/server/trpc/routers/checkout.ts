@@ -10,6 +10,7 @@ import { computeBill, eligibleExpSpending } from "@/server/domain/billing";
 import { expFromSpending, computeProgression } from "@/server/domain/exp";
 import { evaluateNewlyUnlocked, type AchievementDef } from "@/server/domain/achievements";
 import { getSettings } from "@/server/settings/service";
+import { logAudit } from "@/server/audit";
 import { toPlayerRecord, toPricingConfig } from "./sessions";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -185,6 +186,14 @@ export const checkoutRouter = router({
           amount,
           appliedById: ctx.staff.id,
         },
+      });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "DISCOUNT_OVERRIDE",
+        entityType: "TableSession",
+        entityId: session.id,
+        newValue: { label, amount },
+        reason: input.reason,
       });
       return { ok: true, amount };
     }),

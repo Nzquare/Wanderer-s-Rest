@@ -6,6 +6,7 @@ import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
 import { computeProgression } from "@/server/domain/exp";
 import { getSettings } from "@/server/settings/service";
+import { logAudit } from "@/server/audit";
 
 /**
  * Minimal member lookup/creation for POS-side linking (§25). Full profile
@@ -223,6 +224,15 @@ export const membersRouter = router({
             lifetimeExpAfter: newLifetimeExp,
             note: input.note,
           },
+        });
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "EXP_ADJUSTMENT",
+          entityType: "Member",
+          entityId: member.id,
+          previousValue: { lifetimeExp: member.lifetimeExp },
+          newValue: { lifetimeExp: newLifetimeExp },
+          reason: `${input.reason}${input.note ? `: ${input.note}` : ""}`,
         });
         return { ok: true, newLifetimeExp };
       });

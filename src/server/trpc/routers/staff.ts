@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, permissionProcedure } from "../trpc";
 import { Permission, ALL_PERMISSIONS } from "@/server/rbac/permissions";
 import { hashSecret } from "@/server/auth/password";
+import { logAudit } from "@/server/audit";
 
 const manageStaff = () => permissionProcedure(Permission.MANAGE_STAFF);
 
@@ -57,20 +58,40 @@ export const staffRouter = router({
 
   setStatus: manageStaff()
     .input(z.object({ staffId: z.string(), status: z.enum(["ACTIVE", "INACTIVE"]) }))
-    .mutation(({ ctx, input }) => {
-      return ctx.prisma.staff.update({
+    .mutation(async ({ ctx, input }) => {
+      const before = await ctx.prisma.staff.findUnique({ where: { id: input.staffId } });
+      const updated = await ctx.prisma.staff.update({
         where: { id: input.staffId },
         data: { status: input.status },
       });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "STAFF_STATUS_CHANGE",
+        entityType: "Staff",
+        entityId: input.staffId,
+        previousValue: { status: before?.status },
+        newValue: { status: input.status },
+      });
+      return updated;
     }),
 
   setRole: manageStaff()
     .input(z.object({ staffId: z.string(), roleId: z.string() }))
-    .mutation(({ ctx, input }) => {
-      return ctx.prisma.staff.update({
+    .mutation(async ({ ctx, input }) => {
+      const before = await ctx.prisma.staff.findUnique({ where: { id: input.staffId } });
+      const updated = await ctx.prisma.staff.update({
         where: { id: input.staffId },
         data: { roleId: input.roleId },
       });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "ROLE_CHANGE",
+        entityType: "Staff",
+        entityId: input.staffId,
+        previousValue: { roleId: before?.roleId },
+        newValue: { roleId: input.roleId },
+      });
+      return updated;
     }),
 
   resetPin: manageStaff()
@@ -106,6 +127,9 @@ export const staffRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const before = await ctx.prisma.rolePermission.findMany({
+        where: { roleId: input.roleId },
+      });
       await ctx.prisma.$transaction([
         ctx.prisma.rolePermission.deleteMany({ where: { roleId: input.roleId } }),
         ctx.prisma.rolePermission.createMany({
@@ -115,6 +139,14 @@ export const staffRouter = router({
           })),
         }),
       ]);
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "PERMISSION_CHANGE",
+        entityType: "Role",
+        entityId: input.roleId,
+        previousValue: { permissions: before.map((p) => p.permission) },
+        newValue: { permissions: input.permissions },
+      });
       return { ok: true };
     }),
 });

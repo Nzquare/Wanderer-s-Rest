@@ -9,6 +9,7 @@ import {
   type PricingTypeConfig,
 } from "@/server/domain/pricing";
 import type { Prisma } from "@/generated/prisma/client";
+import { logAudit } from "@/server/audit";
 
 const ACTIVE_SESSION_STATUSES = [
   "OPEN",
@@ -488,6 +489,75 @@ export const sessionsRouter = router({
         }),
       ]);
       return { ok: true };
+    }),
+
+  /**
+   * Cancel/void an active table before it's paid (§22) — customer walked
+   * out, wrong table opened, etc. Requires a reason; who did it and when
+   * is always recorded (session.closedById/updatedAt + an audit entry),
+   * and the session row is kept forever, just marked VOIDED — nothing
+   * about a table is ever deleted.
+   */
+  voidSession: permissionProcedure(Permission.VOID_TRANSACTION)
+    .input(z.object({ sessionId: z.string(), reason: z.string().min(1).max(300) }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const session = await tx.tableSession.findUnique({
+          where: { id: input.sessionId },
+          include: { players: true, table: true },
+        });
+        if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+        if (session.status === "CLOSED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Table is already closed." });
+        }
+
+        const now = new Date();
+        for (const p of session.players) {
+          if (p.status === "STOPPED") continue;
+          const extraPausedMs =
+            p.status === "PAUSED" && p.pausedAt
+              ? Math.max(0, now.getTime() - p.pausedAt.getTime())
+              : 0;
+          await tx.sessionPlayer.update({
+            where: { id: p.id },
+            data: {
+              status: "STOPPED",
+              pausedAt: null,
+              endTime: now,
+              accumulatedPausedMs: p.accumulatedPausedMs + BigInt(extraPausedMs),
+            },
+          });
+        }
+
+        await tx.tableSession.update({
+          where: { id: session.id },
+          data: {
+            status: "CLOSED",
+            paymentStatus: "VOIDED",
+            endTime: now,
+            closedById: ctx.staff.id,
+            notes: session.notes
+              ? `${session.notes}\n[VOIDED by ${ctx.staff.name}: ${input.reason}]`
+              : `[VOIDED by ${ctx.staff.name}: ${input.reason}]`,
+          },
+        });
+        await tx.restaurantTable.update({
+          where: { id: session.tableId },
+          data: { status: "CLEANING" },
+        });
+
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "VOID_TRANSACTION",
+          entityType: "TableSession",
+          entityId: session.id,
+          previousValue: { status: session.status, table: session.table.code },
+          newValue: { status: "CLOSED", paymentStatus: "VOIDED" },
+          reason: input.reason,
+        });
+
+        return { ok: true };
+      });
     }),
 
   linkMember: staffProcedure
