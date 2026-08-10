@@ -155,36 +155,30 @@ export const menuRouter = router({
     }),
 
   /**
-   * Swaps position with the previous/next category so the left rail can be
-   * reordered. Renumbers every category's sortOrder to 0,1,2,... (in
-   * current display order) before swapping — items created before this
-   * feature existed can share a sortOrder (ties), and swapping two equal
-   * values is a no-op, so straightening ties out first is what makes the
-   * swap actually move anything.
+   * Drag-and-drop reorder for the category rail: the client sends every
+   * category id in its new top-to-bottom order, and this just renumbers
+   * sortOrder to match (0, 1, 2, ...). Only writes rows whose sortOrder
+   * actually changed. Ids the caller doesn't know about (created by
+   * someone else in the meantime) are left untouched rather than guessed at.
    */
-  reorderCategory: permissionProcedure(Permission.MANAGE_MENU)
-    .input(z.object({ id: z.string(), direction: z.enum(["up", "down"]) }))
+  reorderCategories: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ orderedIds: z.array(z.string()).min(1) }))
     .mutation(async ({ ctx, input }) => {
       const categories = await ctx.prisma.menuCategory.findMany({
-        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        where: { id: { in: input.orderedIds } },
       });
-      const index = categories.findIndex((c) => c.id === input.id);
-      if (index === -1) throw new TRPCError({ code: "NOT_FOUND" });
-      const neighborIndex = input.direction === "up" ? index - 1 : index + 1;
-      if (neighborIndex < 0 || neighborIndex >= categories.length) {
-        return { ok: true }; // already at that end — no-op, not an error
-      }
-      const renumbered = categories.map((c, i) => ({ ...c, sortOrder: i }));
-      // Swap the two positions in the renumbered array, then persist every
-      // row whose sortOrder actually changed from what it currently has.
-      [renumbered[index].sortOrder, renumbered[neighborIndex].sortOrder] = [
-        renumbered[neighborIndex].sortOrder,
-        renumbered[index].sortOrder,
-      ];
-      const updates = renumbered
-        .filter((c, i) => c.sortOrder !== categories[i].sortOrder)
-        .map((c) =>
-          ctx.prisma.menuCategory.update({ where: { id: c.id }, data: { sortOrder: c.sortOrder } }),
+      const byId = new Map(categories.map((c) => [c.id, c]));
+      const updates = input.orderedIds
+        .map((id, index) => ({ existing: byId.get(id), sortOrder: index }))
+        .filter(
+          (row): row is { existing: NonNullable<typeof row.existing>; sortOrder: number } =>
+            !!row.existing && row.existing.sortOrder !== row.sortOrder,
+        )
+        .map((row) =>
+          ctx.prisma.menuCategory.update({
+            where: { id: row.existing.id },
+            data: { sortOrder: row.sortOrder },
+          }),
         );
       await ctx.prisma.$transaction(updates);
       return { ok: true };
@@ -304,37 +298,30 @@ export const menuRouter = router({
     }),
 
   /**
-   * Swaps position with the previous/next item — scoped to items in the
-   * same category, matching how the item list is grouped in the editor.
-   * Moving an item to a different category (via updateItem) drops it at
-   * the end of that category rather than trying to preserve a position.
-   * Renumbers the whole category first, same reasoning as reorderCategory
-   * — ties from items created before reordering existed would otherwise
-   * make the swap a no-op.
+   * Drag-and-drop reorder for items within a category: the client sends
+   * every item id in the category in its new order, and this renumbers
+   * sortOrder to match. Scoped to categoryId as a safety check — an id
+   * that isn't actually in that category is silently skipped rather than
+   * moved cross-category (use updateItem's categoryId field for that).
    */
-  reorderItem: permissionProcedure(Permission.MANAGE_MENU)
-    .input(z.object({ id: z.string(), direction: z.enum(["up", "down"]) }))
+  reorderItems: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ categoryId: z.string(), orderedIds: z.array(z.string()).min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const item = await ctx.prisma.menuItem.findUnique({ where: { id: input.id } });
-      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
-      const siblings = await ctx.prisma.menuItem.findMany({
-        where: { categoryId: item.categoryId },
-        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      const items = await ctx.prisma.menuItem.findMany({
+        where: { id: { in: input.orderedIds }, categoryId: input.categoryId },
       });
-      const index = siblings.findIndex((i) => i.id === item.id);
-      const neighborIndex = input.direction === "up" ? index - 1 : index + 1;
-      if (neighborIndex < 0 || neighborIndex >= siblings.length) {
-        return { ok: true };
-      }
-      const renumbered = siblings.map((s, i) => ({ ...s, sortOrder: i }));
-      [renumbered[index].sortOrder, renumbered[neighborIndex].sortOrder] = [
-        renumbered[neighborIndex].sortOrder,
-        renumbered[index].sortOrder,
-      ];
-      const updates = renumbered
-        .filter((s, i) => s.sortOrder !== siblings[i].sortOrder)
-        .map((s) =>
-          ctx.prisma.menuItem.update({ where: { id: s.id }, data: { sortOrder: s.sortOrder } }),
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const updates = input.orderedIds
+        .map((id, index) => ({ existing: byId.get(id), sortOrder: index }))
+        .filter(
+          (row): row is { existing: NonNullable<typeof row.existing>; sortOrder: number } =>
+            !!row.existing && row.existing.sortOrder !== row.sortOrder,
+        )
+        .map((row) =>
+          ctx.prisma.menuItem.update({
+            where: { id: row.existing.id },
+            data: { sortOrder: row.sortOrder },
+          }),
         );
       await ctx.prisma.$transaction(updates);
       return { ok: true };

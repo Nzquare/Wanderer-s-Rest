@@ -9,6 +9,67 @@ import { ToggleButton } from "@/components/ui/toggle-button";
 import { PhotoUpload } from "./photo-upload";
 import { cn } from "@/lib/cn";
 
+/**
+ * Native HTML5 drag-and-drop reordering for a flat list. Grabbing the
+ * handle on any row and dropping it on another moves it to that position;
+ * everything in between shifts accordingly. `onReorder` receives the full
+ * new id order so the caller can persist it in one call
+ * (menu.reorderCategories / menu.reorderItems both take a full
+ * ordered-id list for exactly this).
+ *
+ * `draggable` only goes on the small grip handle, not the whole row — a
+ * draggable row would make the browser treat any click-and-slightly-move
+ * on the buttons inside it (Edit, toggles, Delete) as a drag gesture.
+ * `onDragOver`/`onDrop` still go on the whole row so dropping anywhere on
+ * it (not just the tiny handle) counts as a drop there.
+ */
+function useDragReorder<T>(items: T[], getId: (item: T) => string, onReorder: (orderedIds: string[]) => void) {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  function getHandleProps(id: string) {
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.effectAllowed = "move";
+        setDraggedId(id);
+      },
+      onDragEnd: () => {
+        setDraggedId(null);
+        setDropTargetId(null);
+      },
+    };
+  }
+
+  function getRowProps(id: string) {
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        if (draggedId && draggedId !== id) setDropTargetId(id);
+      },
+      onDragLeave: () => {
+        setDropTargetId((current) => (current === id ? null : current));
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setDropTargetId(null);
+        if (!draggedId || draggedId === id) return;
+        const ids = items.map(getId);
+        const fromIndex = ids.indexOf(draggedId);
+        const toIndex = ids.indexOf(id);
+        if (fromIndex === -1 || toIndex === -1) return;
+        const reordered = [...ids];
+        reordered.splice(fromIndex, 1);
+        reordered.splice(toIndex, 0, draggedId);
+        setDraggedId(null);
+        onReorder(reordered);
+      },
+    };
+  }
+
+  return { draggedId, dropTargetId, getHandleProps, getRowProps };
+}
+
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
@@ -47,14 +108,26 @@ function CategoryRow({
   category,
   selected,
   onSelect,
-  isFirst,
-  isLast,
+  handleProps,
+  rowProps,
+  isDragging,
+  isDropTarget,
 }: {
   category: CategoryListItem;
   selected: boolean;
   onSelect: () => void;
-  isFirst: boolean;
-  isLast: boolean;
+  handleProps: {
+    draggable: boolean;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragEnd: () => void;
+  };
+  rowProps: {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: () => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  isDragging: boolean;
+  isDropTarget: boolean;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -72,7 +145,6 @@ function CategoryRow({
       await invalidate();
     },
   });
-  const reorder = trpc.menu.reorderCategory.useMutation({ onSuccess: invalidate });
   const remove = trpc.menu.deleteCategory.useMutation({
     onSuccess: async () => {
       setConfirmingDelete(false);
@@ -103,50 +175,45 @@ function CategoryRow({
 
   return (
     <div
+      onDragOver={rowProps.onDragOver}
+      onDragLeave={rowProps.onDragLeave}
+      onDrop={rowProps.onDrop}
       className={cn(
         "flex w-full flex-col gap-1 rounded-xl border p-3 text-left transition-colors",
-        selected
-          ? "border-teal-500 bg-teal-500/10"
-          : "border-border bg-background hover:border-foreground-muted",
+        isDragging && "opacity-40",
+        isDropTarget
+          ? "border-dashed border-teal-500"
+          : selected
+            ? "border-teal-500 bg-teal-500/10"
+            : "border-border bg-background hover:border-foreground-muted",
       )}
     >
-      {/* Only the name/count area is the "select" button — the action row
-          below has its own buttons, and HTML doesn't allow nesting one
-          button inside another. */}
-      <button type="button" onClick={onSelect} className="flex flex-col gap-1 text-left">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-foreground">{category.nameEn}</span>
-          {!category.active && (
-            <span className="rounded-full bg-status-neutral/15 px-2 py-0.5 text-[11px] text-status-neutral">
-              Inactive
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-foreground-muted">
-          {category._count.items} item{category._count.items === 1 ? "" : "s"}
-        </p>
-      </button>
-      <div className="mt-1 flex flex-wrap items-center gap-3">
-        <span className="flex gap-1">
-          <button
-            type="button"
-            disabled={isFirst || reorder.isPending}
-            onClick={() => reorder.mutate({ id: category.id, direction: "up" })}
-            title="Move up"
-            className="rounded border border-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
-          >
-            ▲
-          </button>
-          <button
-            type="button"
-            disabled={isLast || reorder.isPending}
-            onClick={() => reorder.mutate({ id: category.id, direction: "down" })}
-            title="Move down"
-            className="rounded border border-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
-          >
-            ▼
-          </button>
+      <div className="flex items-start gap-2">
+        <span
+          {...handleProps}
+          title="Drag to reorder"
+          className="mt-0.5 cursor-grab select-none text-foreground-muted active:cursor-grabbing"
+        >
+          ⠿
         </span>
+        {/* Only the name/count area is the "select" button — the action row
+            below has its own buttons, and HTML doesn't allow nesting one
+            button inside another. */}
+        <button type="button" onClick={onSelect} className="flex flex-1 flex-col gap-1 text-left">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-foreground">{category.nameEn}</span>
+            {!category.active && (
+              <span className="rounded-full bg-status-neutral/15 px-2 py-0.5 text-[11px] text-status-neutral">
+                Inactive
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-foreground-muted">
+            {category._count.items} item{category._count.items === 1 ? "" : "s"}
+          </p>
+        </button>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => setEditing(true)}
@@ -242,44 +309,49 @@ type OrderingItem = {
 function ItemRow({
   item,
   onEdit,
-  isFirst,
-  isLast,
+  handleProps,
+  rowProps,
+  isDragging,
+  isDropTarget,
 }: {
   item: OrderingItem;
   onEdit: () => void;
-  isFirst: boolean;
-  isLast: boolean;
+  handleProps: {
+    draggable: boolean;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragEnd: () => void;
+  };
+  rowProps: {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: () => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  isDragging: boolean;
+  isDropTarget: boolean;
 }) {
   const utils = trpc.useUtils();
   const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
     onSuccess: () => utils.menu.listForOrdering.invalidate(),
   });
-  const reorder = trpc.menu.reorderItem.useMutation({
-    onSuccess: () => utils.menu.listForOrdering.invalidate(),
-  });
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
+    <div
+      onDragOver={rowProps.onDragOver}
+      onDragLeave={rowProps.onDragLeave}
+      onDrop={rowProps.onDrop}
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm transition-colors",
+        isDragging && "opacity-40",
+        isDropTarget && "outline outline-2 outline-dashed outline-teal-500",
+      )}
+    >
       <div className="flex items-center gap-2">
-        <span className="flex flex-col gap-0.5">
-          <button
-            type="button"
-            disabled={isFirst || reorder.isPending}
-            onClick={() => reorder.mutate({ id: item.id, direction: "up" })}
-            title="Move up"
-            className="rounded border border-border px-1 text-[10px] leading-tight text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
-          >
-            ▲
-          </button>
-          <button
-            type="button"
-            disabled={isLast || reorder.isPending}
-            onClick={() => reorder.mutate({ id: item.id, direction: "down" })}
-            title="Move down"
-            className="rounded border border-border px-1 text-[10px] leading-tight text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
-          >
-            ▼
-          </button>
+        <span
+          {...handleProps}
+          title="Drag to reorder"
+          className="cursor-grab select-none text-foreground-muted active:cursor-grabbing"
+        >
+          ⠿
         </span>
         <button onClick={onEdit} className="flex items-center gap-3 text-left">
           {item.photoUrl ? (
@@ -986,10 +1058,36 @@ export function MenuManager() {
   const { data: groups } = trpc.menu.listModifierGroups.useQuery();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const utils = trpc.useUtils();
 
   const activeCategoryId = selectedCategoryId ?? categories?.[0]?.id ?? null;
   const itemsForCategory =
     ordering?.find((c) => c.id === activeCategoryId)?.items ?? [];
+
+  const reorderCategories = trpc.menu.reorderCategories.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.menu.listCategories.invalidate(),
+        utils.menu.listForOrdering.invalidate(),
+      ]),
+  });
+  const categoryDrag = useDragReorder(
+    categories ?? [],
+    (c) => c.id,
+    (orderedIds) => reorderCategories.mutate({ orderedIds }),
+  );
+
+  const reorderItems = trpc.menu.reorderItems.useMutation({
+    onSuccess: () => utils.menu.listForOrdering.invalidate(),
+  });
+  const itemDrag = useDragReorder(
+    itemsForCategory,
+    (i) => i.id,
+    (orderedIds) => {
+      if (!activeCategoryId) return;
+      reorderItems.mutate({ categoryId: activeCategoryId, orderedIds });
+    },
+  );
 
   return (
     <div className="space-y-4">
@@ -1018,14 +1116,16 @@ export function MenuManager() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
           <div className="space-y-2">
             <AddCategoryForm />
-            {categories?.map((cat, i) => (
+            {categories?.map((cat) => (
               <CategoryRow
                 key={cat.id}
                 category={cat}
                 selected={cat.id === activeCategoryId}
                 onSelect={() => setSelectedCategoryId(cat.id)}
-                isFirst={i === 0}
-                isLast={i === categories.length - 1}
+                handleProps={categoryDrag.getHandleProps(cat.id)}
+                rowProps={categoryDrag.getRowProps(cat.id)}
+                isDragging={categoryDrag.draggedId === cat.id}
+                isDropTarget={categoryDrag.dropTargetId === cat.id}
               />
             ))}
           </div>
@@ -1037,13 +1137,15 @@ export function MenuManager() {
                   {categories?.find((c) => c.id === activeCategoryId)?.nameEn}
                 </p>
                 <div className="space-y-1">
-                  {itemsForCategory.map((item, i) => (
+                  {itemsForCategory.map((item) => (
                     <ItemRow
                       key={item.id}
                       item={item}
                       onEdit={() => setEditingItemId(item.id)}
-                      isFirst={i === 0}
-                      isLast={i === itemsForCategory.length - 1}
+                      handleProps={itemDrag.getHandleProps(item.id)}
+                      rowProps={itemDrag.getRowProps(item.id)}
+                      isDragging={itemDrag.draggedId === item.id}
+                      isDropTarget={itemDrag.dropTargetId === item.id}
                     />
                   ))}
                   {itemsForCategory.length === 0 && (
