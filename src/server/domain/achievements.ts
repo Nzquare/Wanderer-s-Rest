@@ -6,7 +6,8 @@
  * from a predefined list (§30).
  *
  * Game-based triggers (unique games played, categories played, a specific
- * game played) read from the Game Library's recorded plays (§34-37).
+ * game played at all, a specific game played N times) read from the Game
+ * Library's recorded plays (§34-37).
  */
 
 export type TriggerType =
@@ -18,6 +19,7 @@ export type TriggerType =
   | "CATEGORY_GAMES_COUNT"
   | "CATEGORIES_PLAYED_COUNT"
   | "SPECIFIC_GAME_PLAYED"
+  | "SPECIFIC_GAME_PLAY_COUNT"
   | "TOTAL_GAMES_COUNT"
   | "CUSTOM";
 
@@ -30,6 +32,8 @@ export interface MemberStatsForEvaluation {
   totalGamesCount?: number;
   categoriesPlayedCount?: number;
   specificGamesPlayed?: string[];
+  /** Play count per game id — feeds SPECIFIC_GAME_PLAY_COUNT. */
+  gamePlayCounts?: Record<string, number>;
 }
 
 export interface AchievementDef {
@@ -67,6 +71,8 @@ export function isAchievementSatisfied(
       return (stats.categoriesPlayedCount ?? 0) >= num(v, "count");
     case "SPECIFIC_GAME_PLAYED":
       return (stats.specificGamesPlayed ?? []).includes(String(v.gameId ?? ""));
+    case "SPECIFIC_GAME_PLAY_COUNT":
+      return (stats.gamePlayCounts?.[String(v.gameId ?? "")] ?? 0) >= num(v, "count");
     // CATEGORY_GAMES_COUNT and CUSTOM need per-achievement logic beyond a
     // generic threshold check — not auto-evaluated in V1; award manually
     // or extend this switch when the need is concrete.

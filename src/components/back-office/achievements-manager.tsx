@@ -29,6 +29,11 @@ const AUTO_TRIGGERS = [
   { value: "TOTAL_GAMES_COUNT", label: "Total games played", field: "count" },
   { value: "CATEGORIES_PLAYED_COUNT", label: "Game categories played", field: "count" },
   { value: "SPECIFIC_GAME_PLAYED", label: "A specific game played", field: "gameId" },
+  {
+    value: "SPECIFIC_GAME_PLAY_COUNT",
+    label: "A specific game played N times",
+    field: "gameIdAndCount",
+  },
 ] as const;
 type TriggerType = (typeof AUTO_TRIGGERS)[number]["value"];
 
@@ -46,6 +51,8 @@ const TRIGGER_HINTS: Partial<Record<TriggerType, string>> = {
     "Counts how many different game categories the member has played across (e.g. Strategy, Party) — any categories, no need to pick which ones. Set the threshold below.",
   SPECIFIC_GAME_PLAYED:
     "Unlocks the first time the member plays one exact game you pick below — unlike the counters above, this doesn't care how many games total they've played.",
+  SPECIFIC_GAME_PLAY_COUNT:
+    "Like 'A specific game played' but requires N plays of that one game, not just one — pick the game and set how many times below.",
 };
 
 /**
@@ -67,6 +74,7 @@ const CATEGORY_TRIGGER_TYPES: Partial<Record<Category, TriggerType[]>> = {
     "TOTAL_GAMES_COUNT",
     "CATEGORIES_PLAYED_COUNT",
     "SPECIFIC_GAME_PLAYED",
+    "SPECIFIC_GAME_PLAY_COUNT",
   ],
 };
 
@@ -123,6 +131,8 @@ interface FormState {
   type: "AUTOMATIC" | "MANUAL";
   triggerType: TriggerType;
   triggerValue: string;
+  /** Only used by the "gameIdAndCount" field — triggerValue holds the count. */
+  triggerGameId: string;
   triggerGameLabel: string;
   hasReward: boolean;
   benefitValue: string;
@@ -138,6 +148,7 @@ const BLANK_FORM: FormState = {
   type: "MANUAL",
   triggerType: "VISIT_COUNT",
   triggerValue: "",
+  triggerGameId: "",
   triggerGameLabel: "",
   hasReward: false,
   benefitValue: "",
@@ -246,14 +257,35 @@ function AchievementFields({
               <p className="mt-1 text-xs text-foreground-muted">{TRIGGER_HINTS[form.triggerType]}</p>
             )}
           </div>
-          {triggerField === "gameId" ? (
+          {triggerField === "gameId" && (
             <GamePicker
               value={form.triggerGameLabel}
               onChange={(gameId, label) =>
                 setForm((f) => ({ ...f, triggerValue: gameId, triggerGameLabel: label }))
               }
             />
-          ) : (
+          )}
+          {triggerField === "gameIdAndCount" && (
+            <>
+              <GamePicker
+                value={form.triggerGameLabel}
+                onChange={(gameId, label) =>
+                  setForm((f) => ({ ...f, triggerGameId: gameId, triggerGameLabel: label }))
+                }
+              />
+              <div className="w-24">
+                <label className="text-xs text-foreground-muted">Times</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.triggerValue}
+                  onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}
+                  className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                />
+              </div>
+            </>
+          )}
+          {triggerField !== "gameId" && triggerField !== "gameIdAndCount" && (
             <div className="w-28">
               <label className="text-xs text-foreground-muted">Threshold</label>
               <input
@@ -300,10 +332,16 @@ function AchievementFields({
 
 function buildPayload(form: FormState) {
   const triggerField = AUTO_TRIGGERS.find((t) => t.value === form.triggerType)?.field ?? "count";
-  const triggerValue =
-    form.type === "AUTOMATIC" && form.triggerValue
-      ? { [triggerField]: triggerField === "gameId" ? form.triggerValue : Number(form.triggerValue) }
-      : undefined;
+  let triggerValue: Record<string, string | number> | undefined;
+  if (form.type === "AUTOMATIC") {
+    if (triggerField === "gameId" && form.triggerValue) {
+      triggerValue = { gameId: form.triggerValue };
+    } else if (triggerField === "gameIdAndCount" && form.triggerGameId && form.triggerValue) {
+      triggerValue = { gameId: form.triggerGameId, count: Number(form.triggerValue) };
+    } else if (triggerField !== "gameId" && triggerField !== "gameIdAndCount" && form.triggerValue) {
+      triggerValue = { [triggerField]: Number(form.triggerValue) };
+    }
+  }
   return {
     nameEn: form.nameEn,
     nameTh: form.nameTh,
@@ -398,7 +436,13 @@ function AchievementCard({
       category: achievement.category,
       type: achievement.type,
       triggerType,
-      triggerValue: field === "gameId" ? String(tv[field] ?? "") : String(tv[field] ?? ""),
+      triggerValue:
+        field === "gameId"
+          ? String(tv.gameId ?? "")
+          : field === "gameIdAndCount"
+            ? String(tv.count ?? "")
+            : String(tv[field] ?? ""),
+      triggerGameId: field === "gameIdAndCount" ? String(tv.gameId ?? "") : "",
       triggerGameLabel: "",
       hasReward: achievement.hasReward,
       benefitValue: "",

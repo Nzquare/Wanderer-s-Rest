@@ -18,7 +18,15 @@ export interface PromotionConfig {
   id: string;
   name: string;
   type: DiscountType;
+  /**
+   * For FREE_ITEM this is resolved by the caller from the reward item's
+   * live price before eligibility/amount checks run — the stored Promotion
+   * row doesn't carry a meaningful `value` for this type (see checkout.ts's
+   * toPromotionConfig).
+   */
   value: number;
+  /** Set only for type FREE_ITEM — which menu item this promotion redeems. */
+  rewardMenuItemId: string | null;
   startDate: Date | null;
   endDate: Date | null;
   /** 0 = Sunday … 6 = Saturday, per Date#getDay(). Empty/null = every day. */
@@ -37,6 +45,8 @@ export interface PromotionContext {
   hasMember: boolean;
   currentSpend: number;
   pricingTypeId: string | null;
+  /** Menu item ids actually in this bill's order — FREE_ITEM can only redeem one of these. */
+  orderedMenuItemIds: Set<string>;
 }
 
 function toMinutes(hhmm: string): number {
@@ -67,6 +77,12 @@ export function isPromotionEligible(
   if (promo.memberOnly && !ctx.hasMember) return false;
   if (promo.minimumSpend != null && ctx.currentSpend < promo.minimumSpend) {
     return false;
+  }
+  if (promo.type === "FREE_ITEM") {
+    // Nothing to redeem if the reward item isn't actually in this order.
+    if (!promo.rewardMenuItemId || !ctx.orderedMenuItemIds.has(promo.rewardMenuItemId)) {
+      return false;
+    }
   }
   if (
     promo.eligiblePricingTypeIds &&

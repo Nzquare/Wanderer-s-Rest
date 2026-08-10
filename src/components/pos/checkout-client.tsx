@@ -181,7 +181,8 @@ export function CheckoutClient({
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm"
               >
                 <span>
-                  {promo.name} —{" "}
+                  {promo.name}
+                  {promo.rewardMenuItemName ? ` (free: ${promo.rewardMenuItemName})` : ""} —{" "}
                   <span className="text-teal-600">save ฿{promo.previewAmount.toFixed(0)}</span>
                   {promo.memberOnly && (
                     <span className="text-xs text-foreground-muted"> · members only</span>

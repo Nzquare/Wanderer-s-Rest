@@ -84,6 +84,8 @@ function toPromotionConfig(p: {
   name: string;
   type: string;
   value: unknown;
+  rewardMenuItemId: string | null;
+  rewardMenuItem: { basePrice: unknown } | null;
   startDate: Date | null;
   endDate: Date | null;
   activeDays: unknown;
@@ -99,7 +101,12 @@ function toPromotionConfig(p: {
     id: p.id,
     name: p.name,
     type: p.type as PromotionConfig["type"],
-    value: toNum(p.value),
+    // FREE_ITEM ignores the stored `value` entirely — the discount is
+    // whatever the reward item currently costs, read live so a later menu
+    // price change is honored instead of the price at promotion-creation
+    // time.
+    value: p.type === "FREE_ITEM" ? toNum(p.rewardMenuItem?.basePrice ?? 0) : toNum(p.value),
+    rewardMenuItemId: p.rewardMenuItemId,
     startDate: p.startDate,
     endDate: p.endDate,
     activeDays: (p.activeDays as number[] | null) ?? null,
@@ -123,11 +130,16 @@ async function getMemberGameStats(tx: Prisma.TransactionClient, memberId: string
   const categories = new Set(
     played.map((p) => p.game.categoryId).filter((c): c is string => !!c),
   );
+  const gamePlayCounts: Record<string, number> = {};
+  for (const p of played) {
+    gamePlayCounts[p.gameId] = (gamePlayCounts[p.gameId] ?? 0) + 1;
+  }
   return {
     totalGamesCount: played.length,
     uniqueGamesCount: uniqueGameIds.size,
     categoriesPlayedCount: categories.size,
     specificGamesPlayed: Array.from(uniqueGameIds),
+    gamePlayCounts,
   };
 }
 
@@ -256,8 +268,14 @@ export const checkoutRouter = router({
       const appliedPromotionIds = new Set(
         session.appliedDiscounts.map((d) => d.promotionId).filter((id): id is string => !!id),
       );
+      const orderedMenuItemIds = new Set(
+        session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
+      );
 
-      const promotions = await ctx.prisma.promotion.findMany({ where: { active: true } });
+      const promotions = await ctx.prisma.promotion.findMany({
+        where: { active: true },
+        include: { rewardMenuItem: { select: { basePrice: true, nameEn: true } } },
+      });
       const now = new Date();
       return promotions
         .filter((p) => !appliedPromotionIds.has(p.id))
@@ -268,17 +286,22 @@ export const checkoutRouter = router({
             hasMember: !!session.member,
             currentSpend: base,
             pricingTypeId: session.pricingTypeId,
+            orderedMenuItemIds,
           }),
         )
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          type: p.type,
-          value: p.value,
-          stackable: p.stackable,
-          memberOnly: p.memberOnly,
-          previewAmount: computeDiscountAmount(p, base),
-        }));
+        .map((p) => {
+          const source = promotions.find((raw) => raw.id === p.id);
+          return {
+            id: p.id,
+            name: p.name,
+            type: p.type,
+            value: p.value,
+            stackable: p.stackable,
+            memberOnly: p.memberOnly,
+            rewardMenuItemName: source?.rewardMenuItem?.nameEn ?? null,
+            previewAmount: computeDiscountAmount(p, base),
+          };
+        });
     }),
 
   applyPromotion: permissionProcedure(Permission.APPLY_DISCOUNTS)
@@ -290,6 +313,7 @@ export const checkoutRouter = router({
       }
       const promotion = await ctx.prisma.promotion.findUnique({
         where: { id: input.promotionId },
+        include: { rewardMenuItem: { select: { basePrice: true, nameEn: true } } },
       });
       if (!promotion) throw new TRPCError({ code: "NOT_FOUND" });
       if (session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
@@ -302,6 +326,9 @@ export const checkoutRouter = router({
         0,
       );
       const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const orderedMenuItemIds = new Set(
+        session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
+      );
       const config = toPromotionConfig(promotion);
       // Re-check eligibility server-side rather than trusting the client's
       // stale preview — a promotion's window or minimum spend may have
@@ -312,6 +339,7 @@ export const checkoutRouter = router({
           hasMember: !!session.member,
           currentSpend: base,
           pricingTypeId: session.pricingTypeId,
+          orderedMenuItemIds,
         })
       ) {
         throw new TRPCError({
@@ -320,12 +348,16 @@ export const checkoutRouter = router({
         });
       }
       const amount = computeDiscountAmount(config, base);
+      const label =
+        promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
+          ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
+          : promotion.name;
 
       await ctx.prisma.appliedDiscount.create({
         data: {
           sessionId: session.id,
           promotionId: promotion.id,
-          label: promotion.name,
+          label,
           amount,
           appliedById: ctx.staff.id,
         },
@@ -335,7 +367,7 @@ export const checkoutRouter = router({
         action: "PROMOTION_APPLIED",
         entityType: "TableSession",
         entityId: session.id,
-        newValue: { promotionId: promotion.id, label: promotion.name, amount },
+        newValue: { promotionId: promotion.id, label, amount },
       });
       return { ok: true, amount };
     }),

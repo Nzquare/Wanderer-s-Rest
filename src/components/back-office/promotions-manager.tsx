@@ -20,8 +20,11 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 type Promotion = {
   id: string;
   name: string;
-  type: "PERCENTAGE" | "FIXED_AMOUNT";
+  type: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM";
   value: number;
+  rewardMenuItemId: string | null;
+  rewardMenuItemName: string | null;
+  rewardMenuItemPrice: number | null;
   startDate: string | Date | null;
   endDate: string | Date | null;
   activeDays: number[] | null;
@@ -37,6 +40,35 @@ type Promotion = {
 function toDateInputValue(d: string | Date | null): string {
   if (!d) return "";
   return new Date(d).toISOString().slice(0, 10);
+}
+
+/** Flat "Category — Item" dropdown built from the same data the order screen uses. */
+function MenuItemSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (menuItemId: string) => void;
+}) {
+  const { data: categories } = trpc.menu.listForOrdering.useQuery();
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+    >
+      <option value="">Choose an item…</option>
+      {categories?.map((cat) => (
+        <optgroup key={cat.id} label={cat.nameEn}>
+          {cat.items.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.nameEn} — ฿{item.basePrice}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
 }
 
 function PromotionCard({
@@ -82,7 +114,11 @@ function PromotionCard({
             className="rounded border border-transparent bg-transparent text-lg font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
           />
           <p className="text-sm text-foreground-muted">
-            {promotion.type === "PERCENTAGE" ? `${promotion.value}% off` : `฿${promotion.value} off`}
+            {promotion.type === "PERCENTAGE"
+              ? `${promotion.value}% off`
+              : promotion.type === "FIXED_AMOUNT"
+                ? `฿${promotion.value} off`
+                : `Free: ${promotion.rewardMenuItemName ?? "no item chosen"}`}
           </p>
         </div>
         <ToggleButton
@@ -99,25 +135,41 @@ function PromotionCard({
           <select
             value={promotion.type}
             onChange={(e) =>
-              update.mutate({ id: promotion.id, type: e.target.value as "PERCENTAGE" | "FIXED_AMOUNT" })
+              update.mutate({
+                id: promotion.id,
+                type: e.target.value as Promotion["type"],
+              })
             }
             className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
           >
             <option value="PERCENTAGE">% off</option>
             <option value="FIXED_AMOUNT">฿ fixed off</option>
+            <option value="FREE_ITEM">Free item / goods</option>
           </select>
         </div>
-        <div>
-          <label className="text-xs text-foreground-muted">Value</label>
-          <TextInput
-            type="number"
-            defaultValue={promotion.value}
-            onBlur={(e) => {
-              const n = Number(e.target.value);
-              if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
-            }}
-          />
-        </div>
+        {promotion.type === "FREE_ITEM" ? (
+          <div>
+            <label className="text-xs text-foreground-muted">
+              Item to give away (must be in the guest&apos;s order to redeem)
+            </label>
+            <MenuItemSelect
+              value={promotion.rewardMenuItemId ?? ""}
+              onChange={(menuItemId) => update.mutate({ id: promotion.id, rewardMenuItemId: menuItemId })}
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs text-foreground-muted">Value</label>
+            <TextInput
+              type="number"
+              defaultValue={promotion.value}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
+              }}
+            />
+          </div>
+        )}
         <div>
           <label className="text-xs text-foreground-muted">Start date (optional)</label>
           <TextInput
@@ -252,16 +304,21 @@ function PromotionCard({
 
 function CreatePromotionForm() {
   const [name, setName] = useState("");
-  const [type, setType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
+  const [type, setType] = useState<Promotion["type"]>("PERCENTAGE");
   const [value, setValue] = useState("");
+  const [rewardMenuItemId, setRewardMenuItemId] = useState("");
   const utils = trpc.useUtils();
   const create = trpc.promotions.create.useMutation({
     onSuccess: async () => {
       setName("");
       setValue("");
+      setRewardMenuItemId("");
       await utils.promotions.listAll.invalidate();
     },
   });
+
+  const isFreeItem = type === "FREE_ITEM";
+  const canSubmit = name && (isFreeItem ? rewardMenuItemId : value);
 
   return (
     <Card className="flex flex-wrap items-end gap-2">
@@ -282,17 +339,32 @@ function CreatePromotionForm() {
         >
           <option value="PERCENTAGE">% off</option>
           <option value="FIXED_AMOUNT">฿ fixed off</option>
+          <option value="FREE_ITEM">Free item / goods</option>
         </select>
       </div>
-      <div className="w-24">
-        <label className="text-xs text-foreground-muted">Value</label>
-        <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} />
-      </div>
+      {isFreeItem ? (
+        <div className="w-64">
+          <label className="text-xs text-foreground-muted">Item to give away</label>
+          <MenuItemSelect value={rewardMenuItemId} onChange={setRewardMenuItemId} />
+        </div>
+      ) : (
+        <div className="w-24">
+          <label className="text-xs text-foreground-muted">Value</label>
+          <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} />
+        </div>
+      )}
       {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button
         size="md"
-        disabled={!name || !value || create.isPending}
-        onClick={() => create.mutate({ name, type, value: Number(value) })}
+        disabled={!canSubmit || create.isPending}
+        onClick={() =>
+          create.mutate({
+            name,
+            type,
+            value: isFreeItem ? 0 : Number(value),
+            rewardMenuItemId: isFreeItem ? rewardMenuItemId : undefined,
+          })
+        }
       >
         Add promotion
       </Button>
@@ -309,7 +381,10 @@ export function PromotionsManager() {
       <CreatePromotionForm />
       <p className="text-xs text-foreground-muted">
         Fine-tune each promotion&apos;s window, days, and eligibility below —
-        set up with just a name/type/value above, then narrow it down.
+        set up with just a name/type/value above, then narrow it down. A
+        &quot;Free item&quot; promotion only shows up at checkout once the
+        guest has actually ordered that item — it can&apos;t give away
+        something they didn&apos;t order.
       </p>
       {promotions?.map((p) => (
         <PromotionCard key={p.id} promotion={p} pricingTypes={pricingTypes ?? []} />

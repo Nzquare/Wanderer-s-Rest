@@ -345,6 +345,7 @@ model MenuItem {
   comboSlots     ComboSlot[]
   orderItems     OrderItem[]
   comboChoiceSelections OrderItemComboSelection[] @relation("ComboSelectionChoice")
+  redeemablePromotions  Promotion[]
 
   @@index([categoryId])
 }
@@ -571,6 +572,12 @@ model Promotion {
   name                   String
   type                   DiscountType
   value                  Decimal      @db.Decimal(12, 2)
+  // Set only for type FREE_ITEM — the specific menu item this promotion
+  // redeems. Its price is read live at redemption time (§45 note: this is
+  // a *rule*, not a historical record — the discount amount itself still
+  // gets snapshotted onto AppliedDiscount like every other promotion).
+  rewardMenuItemId       String?
+  rewardMenuItem         MenuItem?    @relation(fields: [rewardMenuItemId], references: [id])
   startDate              DateTime?
   endDate                DateTime?
   activeDays             Json?
@@ -727,6 +734,7 @@ enum AchievementTriggerType {
   CATEGORY_GAMES_COUNT
   CATEGORIES_PLAYED_COUNT
   SPECIFIC_GAME_PLAYED
+  SPECIFIC_GAME_PLAY_COUNT
   TOTAL_GAMES_COUNT
   LIFETIME_SPEND
   CUSTOM

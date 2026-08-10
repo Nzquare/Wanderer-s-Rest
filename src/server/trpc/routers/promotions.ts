@@ -15,18 +15,26 @@ function jsonOrNull<T>(v: T[] | null | undefined) {
 const manage = () => permissionProcedure(Permission.MANAGE_PROMOTIONS);
 
 /**
- * V1 keeps promotion types to the two checkout already understands
- * (PERCENTAGE / FIXED_AMOUNT) — the same pair manual discounts use. The
- * schema/domain layer supports more (MENU_ITEM_DISCOUNT, FREE_ITEM, etc.)
- * but those need item-level targeting checkout doesn't compute yet; adding
- * them here would create promotions the bill can't actually apply.
+ * V1 keeps promotion types to the three checkout understands how to apply:
+ * PERCENTAGE / FIXED_AMOUNT (off the whole bill, same pair manual discounts
+ * use) and FREE_ITEM (redeems one specific menu item the guest actually
+ * ordered — see checkout.ts's toPromotionConfig, which resolves the
+ * discount live from that item's current price). The schema/domain layer
+ * supports a few more (MENU_ITEM_DISCOUNT, TABLE_FEE_DISCOUNT, ...) but
+ * those need item/table-fee-level targeting checkout doesn't compute yet;
+ * adding them here would create promotions the bill can't actually apply.
  */
-const typeEnum = z.enum(["PERCENTAGE", "FIXED_AMOUNT"]);
+const typeEnum = z.enum(["PERCENTAGE", "FIXED_AMOUNT", "FREE_ITEM"]);
 
-const promotionInput = z.object({
+/** Base shape shared by create (fully validated) and update (partial, no cross-field checks — see below). */
+const promotionShape = z.object({
   name: z.string().min(1),
   type: typeEnum,
-  value: z.number().positive(),
+  // FREE_ITEM ignores this (the discount is resolved live from the
+  // reward item's price) — 0 is fine there; PERCENTAGE/FIXED_AMOUNT need
+  // a real positive value.
+  value: z.number().min(0),
+  rewardMenuItemId: z.string().optional().nullable(),
   startDate: z.string().datetime().optional().nullable(),
   endDate: z.string().datetime().optional().nullable(),
   activeDays: z.array(z.number().int().min(0).max(6)).optional().nullable(),
@@ -38,11 +46,28 @@ const promotionInput = z.object({
   stackable: z.boolean().default(false),
 });
 
+// Create requires the full shape, so the FREE_ITEM/value cross-field checks
+// can run against a complete picture. Update takes a partial patch (e.g.
+// just `{ id, active }` to toggle a promotion) where those checks don't
+// make sense against a partial object — the `create` mutation is the only
+// place a promotion's type is first chosen anyway.
+const promotionInput = promotionShape
+  .refine((v) => v.type !== "FREE_ITEM" || !!v.rewardMenuItemId, {
+    message: "Pick a menu item for this promotion to give away for free.",
+    path: ["rewardMenuItemId"],
+  })
+  .refine((v) => v.type === "FREE_ITEM" || v.value > 0, {
+    message: "Value must be greater than 0.",
+    path: ["value"],
+  });
+
 function serialize(p: {
   id: string;
   name: string;
   type: string;
   value: unknown;
+  rewardMenuItemId: string | null;
+  rewardMenuItem: { nameEn: string; basePrice: unknown } | null;
   startDate: Date | null;
   endDate: Date | null;
   activeDays: unknown;
@@ -57,10 +82,13 @@ function serialize(p: {
   return {
     id: p.id,
     name: p.name,
-    // V1 promotions are only ever created as PERCENTAGE/FIXED_AMOUNT (see
+    // V1 promotions are only ever created as one of these three (see
     // typeEnum above) — narrowing here just reflects that at the type level.
-    type: p.type as "PERCENTAGE" | "FIXED_AMOUNT",
+    type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
     value: toNum(p.value),
+    rewardMenuItemId: p.rewardMenuItemId,
+    rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
+    rewardMenuItemPrice: p.rewardMenuItem ? toNum(p.rewardMenuItem.basePrice) : null,
     startDate: p.startDate,
     endDate: p.endDate,
     activeDays: (p.activeDays as number[] | null) ?? null,
@@ -78,6 +106,7 @@ export const promotionsRouter = router({
   listAll: manage().query(async ({ ctx }) => {
     const promotions = await ctx.prisma.promotion.findMany({
       orderBy: { createdAt: "desc" },
+      include: { rewardMenuItem: { select: { nameEn: true, basePrice: true } } },
     });
     return promotions.map(serialize);
   }),
@@ -94,6 +123,7 @@ export const promotionsRouter = router({
           startDate: startDate ? new Date(startDate) : undefined,
           endDate: endDate ? new Date(endDate) : undefined,
         },
+        include: { rewardMenuItem: { select: { nameEn: true, basePrice: true } } },
       });
       await logAudit(ctx.prisma, {
         staffId: ctx.staff.id,
@@ -106,7 +136,7 @@ export const promotionsRouter = router({
     }),
 
   update: manage()
-    .input(promotionInput.partial().extend({ id: z.string(), active: z.boolean().optional() }))
+    .input(promotionShape.partial().extend({ id: z.string(), active: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const { id, startDate, endDate, activeDays, eligiblePricingTypeIds, ...rest } = input;
       const promotion = await ctx.prisma.promotion.update({
@@ -120,6 +150,7 @@ export const promotionsRouter = router({
             : {}),
           ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
         },
+        include: { rewardMenuItem: { select: { nameEn: true, basePrice: true } } },
       });
       return serialize(promotion);
     }),

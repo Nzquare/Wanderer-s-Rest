@@ -51,6 +51,30 @@ describe("isAchievementSatisfied", () => {
     ).toBe(false);
   });
 
+  it("SPECIFIC_GAME_PLAY_COUNT unlocks once that one game has been played enough times", () => {
+    const withPlays = { ...stats, gamePlayCounts: { catan: 4, chess: 1 } };
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "SPECIFIC_GAME_PLAY_COUNT", triggerValue: { gameId: "catan", count: 3 } },
+        withPlays,
+      ),
+    ).toBe(true);
+    // Not enough plays yet for that game.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "SPECIFIC_GAME_PLAY_COUNT", triggerValue: { gameId: "chess", count: 3 } },
+        withPlays,
+      ),
+    ).toBe(false);
+    // Plenty of plays overall, but none of them are the requested game.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "SPECIFIC_GAME_PLAY_COUNT", triggerValue: { gameId: "gloomhaven", count: 1 } },
+        withPlays,
+      ),
+    ).toBe(false);
+  });
+
   it("returns false with no trigger configured", () => {
     expect(isAchievementSatisfied({ triggerType: null, triggerValue: null }, stats)).toBe(false);
   });

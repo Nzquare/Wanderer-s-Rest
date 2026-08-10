@@ -337,13 +337,19 @@ export const menuRouter = router({
     .mutation(async ({ ctx, input }) => {
       const item = await ctx.prisma.menuItem.findUnique({
         where: { id: input.id },
-        include: { _count: { select: { orderItems: true } } },
+        include: { _count: { select: { orderItems: true, redeemablePromotions: true } } },
       });
       if (!item) throw new TRPCError({ code: "NOT_FOUND" });
       if (item._count.orderItems > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `"${item.nameEn}" has been ordered before and can't be deleted — mark it Inactive instead to take it off the menu.`,
+        });
+      }
+      if (item._count.redeemablePromotions > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${item.nameEn}" is the reward item for a promotion and can't be deleted — remove it from that promotion first, or mark the item Inactive instead.`,
         });
       }
       await ctx.prisma.menuItem.delete({ where: { id: input.id } });
