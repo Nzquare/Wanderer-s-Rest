@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { StaffAssignSelect } from "@/components/ui/staff-assign-select";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type TransactionRowData = RouterOutputs["reports"]["transactions"][number];
@@ -52,10 +53,12 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
   const utils = trpc.useUtils();
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
+  const [staffId, setStaffId] = useState("");
   const refund = trpc.sessions.refundSession.useMutation({
     onSuccess: async () => {
       setConfirming(false);
       setReason("");
+      setStaffId("");
       await utils.reports.transactions.invalidate();
     },
   });
@@ -101,6 +104,10 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
         <tr className="border-b border-border bg-background">
           <td colSpan={9} className="px-3 py-3">
             <div className="flex flex-wrap items-end gap-2">
+              <div className="w-48">
+                <label className="text-xs text-foreground-muted">Assigned to</label>
+                <StaffAssignSelect value={staffId} onChange={setStaffId} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" />
+              </div>
               <div className="min-w-64 flex-1">
                 <label className="text-xs text-foreground-muted">
                   Reason (required — this bill has already been paid and checked out)
@@ -115,15 +122,16 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
               <Button
                 size="md"
                 variant="danger"
-                disabled={!reason.trim() || refund.isPending}
-                onClick={() => refund.mutate({ sessionId: tx.id, reason: reason.trim() })}
+                disabled={!reason.trim() || !staffId || refund.isPending}
+                onClick={() => refund.mutate({ sessionId: tx.id, staffId, reason: reason.trim() })}
               >
                 Confirm refund
               </Button>
             </div>
             <p className="mt-1 text-xs text-foreground-muted">
-              This marks the bill Refunded and logs who did it and why — it won&apos;t reverse any
-              EXP or achievements already awarded from it.
+              This marks the bill Refunded and, if a member was linked, reverses the EXP/rank and
+              lifetime spending it earned them — logged as its own history entry, not erased.
+              Achievements already unlocked from it are left alone.
             </p>
             {refund.error && <p className="mt-1 text-xs text-status-danger">{refund.error.message}</p>}
           </td>

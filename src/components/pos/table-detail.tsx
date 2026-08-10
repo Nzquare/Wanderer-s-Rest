@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TableStatusBadge } from "@/components/ui/status-badge";
+import { StaffAssignSelect } from "@/components/ui/staff-assign-select";
 import { LiveTimer } from "./live-timer";
 import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
@@ -192,10 +193,12 @@ export function TableDetail({
   });
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
+  const [voidStaffId, setVoidStaffId] = useState("");
   const voidSession = trpc.sessions.voidSession.useMutation({
     onSuccess: () => {
       setVoidOpen(false);
       setVoidReason("");
+      setVoidStaffId("");
       router.push(basePath);
       utils.sessions.listTables.invalidate();
     },
@@ -296,14 +299,21 @@ export function TableDetail({
             <Card className="space-y-2 border-status-danger">
               <p className="text-sm font-medium text-foreground">
                 Void this table — this cancels it with no charge. Requires a
-                reason and is recorded against your name.
+                reason and who it&apos;s assigned to.
               </p>
-              <input
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
-                placeholder="Reason (e.g. customer left, opened by mistake)"
-                className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-status-danger"
-              />
+              <div className="flex flex-wrap gap-2">
+                <StaffAssignSelect
+                  value={voidStaffId}
+                  onChange={setVoidStaffId}
+                  className="h-11 rounded-lg border border-border bg-background px-3 text-sm"
+                />
+                <input
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="Reason (e.g. customer left, opened by mistake)"
+                  className="h-11 flex-1 min-w-40 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-status-danger"
+                />
+              </div>
               {voidSession.error && (
                 <p className="text-sm text-status-danger">{voidSession.error.message}</p>
               )}
@@ -313,9 +323,13 @@ export function TableDetail({
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={!voidReason.trim() || voidSession.isPending}
+                  disabled={!voidReason.trim() || !voidStaffId || voidSession.isPending}
                   onClick={() =>
-                    voidSession.mutate({ sessionId: session.id, reason: voidReason.trim() })
+                    voidSession.mutate({
+                      sessionId: session.id,
+                      staffId: voidStaffId,
+                      reason: voidReason.trim(),
+                    })
                   }
                 >
                   {voidSession.isPending ? "Voiding…" : "Confirm Void"}

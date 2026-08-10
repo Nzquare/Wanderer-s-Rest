@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, permissionProcedure } from "../trpc";
+import { router, permissionProcedure, staffProcedure } from "../trpc";
 import { Permission, ALL_PERMISSIONS } from "@/server/rbac/permissions";
 import { hashSecret } from "@/server/auth/password";
 import { logAudit } from "@/server/audit";
@@ -14,6 +14,23 @@ export const staffRouter = router({
       orderBy: { createdAt: "asc" },
     });
   }),
+
+  /**
+   * Bare id/name list of active staff — any signed-in staff member can
+   * read this (no sensitive fields), used for "assign to staff" pickers
+   * like void/refund where the record needs to reflect who's actually
+   * accountable, not necessarily whoever is clicking the button.
+   */
+  listActive: staffProcedure.query(({ ctx }) => {
+    return ctx.prisma.staff.findMany({
+      where: { status: "ACTIVE" },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+  }),
+
+  /** Just enough to default an "assign to staff" picker to whoever's logged in. */
+  me: staffProcedure.query(({ ctx }) => ({ id: ctx.staff.id, name: ctx.staff.name })),
 
   listRoles: manageStaff().query(({ ctx }) => {
     return ctx.prisma.role.findMany({

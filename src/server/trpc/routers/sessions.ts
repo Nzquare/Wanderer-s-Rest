@@ -8,6 +8,8 @@ import {
   type PlayerTimeRecord,
   type PricingTypeConfig,
 } from "@/server/domain/pricing";
+import { computeProgression } from "@/server/domain/exp";
+import { getSettings } from "@/server/settings/service";
 import type { Prisma } from "@/generated/prisma/client";
 import { logAudit } from "@/server/audit";
 
@@ -493,13 +495,24 @@ export const sessionsRouter = router({
 
   /**
    * Cancel/void an active table before it's paid (§22) — customer walked
-   * out, wrong table opened, etc. Requires a reason; who did it and when
-   * is always recorded (session.closedById/updatedAt + an audit entry),
-   * and the session row is kept forever, just marked VOIDED — nothing
-   * about a table is ever deleted.
+   * out, wrong table opened, etc. Requires a reason and which staff member
+   * the action is assigned to (the one accountable for it — e.g. an
+   * approving manager, not necessarily whoever is physically at the
+   * keyboard); who did it and when is always recorded (session.closedById/
+   * updatedAt + an audit entry), and the session row is kept forever, just
+   * marked VOIDED — nothing about a table is ever deleted. Never has EXP
+   * to reverse: it only ever runs before payment, and EXP is awarded at
+   * payment time (recordPayment in checkout.ts) — a voided session never
+   * got that far.
    */
   voidSession: permissionProcedure(Permission.VOID_TRANSACTION)
-    .input(z.object({ sessionId: z.string(), reason: z.string().min(1).max(300) }))
+    .input(
+      z.object({
+        sessionId: z.string(),
+        staffId: z.string(),
+        reason: z.string().min(1).max(300),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       return ctx.prisma.$transaction(async (tx) => {
         const session = await tx.tableSession.findUnique({
@@ -509,6 +522,10 @@ export const sessionsRouter = router({
         if (!session) throw new TRPCError({ code: "NOT_FOUND" });
         if (session.status === "CLOSED") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Table is already closed." });
+        }
+        const assignedStaff = await tx.staff.findUnique({ where: { id: input.staffId } });
+        if (!assignedStaff || assignedStaff.status !== "ACTIVE") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid active staff member." });
         }
 
         const now = new Date();
@@ -535,10 +552,10 @@ export const sessionsRouter = router({
             status: "CLOSED",
             paymentStatus: "VOIDED",
             endTime: now,
-            closedById: ctx.staff.id,
+            closedById: assignedStaff.id,
             notes: session.notes
-              ? `${session.notes}\n[VOIDED by ${ctx.staff.name}: ${input.reason}]`
-              : `[VOIDED by ${ctx.staff.name}: ${input.reason}]`,
+              ? `${session.notes}\n[VOIDED by ${assignedStaff.name}: ${input.reason}]`
+              : `[VOIDED by ${assignedStaff.name}: ${input.reason}]`,
           },
         });
         await tx.restaurantTable.update({
@@ -547,7 +564,7 @@ export const sessionsRouter = router({
         });
 
         await logAudit(tx, {
-          staffId: ctx.staff.id,
+          staffId: assignedStaff.id,
           action: "VOID_TRANSACTION",
           entityType: "TableSession",
           entityId: session.id,
@@ -565,56 +582,112 @@ export const sessionsRouter = router({
    * voidSession above, which only works before payment. This is the
    * post-payment reversal: gated on REFUND_TRANSACTION (a separate,
    * usually more restricted permission than VOID_TRANSACTION — see
-   * DEFAULT_ROLE_PERMISSIONS), requires a reason, and always attributes
-   * to the staff member actually performing it (ctx.staff — same as
-   * every other audited action here, so the record can't be pinned on
-   * someone who wasn't logged in for it).
+   * DEFAULT_ROLE_PERMISSIONS), requires a reason and which staff member
+   * the action is assigned to (the accountable party, picked explicitly
+   * rather than assumed to be whoever is clicking).
    *
-   * Deliberately narrow in scope: it only flips paymentStatus to
-   * REFUNDED and logs why. It does NOT reverse EXP, achievements, or
-   * member stats already awarded from this bill — those are historical
-   * (§45) and a refund doesn't rewrite history, it just marks the money
-   * side as reversed. If a correction to EXP/achievements is also
-   * needed, that's a separate manual action (member profile → adjust
-   * EXP / achievements).
+   * Also reverses whatever this bill actually granted the member: EXP,
+   * lifetime spending, and rank all get walked back by the exact amounts
+   * this session's own snapshot recorded (session.expAwarded and the
+   * subtotal/discount fields — never recomputed from *current* settings,
+   * per §45) via an offsetting ExpHistory row rather than deleting the
+   * original PURCHASE entry. Achievements already unlocked from this bill
+   * are deliberately left alone — revoking a milestone (and any benefit
+   * already redeemed from it) isn't something a refund should do
+   * silently; that stays a separate manual call if it's ever needed.
    */
   refundSession: permissionProcedure(Permission.REFUND_TRANSACTION)
-    .input(z.object({ sessionId: z.string(), reason: z.string().min(1).max(300) }))
+    .input(
+      z.object({
+        sessionId: z.string(),
+        staffId: z.string(),
+        reason: z.string().min(1).max(300),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const session = await ctx.prisma.tableSession.findUnique({
-        where: { id: input.sessionId },
-        include: { table: { select: { code: true } } },
-      });
-      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
-      if (session.status !== "CLOSED" || session.paymentStatus !== "PAID") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Only a paid, checked-out bill can be refunded this way — an open table uses Void instead.",
+      return ctx.prisma.$transaction(async (tx) => {
+        const session = await tx.tableSession.findUnique({
+          where: { id: input.sessionId },
+          include: { table: { select: { code: true } }, member: true },
         });
-      }
+        if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+        if (session.status !== "CLOSED" || session.paymentStatus !== "PAID") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Only a paid, checked-out bill can be refunded this way — an open table uses Void instead.",
+          });
+        }
+        const assignedStaff = await tx.staff.findUnique({ where: { id: input.staffId } });
+        if (!assignedStaff || assignedStaff.status !== "ACTIVE") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid active staff member." });
+        }
 
-      await ctx.prisma.tableSession.update({
-        where: { id: session.id },
-        data: {
-          paymentStatus: "REFUNDED",
-          notes: session.notes
-            ? `${session.notes}\n[REFUNDED by ${ctx.staff.name}: ${input.reason}]`
-            : `[REFUNDED by ${ctx.staff.name}: ${input.reason}]`,
-        },
+        let expReversed = 0;
+        if (session.member && session.expAwarded > 0) {
+          const member = session.member;
+          const eligibleSpendAtPayment = Math.max(
+            0,
+            toNum(session.subtotalTableFee) +
+              toNum(session.subtotalFoodDrink) -
+              toNum(session.discountTotal),
+          );
+          const newLifetimeExp = Math.max(0, member.lifetimeExp - session.expAwarded);
+          const newLifetimeSpending = Math.max(
+            0,
+            toNum(member.lifetimeSpending) - eligibleSpendAtPayment,
+          );
+
+          const [ranks, membershipSettings] = await Promise.all([
+            tx.rank.findMany({ orderBy: { order: "asc" } }),
+            getSettings("membership"),
+          ]);
+          const after = computeProgression(newLifetimeExp, membershipSettings.expPerLevel, ranks);
+
+          await tx.member.update({
+            where: { id: member.id },
+            data: {
+              lifetimeExp: newLifetimeExp,
+              lifetimeSpending: newLifetimeSpending,
+              rankId: after.rank.id,
+            },
+          });
+          await tx.expHistory.create({
+            data: {
+              memberId: member.id,
+              sessionId: session.id,
+              amount: -session.expAwarded,
+              reason: "REFUND",
+              staffId: assignedStaff.id,
+              lifetimeExpAfter: newLifetimeExp,
+              note: input.reason,
+            },
+          });
+          expReversed = session.expAwarded;
+        }
+
+        await tx.tableSession.update({
+          where: { id: session.id },
+          data: {
+            paymentStatus: "REFUNDED",
+            notes: session.notes
+              ? `${session.notes}\n[REFUNDED by ${assignedStaff.name}: ${input.reason}]`
+              : `[REFUNDED by ${assignedStaff.name}: ${input.reason}]`,
+          },
+        });
+
+        await logAudit(tx, {
+          staffId: assignedStaff.id,
+          action: "REFUND_TRANSACTION",
+          entityType: "TableSession",
+          entityId: session.id,
+          previousValue: { paymentStatus: "PAID", table: session.table.code },
+          newValue: { paymentStatus: "REFUNDED", expReversed },
+          reason: input.reason,
+        });
+
+        return { ok: true, expReversed };
       });
-
-      await logAudit(ctx.prisma, {
-        staffId: ctx.staff.id,
-        action: "REFUND_TRANSACTION",
-        entityType: "TableSession",
-        entityId: session.id,
-        previousValue: { paymentStatus: "PAID", table: session.table.code },
-        newValue: { paymentStatus: "REFUNDED" },
-        reason: input.reason,
-      });
-
-      return { ok: true };
     }),
 
   linkMember: staffProcedure
