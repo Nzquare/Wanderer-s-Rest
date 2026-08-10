@@ -1,8 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc/client";
+import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+type RouterOutputs = inferRouterOutputs<AppRouter>;
+type TransactionRowData = RouterOutputs["reports"]["transactions"][number];
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -22,24 +28,212 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  PAID: "bg-status-success/15 text-status-success",
+  REFUNDED: "bg-status-warning/15 text-status-warning",
+  VOIDED: "bg-status-danger/15 text-status-danger",
+  UNPAID: "bg-status-neutral/15 text-status-neutral",
+  PARTIAL: "bg-status-neutral/15 text-status-neutral",
+};
+
+function ExcelDownloadLink({ type, from, to }: { type: "summary" | "transactions"; from: string; to: string }) {
+  return (
+    <a
+      href={`/api/reports/export?type=${type}&from=${from}&to=${to}`}
+      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+    >
+      ⬇ Download Excel
+    </a>
+  );
+}
+
+/** One row in the Transactions detail table, with a Void/Refund action for paid bills. */
+function TransactionRow({ tx }: { tx: TransactionRowData }) {
+  const utils = trpc.useUtils();
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const refund = trpc.sessions.refundSession.useMutation({
+    onSuccess: async () => {
+      setConfirming(false);
+      setReason("");
+      await utils.reports.transactions.invalidate();
+    },
+  });
+
+  return (
+    <>
+      <tr className="border-b border-border last:border-0">
+        <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+          {tx.endTime ? new Date(tx.endTime).toLocaleString() : "—"}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+          {tx.receiptNumber ?? "—"}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-foreground">{tx.tableCode}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{tx.memberName ?? "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{tx.staffName ?? "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right text-foreground">
+          ฿{tx.totalAmount.toFixed(0)}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{tx.paymentMethods || "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2">
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[tx.paymentStatus] ?? ""}`}>
+            {tx.paymentStatus}
+          </span>
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-right">
+          {tx.paymentStatus === "PAID" &&
+            (confirming ? (
+              <button onClick={() => setConfirming(false)} className="text-xs text-foreground-muted underline">
+                Cancel
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirming(true)}
+                className="text-xs font-medium text-status-danger underline"
+              >
+                Void / refund
+              </button>
+            ))}
+        </td>
+      </tr>
+      {confirming && (
+        <tr className="border-b border-border bg-background">
+          <td colSpan={9} className="px-3 py-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-64 flex-1">
+                <label className="text-xs text-foreground-muted">
+                  Reason (required — this bill has already been paid and checked out)
+                </label>
+                <input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. customer disputed the charge, duplicate payment…"
+                  className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                />
+              </div>
+              <Button
+                size="md"
+                variant="danger"
+                disabled={!reason.trim() || refund.isPending}
+                onClick={() => refund.mutate({ sessionId: tx.id, reason: reason.trim() })}
+              >
+                Confirm refund
+              </Button>
+            </div>
+            <p className="mt-1 text-xs text-foreground-muted">
+              This marks the bill Refunded and logs who did it and why — it won&apos;t reverse any
+              EXP or achievements already awarded from it.
+            </p>
+            {refund.error && <p className="mt-1 text-xs text-status-danger">{refund.error.message}</p>}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function TransactionsTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.transactions.useQuery({ from, to });
+
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Transactions ({data.length})</p>
+        <ExcelDownloadLink type="transactions" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No checked-out bills in range.</p>
+      ) : (
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Date</th>
+              <th className="px-3 py-2 font-medium">Receipt #</th>
+              <th className="px-3 py-2 font-medium">Table</th>
+              <th className="px-3 py-2 font-medium">Member</th>
+              <th className="px-3 py-2 font-medium">Staff</th>
+              <th className="px-3 py-2 text-right font-medium">Total</th>
+              <th className="px-3 py-2 font-medium">Payment</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((tx) => (
+              <TransactionRow key={tx.id} tx={tx} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function AuditLogTable() {
+  const { data: auditLog } = trpc.reports.auditLog.useQuery();
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      {!auditLog || auditLog.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No audit entries yet.</p>
+      ) : (
+        <table className="w-full min-w-[700px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Time</th>
+              <th className="px-3 py-2 font-medium">Action</th>
+              <th className="px-3 py-2 font-medium">Entity</th>
+              <th className="px-3 py-2 font-medium">Staff</th>
+              <th className="px-3 py-2 font-medium">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {auditLog.map((entry) => (
+              <tr key={entry.id} className="border-b border-border last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {new Date(entry.createdAt).toLocaleString()}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 font-medium text-foreground">
+                  {entry.action.replace(/_/g, " ")}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{entry.entityType}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">
+                  {entry.staff?.name ?? "System"}
+                </td>
+                <td className="px-3 py-2 text-foreground-muted">{entry.reason ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 export function ReportsView() {
   const [from, setFrom] = useState(daysAgoISO(7));
   const [to, setTo] = useState(todayISO());
-  const [tab, setTab] = useState<"reports" | "audit">("reports");
-  const { data, isLoading } = trpc.reports.summary.useQuery({ from, to });
-  const { data: auditLog } = trpc.reports.auditLog.useQuery(undefined, {
-    enabled: tab === "audit",
-  });
+  const [tab, setTab] = useState<"overview" | "transactions" | "audit">("overview");
+  const { data, isLoading } = trpc.reports.summary.useQuery({ from, to }, { enabled: tab === "overview" });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1 rounded-full bg-surface p-1">
           <button
-            onClick={() => setTab("reports")}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "reports" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
+            onClick={() => setTab("overview")}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "overview" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
           >
-            Reports
+            Overview
+          </button>
+          <button
+            onClick={() => setTab("transactions")}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "transactions" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
+          >
+            Transactions
           </button>
           <button
             onClick={() => setTab("audit")}
@@ -48,7 +242,7 @@ export function ReportsView() {
             Audit Log
           </button>
         </div>
-        {tab === "reports" && (
+        {tab !== "audit" && (
           <div className="flex items-center gap-2">
             <input
               type="date"
@@ -65,10 +259,11 @@ export function ReportsView() {
             />
           </div>
         )}
+        {tab === "overview" && <ExcelDownloadLink type="summary" from={from} to={to} />}
       </div>
 
-      {tab === "reports" ? (
-        isLoading || !data ? (
+      {tab === "overview" &&
+        (isLoading || !data ? (
           <p className="text-sm text-foreground-muted">Loading…</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -103,7 +298,8 @@ export function ReportsView() {
                   label="Avg session length"
                   value={`${Math.round(data.table.avgSessionMinutes)} min`}
                 />
-                <Stat label="Voided tables" value={String(data.voidRefund.voidedCount)} />
+                <Stat label="Voided" value={String(data.voidRefund.voidedCount)} />
+                <Stat label="Refunded" value={String(data.voidRefund.refundedCount)} />
               </div>
             </Card>
 
@@ -163,30 +359,11 @@ export function ReportsView() {
               ))}
             </Card>
           </div>
-        )
-      ) : (
-        <div className="space-y-1">
-          {auditLog?.map((entry) => (
-            <Card key={entry.id} className="text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium text-foreground">
-                  {entry.action.replace(/_/g, " ")}
-                </span>
-                <span className="text-xs text-foreground-muted">
-                  {new Date(entry.createdAt).toLocaleString()}
-                </span>
-              </div>
-              <p className="text-xs text-foreground-muted">
-                {entry.staff?.name ?? "System"} · {entry.entityType}
-                {entry.reason ? ` · ${entry.reason}` : ""}
-              </p>
-            </Card>
-          ))}
-          {auditLog?.length === 0 && (
-            <p className="text-sm text-foreground-muted">No audit entries yet.</p>
-          )}
-        </div>
-      )}
+        ))}
+
+      {tab === "transactions" && <TransactionsTable from={from} to={to} />}
+
+      {tab === "audit" && <AuditLogTable />}
     </div>
   );
 }

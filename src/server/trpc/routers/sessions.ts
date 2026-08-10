@@ -560,6 +560,63 @@ export const sessionsRouter = router({
       });
     }),
 
+  /**
+   * Refund/void an *already checked-out* bill (§22/§43) — distinct from
+   * voidSession above, which only works before payment. This is the
+   * post-payment reversal: gated on REFUND_TRANSACTION (a separate,
+   * usually more restricted permission than VOID_TRANSACTION — see
+   * DEFAULT_ROLE_PERMISSIONS), requires a reason, and always attributes
+   * to the staff member actually performing it (ctx.staff — same as
+   * every other audited action here, so the record can't be pinned on
+   * someone who wasn't logged in for it).
+   *
+   * Deliberately narrow in scope: it only flips paymentStatus to
+   * REFUNDED and logs why. It does NOT reverse EXP, achievements, or
+   * member stats already awarded from this bill — those are historical
+   * (§45) and a refund doesn't rewrite history, it just marks the money
+   * side as reversed. If a correction to EXP/achievements is also
+   * needed, that's a separate manual action (member profile → adjust
+   * EXP / achievements).
+   */
+  refundSession: permissionProcedure(Permission.REFUND_TRANSACTION)
+    .input(z.object({ sessionId: z.string(), reason: z.string().min(1).max(300) }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.prisma.tableSession.findUnique({
+        where: { id: input.sessionId },
+        include: { table: { select: { code: true } } },
+      });
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      if (session.status !== "CLOSED" || session.paymentStatus !== "PAID") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Only a paid, checked-out bill can be refunded this way — an open table uses Void instead.",
+        });
+      }
+
+      await ctx.prisma.tableSession.update({
+        where: { id: session.id },
+        data: {
+          paymentStatus: "REFUNDED",
+          notes: session.notes
+            ? `${session.notes}\n[REFUNDED by ${ctx.staff.name}: ${input.reason}]`
+            : `[REFUNDED by ${ctx.staff.name}: ${input.reason}]`,
+        },
+      });
+
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "REFUND_TRANSACTION",
+        entityType: "TableSession",
+        entityId: session.id,
+        previousValue: { paymentStatus: "PAID", table: session.table.code },
+        newValue: { paymentStatus: "REFUNDED" },
+        reason: input.reason,
+      });
+
+      return { ok: true };
+    }),
+
   linkMember: staffProcedure
     .input(z.object({ sessionId: z.string(), memberId: z.string() }))
     .mutation(async ({ ctx, input }) => {
