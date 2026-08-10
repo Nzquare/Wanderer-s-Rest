@@ -5,11 +5,8 @@
  * achievements are never evaluated here — staff award those directly
  * from a predefined list (§30).
  *
- * Game-based triggers (unique games played, cooperative games, etc.) are
- * defined but not yet evaluated — the Game Library (§34-37) that would
- * supply that data hasn't been built yet. Once it lands, re-running this
- * evaluator against real game stats retroactively unlocks anything earned
- * in the meantime; nothing here needs to change.
+ * Game-based triggers (unique games played, categories played, a specific
+ * game played) read from the Game Library's recorded plays (§34-37).
  */
 
 export type TriggerType =
@@ -18,7 +15,6 @@ export type TriggerType =
   | "RANK_REACHED"
   | "LIFETIME_SPEND"
   | "UNIQUE_GAMES_COUNT"
-  | "COOP_GAMES_COUNT"
   | "CATEGORY_GAMES_COUNT"
   | "CATEGORIES_PLAYED_COUNT"
   | "SPECIFIC_GAME_PLAYED"
@@ -32,7 +28,6 @@ export interface MemberStatsForEvaluation {
   lifetimeSpending: number;
   uniqueGamesCount?: number;
   totalGamesCount?: number;
-  coopGamesCount?: number;
   categoriesPlayedCount?: number;
   specificGamesPlayed?: string[];
 }
@@ -68,8 +63,6 @@ export function isAchievementSatisfied(
       return (stats.uniqueGamesCount ?? 0) >= num(v, "count");
     case "TOTAL_GAMES_COUNT":
       return (stats.totalGamesCount ?? 0) >= num(v, "count");
-    case "COOP_GAMES_COUNT":
-      return (stats.coopGamesCount ?? 0) >= num(v, "count");
     case "CATEGORIES_PLAYED_COUNT":
       return (stats.categoriesPlayedCount ?? 0) >= num(v, "count");
     case "SPECIFIC_GAME_PLAYED":

@@ -74,9 +74,7 @@ export const gamesRouter = router({
 
   // --- Categories (§34) --------------------------------------------------
   // A managed list instead of free text, so it stays consistent across
-  // the library. isCoop marks whichever category means "cooperative" —
-  // the COOP_GAMES_COUNT achievement stat reads that flag instead of a
-  // separate checkbox on every game.
+  // the library.
 
   listCategories: staffProcedure.query(({ ctx }) => {
     return ctx.prisma.gameCategory.findMany({
@@ -102,7 +100,6 @@ export const gamesRouter = router({
         id: z.string(),
         nameTh: z.string().min(1).optional(),
         nameEn: z.string().min(1).optional(),
-        isCoop: z.boolean().optional(),
         active: z.boolean().optional(),
       }),
     )

@@ -21,16 +21,13 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 // ------------------------------------------------------------------------
-// Categories — a managed list instead of free text (§34). Mark whichever
-// category means "cooperative" with the Co-op toggle instead of a
-// separate checkbox on every game.
+// Categories — a managed list instead of free text (§34).
 // ------------------------------------------------------------------------
 
 type GameCategory = {
   id: string;
   nameTh: string;
   nameEn: string;
-  isCoop: boolean;
   active: boolean;
   _count: { games: number };
 };
@@ -61,12 +58,6 @@ function CategoryRow({ category }: { category: GameCategory }) {
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <ToggleButton
-          on={category.isCoop}
-          onLabel="Co-op"
-          offLabel="Not co-op"
-          onClick={() => update.mutate({ id: category.id, isCoop: !category.isCoop })}
-        />
         <ToggleButton
           on={category.active}
           onLabel="Active"
@@ -194,7 +185,6 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.nameEn}
-              {c.isCoop ? " (Co-op)" : ""}
             </option>
           ))}
         </select>
@@ -266,7 +256,6 @@ function GameCard({ game, categories }: { game: GameListItem; categories: GameCa
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.nameEn}
-              {c.isCoop ? " (Co-op)" : ""}
             </option>
           ))}
         </select>

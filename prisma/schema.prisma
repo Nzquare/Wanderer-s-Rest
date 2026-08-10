@@ -724,7 +724,6 @@ enum AchievementTriggerType {
   RANK_REACHED
   LEVEL_REACHED
   UNIQUE_GAMES_COUNT
-  COOP_GAMES_COUNT
   CATEGORY_GAMES_COUNT
   CATEGORIES_PLAYED_COUNT
   SPECIFIC_GAME_PLAYED
@@ -824,18 +823,11 @@ enum GameStatus {
   ARCHIVED
 }
 
-/**
- * Managed game categories (replaces free-text Game.category). A category
- * can be flagged isCoop so the achievement engine's "cooperative games
- * played" stat is data-driven — staff designate whichever category means
- * "cooperative" (usually one named "Co-op") instead of a separate
- * checkbox on every game.
- */
+/** Managed game categories (replaces free-text Game.category). */
 model GameCategory {
   id        String   @id @default(cuid())
   nameTh    String
   nameEn    String
-  isCoop    Boolean  @default(false)
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

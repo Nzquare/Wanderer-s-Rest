@@ -27,11 +27,26 @@ const AUTO_TRIGGERS = [
   { value: "LIFETIME_SPEND", label: "Lifetime spend (฿)", field: "amount" },
   { value: "UNIQUE_GAMES_COUNT", label: "Unique games played", field: "count" },
   { value: "TOTAL_GAMES_COUNT", label: "Total games played", field: "count" },
-  { value: "COOP_GAMES_COUNT", label: "Cooperative games played", field: "count" },
   { value: "CATEGORIES_PLAYED_COUNT", label: "Game categories played", field: "count" },
   { value: "SPECIFIC_GAME_PLAYED", label: "A specific game played", field: "gameId" },
 ] as const;
 type TriggerType = (typeof AUTO_TRIGGERS)[number]["value"];
+
+/**
+ * Short hint shown under the trigger dropdown so the difference between the
+ * three game-count triggers and the one game-picker trigger is obvious
+ * without having to guess from the label alone.
+ */
+const TRIGGER_HINTS: Partial<Record<TriggerType, string>> = {
+  UNIQUE_GAMES_COUNT:
+    "Counts how many different games the member has played in total — any games, no need to pick which ones. Set the threshold below.",
+  TOTAL_GAMES_COUNT:
+    "Counts every play logged, including repeats of the same game. Set the threshold below.",
+  CATEGORIES_PLAYED_COUNT:
+    "Counts how many different game categories the member has played across (e.g. Strategy, Party) — any categories, no need to pick which ones. Set the threshold below.",
+  SPECIFIC_GAME_PLAYED:
+    "Unlocks the first time the member plays one exact game you pick below — unlike the counters above, this doesn't care how many games total they've played.",
+};
 
 /**
  * Links each category to the trigger types that actually make sense for
@@ -50,7 +65,6 @@ const CATEGORY_TRIGGER_TYPES: Partial<Record<Category, TriggerType[]>> = {
   GAMES: [
     "UNIQUE_GAMES_COUNT",
     "TOTAL_GAMES_COUNT",
-    "COOP_GAMES_COUNT",
     "CATEGORIES_PLAYED_COUNT",
     "SPECIFIC_GAME_PLAYED",
   ],
@@ -228,6 +242,9 @@ function AchievementFields({
                 </option>
               ))}
             </select>
+            {TRIGGER_HINTS[form.triggerType] && (
+              <p className="mt-1 text-xs text-foreground-muted">{TRIGGER_HINTS[form.triggerType]}</p>
+            )}
           </div>
           {triggerField === "gameId" ? (
             <GamePicker
