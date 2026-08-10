@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
+import { Modal } from "@/components/ui/modal";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -30,7 +31,6 @@ type Promotion = {
   activeDays: number[] | null;
   startTime: string | null;
   endTime: string | null;
-  eligiblePricingTypeIds: string[] | null;
   minimumSpend: number | null;
   memberOnly: boolean;
   stackable: boolean;
@@ -40,6 +40,14 @@ type Promotion = {
 function toDateInputValue(d: string | Date | null): string {
   if (!d) return "";
   return new Date(d).toISOString().slice(0, 10);
+}
+
+function summaryLine(promotion: Promotion): string {
+  return promotion.type === "PERCENTAGE"
+    ? `${promotion.value}% off`
+    : promotion.type === "FIXED_AMOUNT"
+      ? `฿${promotion.value} off`
+      : `Free: ${promotion.rewardMenuItemName ?? "no item chosen"}`;
 }
 
 /** Flat "Category — Item" dropdown built from the same data the order screen uses. */
@@ -71,22 +79,31 @@ function MenuItemSelect({
   );
 }
 
-function PromotionCard({
+/**
+ * Full edit form, shown in a popup rather than inline — with a long
+ * promotion list, expanding every field for every row at once made the
+ * page unusable, so the list only shows a compact summary and this modal
+ * is where the fine-tuning (dates, days, eligibility, delete) happens.
+ */
+function PromotionDetailsModal({
   promotion,
-  pricingTypes,
+  onClose,
 }: {
   promotion: Promotion;
-  pricingTypes: { id: string; name: string }[];
+  onClose: () => void;
 }) {
   const utils = trpc.useUtils();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const invalidate = () => utils.promotions.listAll.invalidate();
   const update = trpc.promotions.update.useMutation({ onSuccess: invalidate });
-  const remove = trpc.promotions.remove.useMutation({ onSuccess: invalidate });
+  const remove = trpc.promotions.remove.useMutation({
+    onSuccess: async () => {
+      await invalidate();
+      onClose();
+    },
+  });
 
   const days = new Set(promotion.activeDays ?? []);
-  const eligibleIds = new Set(promotion.eligiblePricingTypeIds ?? []);
-
   function toggleDay(d: number) {
     const next = new Set(days);
     if (next.has(d)) next.delete(d);
@@ -94,211 +111,208 @@ function PromotionCard({
     update.mutate({ id: promotion.id, activeDays: Array.from(next) });
   }
 
-  function togglePricingType(id: string) {
-    const next = new Set(eligibleIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    update.mutate({ id: promotion.id, eligiblePricingTypeIds: Array.from(next) });
-  }
-
   return (
-    <Card className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <input
-            defaultValue={promotion.name}
-            onBlur={(e) =>
-              e.target.value !== promotion.name &&
-              update.mutate({ id: promotion.id, name: e.target.value })
-            }
-            className="rounded border border-transparent bg-transparent text-lg font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
-          />
-          <p className="text-sm text-foreground-muted">
-            {promotion.type === "PERCENTAGE"
-              ? `${promotion.value}% off`
-              : promotion.type === "FIXED_AMOUNT"
-                ? `฿${promotion.value} off`
-                : `Free: ${promotion.rewardMenuItemName ?? "no item chosen"}`}
-          </p>
-        </div>
-        <ToggleButton
-          on={promotion.active}
-          onLabel="Active"
-          offLabel="Inactive"
-          onClick={() => update.mutate({ id: promotion.id, active: !promotion.active })}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="text-xs text-foreground-muted">Discount type</label>
-          <select
-            value={promotion.type}
-            onChange={(e) =>
-              update.mutate({
-                id: promotion.id,
-                type: e.target.value as Promotion["type"],
-              })
-            }
-            className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
-          >
-            <option value="PERCENTAGE">% off</option>
-            <option value="FIXED_AMOUNT">฿ fixed off</option>
-            <option value="FREE_ITEM">Free item / goods</option>
-          </select>
-        </div>
-        {promotion.type === "FREE_ITEM" ? (
+    <Modal open onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <label className="text-xs text-foreground-muted">
-              Item to give away (must be in the guest&apos;s order to redeem)
-            </label>
-            <MenuItemSelect
-              value={promotion.rewardMenuItemId ?? ""}
-              onChange={(menuItemId) => update.mutate({ id: promotion.id, rewardMenuItemId: menuItemId })}
+            <input
+              defaultValue={promotion.name}
+              onBlur={(e) =>
+                e.target.value !== promotion.name &&
+                update.mutate({ id: promotion.id, name: e.target.value })
+              }
+              className="rounded border border-transparent bg-transparent text-lg font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
+            />
+            <p className="text-sm text-foreground-muted">{summaryLine(promotion)}</p>
+          </div>
+          <ToggleButton
+            on={promotion.active}
+            onLabel="Active"
+            offLabel="Inactive"
+            onClick={() => update.mutate({ id: promotion.id, active: !promotion.active })}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="text-xs text-foreground-muted">Discount type</label>
+            <select
+              value={promotion.type}
+              onChange={(e) =>
+                update.mutate({ id: promotion.id, type: e.target.value as Promotion["type"] })
+              }
+              className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+            >
+              <option value="PERCENTAGE">% off</option>
+              <option value="FIXED_AMOUNT">฿ fixed off</option>
+              <option value="FREE_ITEM">Free item / goods</option>
+            </select>
+          </div>
+          {promotion.type === "FREE_ITEM" ? (
+            <div>
+              <label className="text-xs text-foreground-muted">
+                Item to give away (must be in the guest&apos;s order to redeem)
+              </label>
+              <MenuItemSelect
+                value={promotion.rewardMenuItemId ?? ""}
+                onChange={(menuItemId) => update.mutate({ id: promotion.id, rewardMenuItemId: menuItemId })}
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs text-foreground-muted">Value</label>
+              <TextInput
+                type="number"
+                defaultValue={promotion.value}
+                onBlur={(e) => {
+                  const n = Number(e.target.value);
+                  if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
+                }}
+              />
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-foreground-muted">Start date (optional)</label>
+            <TextInput
+              type="date"
+              defaultValue={toDateInputValue(promotion.startDate)}
+              onBlur={(e) =>
+                update.mutate({
+                  id: promotion.id,
+                  startDate: e.target.value ? new Date(e.target.value).toISOString() : null,
+                })
+              }
             />
           </div>
-        ) : (
           <div>
-            <label className="text-xs text-foreground-muted">Value</label>
+            <label className="text-xs text-foreground-muted">End date (optional)</label>
+            <TextInput
+              type="date"
+              defaultValue={toDateInputValue(promotion.endDate)}
+              onBlur={(e) =>
+                update.mutate({
+                  id: promotion.id,
+                  endDate: e.target.value ? new Date(e.target.value).toISOString() : null,
+                })
+              }
+            />
+          </div>
+          <div>
+            <label className="text-xs text-foreground-muted">Start time (optional)</label>
+            <TextInput
+              type="time"
+              defaultValue={promotion.startTime ?? ""}
+              onBlur={(e) => update.mutate({ id: promotion.id, startTime: e.target.value || null })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-foreground-muted">End time (optional)</label>
+            <TextInput
+              type="time"
+              defaultValue={promotion.endTime ?? ""}
+              onBlur={(e) => update.mutate({ id: promotion.id, endTime: e.target.value || null })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-foreground-muted">Minimum spend ฿ (optional)</label>
             <TextInput
               type="number"
-              defaultValue={promotion.value}
-              onBlur={(e) => {
-                const n = Number(e.target.value);
-                if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
-              }}
+              defaultValue={promotion.minimumSpend ?? ""}
+              onBlur={(e) =>
+                update.mutate({
+                  id: promotion.id,
+                  minimumSpend: e.target.value ? Number(e.target.value) : null,
+                })
+              }
             />
           </div>
-        )}
-        <div>
-          <label className="text-xs text-foreground-muted">Start date (optional)</label>
-          <TextInput
-            type="date"
-            defaultValue={toDateInputValue(promotion.startDate)}
-            onBlur={(e) =>
-              update.mutate({
-                id: promotion.id,
-                startDate: e.target.value ? new Date(e.target.value).toISOString() : null,
-              })
-            }
-          />
         </div>
-        <div>
-          <label className="text-xs text-foreground-muted">End date (optional)</label>
-          <TextInput
-            type="date"
-            defaultValue={toDateInputValue(promotion.endDate)}
-            onBlur={(e) =>
-              update.mutate({
-                id: promotion.id,
-                endDate: e.target.value ? new Date(e.target.value).toISOString() : null,
-              })
-            }
-          />
-        </div>
-        <div>
-          <label className="text-xs text-foreground-muted">Start time (optional)</label>
-          <TextInput
-            type="time"
-            defaultValue={promotion.startTime ?? ""}
-            onBlur={(e) => update.mutate({ id: promotion.id, startTime: e.target.value || null })}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-foreground-muted">End time (optional)</label>
-          <TextInput
-            type="time"
-            defaultValue={promotion.endTime ?? ""}
-            onBlur={(e) => update.mutate({ id: promotion.id, endTime: e.target.value || null })}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-foreground-muted">Minimum spend ฿ (optional)</label>
-          <TextInput
-            type="number"
-            defaultValue={promotion.minimumSpend ?? ""}
-            onBlur={(e) =>
-              update.mutate({
-                id: promotion.id,
-                minimumSpend: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          />
-        </div>
-      </div>
 
-      <div className="space-y-1">
-        <p className="text-xs text-foreground-muted">Active days (leave all off = every day)</p>
-        <div className="flex flex-wrap gap-1.5">
-          {DAY_LABELS.map((label, i) => (
-            <ToggleButton
-              key={i}
-              on={days.has(i)}
-              onLabel={label}
-              onClick={() => toggleDay(i)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {pricingTypes.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-foreground-muted">
-            Eligible pricing types (leave all off = every pricing type)
-          </p>
+          <p className="text-xs text-foreground-muted">Active days (leave all off = every day)</p>
           <div className="flex flex-wrap gap-1.5">
-            {pricingTypes.map((pt) => (
-              <ToggleButton
-                key={pt.id}
-                on={eligibleIds.has(pt.id)}
-                onLabel={pt.name}
-                onClick={() => togglePricingType(pt.id)}
-              />
+            {DAY_LABELS.map((label, i) => (
+              <ToggleButton key={i} on={days.has(i)} onLabel={label} onClick={() => toggleDay(i)} />
             ))}
           </div>
         </div>
-      )}
 
-      <div className="flex flex-wrap gap-2">
-        <ToggleButton
-          on={promotion.memberOnly}
-          onLabel="Members only"
-          offLabel="Everyone"
-          onClick={() => update.mutate({ id: promotion.id, memberOnly: !promotion.memberOnly })}
-        />
-        <ToggleButton
-          on={promotion.stackable}
-          onLabel="Stackable"
-          offLabel="Exclusive"
-          onClick={() => update.mutate({ id: promotion.id, stackable: !promotion.stackable })}
-        />
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <ToggleButton
+            on={promotion.memberOnly}
+            onLabel="Members only"
+            offLabel="Everyone"
+            onClick={() => update.mutate({ id: promotion.id, memberOnly: !promotion.memberOnly })}
+          />
+          <ToggleButton
+            on={promotion.stackable}
+            onLabel="Stackable"
+            offLabel="Exclusive"
+            onClick={() => update.mutate({ id: promotion.id, stackable: !promotion.stackable })}
+          />
+        </div>
 
-      <div className="border-t border-border pt-2">
-        {confirmingDelete ? (
-          <span className="flex items-center gap-2 text-xs">
-            <span className="text-status-danger">Delete for good?</span>
-            <button
-              disabled={remove.isPending}
-              onClick={() => remove.mutate({ id: promotion.id })}
-              className="font-medium text-status-danger underline"
-            >
-              Confirm
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          {confirmingDelete ? (
+            <span className="flex items-center gap-2 text-xs">
+              <span className="text-status-danger">Delete for good?</span>
+              <button
+                disabled={remove.isPending}
+                onClick={() => remove.mutate({ id: promotion.id })}
+                className="font-medium text-status-danger underline"
+              >
+                Confirm
+              </button>
+              <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirmingDelete(true)} className="text-xs text-status-danger underline">
+              Delete
             </button>
-            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
-              Cancel
-            </button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirmingDelete(true)} className="text-xs text-status-danger underline">
-            Delete
-          </button>
-        )}
+          )}
+          <Button size="md" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
         {remove.error && confirmingDelete && (
-          <p className="mt-1 text-xs text-status-danger">{remove.error.message}</p>
+          <p className="text-xs text-status-danger">{remove.error.message}</p>
         )}
       </div>
-    </Card>
+    </Modal>
+  );
+}
+
+function PromotionSummaryRow({ promotion }: { promotion: Promotion }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const update = trpc.promotions.update.useMutation({
+    onSuccess: () => utils.promotions.listAll.invalidate(),
+  });
+
+  return (
+    <>
+      <Card className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-medium text-foreground">{promotion.name}</p>
+          <p className="text-sm text-foreground-muted">{summaryLine(promotion)}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ToggleButton
+            on={promotion.active}
+            onLabel="Active"
+            offLabel="Inactive"
+            onClick={() => update.mutate({ id: promotion.id, active: !promotion.active })}
+          />
+          <Button size="md" variant="outline" onClick={() => setOpen(true)}>
+            Details
+          </Button>
+        </div>
+      </Card>
+      {open && <PromotionDetailsModal promotion={promotion} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -374,24 +388,25 @@ function CreatePromotionForm() {
 
 export function PromotionsManager() {
   const { data: promotions } = trpc.promotions.listAll.useQuery();
-  const { data: pricingTypes } = trpc.pricingTypes.list.useQuery();
 
   return (
     <div className="space-y-4">
       <CreatePromotionForm />
       <p className="text-xs text-foreground-muted">
-        Fine-tune each promotion&apos;s window, days, and eligibility below —
-        set up with just a name/type/value above, then narrow it down. A
-        &quot;Free item&quot; promotion only shows up at checkout once the
-        guest has actually ordered that item — it can&apos;t give away
+        Set up with just a name/type/value above, then open{" "}
+        <span className="font-medium text-foreground">Details</span> on a promotion below to
+        fine-tune its window, days, and eligibility. A &quot;Free item&quot; promotion only shows
+        up at checkout once the guest has actually ordered that item — it can&apos;t give away
         something they didn&apos;t order.
       </p>
-      {promotions?.map((p) => (
-        <PromotionCard key={p.id} promotion={p} pricingTypes={pricingTypes ?? []} />
-      ))}
-      {promotions?.length === 0 && (
-        <p className="text-sm text-foreground-muted">No promotions yet — add one above.</p>
-      )}
+      <div className="space-y-2">
+        {promotions?.map((p) => (
+          <PromotionSummaryRow key={p.id} promotion={p} />
+        ))}
+        {promotions?.length === 0 && (
+          <p className="text-sm text-foreground-muted">No promotions yet — add one above.</p>
+        )}
+      </div>
     </div>
   );
 }

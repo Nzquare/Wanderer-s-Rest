@@ -33,7 +33,6 @@ export interface PromotionConfig {
   activeDays: number[] | null;
   startTime: string | null;
   endTime: string | null;
-  eligiblePricingTypeIds: string[] | null;
   minimumSpend: number | null;
   memberOnly: boolean;
   stackable: boolean;
@@ -44,7 +43,6 @@ export interface PromotionContext {
   now: Date;
   hasMember: boolean;
   currentSpend: number;
-  pricingTypeId: string | null;
   /** Menu item ids actually in this bill's order — FREE_ITEM can only redeem one of these. */
   orderedMenuItemIds: Set<string>;
 }
@@ -83,14 +81,6 @@ export function isPromotionEligible(
     if (!promo.rewardMenuItemId || !ctx.orderedMenuItemIds.has(promo.rewardMenuItemId)) {
       return false;
     }
-  }
-  if (
-    promo.eligiblePricingTypeIds &&
-    promo.eligiblePricingTypeIds.length > 0 &&
-    ctx.pricingTypeId &&
-    !promo.eligiblePricingTypeIds.includes(ctx.pricingTypeId)
-  ) {
-    return false;
   }
   return true;
 }

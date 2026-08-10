@@ -37,13 +37,17 @@ export function CheckoutClient({
   const { data: eligiblePromotions } = trpc.checkout.listEligiblePromotions.useQuery({
     sessionId,
   });
+  const { data: allPromotions } = trpc.checkout.listAllPromotions.useQuery();
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
 
+  const [discountMode, setDiscountMode] = useState<"promotion" | "custom">("promotion");
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">(
     "PERCENTAGE",
   );
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
+  const [overridePromotionId, setOverridePromotionId] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [payments, setPayments] = useState<PaymentRow[]>([
     { key: "p1", method: "CASH", amount: "" },
   ]);
@@ -72,6 +76,16 @@ export function CheckoutClient({
         utils.checkout.getPreview.invalidate({ sessionId }),
         utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
       ]),
+  });
+  const applyPromotionOverride = trpc.checkout.applyPromotionOverride.useMutation({
+    onSuccess: async () => {
+      setOverridePromotionId("");
+      setOverrideReason("");
+      await Promise.all([
+        utils.checkout.getPreview.invalidate({ sessionId }),
+        utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+      ]);
+    },
   });
   const recordPayment = trpc.checkout.recordPayment.useMutation({
     onSuccess: async (data) => {
@@ -206,45 +220,107 @@ export function CheckoutClient({
       )}
 
       <Card className="space-y-2">
-        <p className="text-sm font-medium text-foreground-muted">Apply discount</p>
-        <div className="flex flex-wrap items-end gap-2">
-          <select
-            value={discountType}
-            onChange={(e) => setDiscountType(e.target.value as typeof discountType)}
-            className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
-          >
-            <option value="PERCENTAGE">%</option>
-            <option value="FIXED_AMOUNT">฿ fixed</option>
-          </select>
-          <input
-            type="number"
-            value={discountValue}
-            onChange={(e) => setDiscountValue(e.target.value)}
-            placeholder="Value"
-            className="h-10 w-24 rounded-lg border border-border bg-background px-2 text-sm"
-          />
-          <input
-            value={discountReason}
-            onChange={(e) => setDiscountReason(e.target.value)}
-            placeholder="Reason"
-            className="h-10 flex-1 min-w-32 rounded-lg border border-border bg-background px-2 text-sm"
-          />
-          <Button
-            size="md"
-            variant="outline"
-            disabled={!discountValue || !discountReason || applyDiscount.isPending}
-            onClick={() =>
-              applyDiscount.mutate({
-                sessionId,
-                type: discountType,
-                value: Number(discountValue),
-                reason: discountReason,
-              })
-            }
-          >
-            Apply
-          </Button>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground-muted">Apply discount</p>
+          <div className="flex gap-1 rounded-full bg-background p-0.5 text-xs">
+            <button
+              onClick={() => setDiscountMode("promotion")}
+              className={`rounded-full px-2.5 py-1 font-medium ${discountMode === "promotion" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
+            >
+              From promotion
+            </button>
+            <button
+              onClick={() => setDiscountMode("custom")}
+              className={`rounded-full px-2.5 py-1 font-medium ${discountMode === "custom" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
+            >
+              Custom amount
+            </button>
+          </div>
         </div>
+
+        {discountMode === "promotion" ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <select
+              value={overridePromotionId}
+              onChange={(e) => setOverridePromotionId(e.target.value)}
+              className="h-10 min-w-48 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
+            >
+              <option value="">Choose a promotion…</option>
+              {allPromotions?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} —{" "}
+                  {p.type === "PERCENTAGE"
+                    ? `${p.value}% off`
+                    : p.type === "FIXED_AMOUNT"
+                      ? `฿${p.value} off`
+                      : `free: ${p.rewardMenuItemName ?? "item"}`}
+                </option>
+              ))}
+            </select>
+            <input
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Reason (e.g. manager approved outside normal window)"
+              className="h-10 flex-1 min-w-40 rounded-lg border border-border bg-background px-2 text-sm"
+            />
+            <Button
+              size="md"
+              variant="outline"
+              disabled={!overridePromotionId || !overrideReason || applyPromotionOverride.isPending}
+              onClick={() =>
+                applyPromotionOverride.mutate({
+                  sessionId,
+                  promotionId: overridePromotionId,
+                  reason: overrideReason,
+                })
+              }
+            >
+              Apply
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-2">
+            <select
+              value={discountType}
+              onChange={(e) => setDiscountType(e.target.value as typeof discountType)}
+              className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
+            >
+              <option value="PERCENTAGE">%</option>
+              <option value="FIXED_AMOUNT">฿ fixed</option>
+            </select>
+            <input
+              type="number"
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              placeholder="Value"
+              className="h-10 w-24 rounded-lg border border-border bg-background px-2 text-sm"
+            />
+            <input
+              value={discountReason}
+              onChange={(e) => setDiscountReason(e.target.value)}
+              placeholder="Reason"
+              className="h-10 flex-1 min-w-32 rounded-lg border border-border bg-background px-2 text-sm"
+            />
+            <Button
+              size="md"
+              variant="outline"
+              disabled={!discountValue || !discountReason || applyDiscount.isPending}
+              onClick={() =>
+                applyDiscount.mutate({
+                  sessionId,
+                  type: discountType,
+                  value: Number(discountValue),
+                  reason: discountReason,
+                })
+              }
+            >
+              Apply
+            </Button>
+          </div>
+        )}
+        {applyPromotionOverride.error && (
+          <p className="text-sm text-status-danger">{applyPromotionOverride.error.message}</p>
+        )}
         {applyDiscount.error && (
           <p className="text-sm text-status-danger">{applyDiscount.error.message}</p>
         )}

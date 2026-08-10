@@ -13,7 +13,6 @@ function promo(overrides: Partial<PromotionConfig> = {}): PromotionConfig {
     activeDays: null,
     startTime: null,
     endTime: null,
-    eligiblePricingTypeIds: null,
     minimumSpend: null,
     memberOnly: false,
     stackable: false,
@@ -26,7 +25,6 @@ const baseCtx = {
   now: new Date("2026-08-10T12:00:00"),
   hasMember: false,
   currentSpend: 500,
-  pricingTypeId: null,
   orderedMenuItemIds: new Set<string>(),
 };
 

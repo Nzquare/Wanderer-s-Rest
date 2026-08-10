@@ -91,7 +91,6 @@ function toPromotionConfig(p: {
   activeDays: unknown;
   startTime: string | null;
   endTime: string | null;
-  eligiblePricingTypeIds: unknown;
   minimumSpend: unknown;
   memberOnly: boolean;
   stackable: boolean;
@@ -112,7 +111,6 @@ function toPromotionConfig(p: {
     activeDays: (p.activeDays as number[] | null) ?? null,
     startTime: p.startTime,
     endTime: p.endTime,
-    eligiblePricingTypeIds: (p.eligiblePricingTypeIds as string[] | null) ?? null,
     minimumSpend: p.minimumSpend == null ? null : Number(p.minimumSpend),
     memberOnly: p.memberOnly,
     stackable: p.stackable,
@@ -285,7 +283,6 @@ export const checkoutRouter = router({
             now,
             hasMember: !!session.member,
             currentSpend: base,
-            pricingTypeId: session.pricingTypeId,
             orderedMenuItemIds,
           }),
         )
@@ -338,7 +335,6 @@ export const checkoutRouter = router({
           now: new Date(),
           hasMember: !!session.member,
           currentSpend: base,
-          pricingTypeId: session.pricingTypeId,
           orderedMenuItemIds,
         })
       ) {
@@ -368,6 +364,112 @@ export const checkoutRouter = router({
         entityType: "TableSession",
         entityId: session.id,
         newValue: { promotionId: promotion.id, label, amount },
+      });
+      return { ok: true, amount };
+    }),
+
+  /**
+   * Every active promotion, regardless of current eligibility — feeds the
+   * manual "Apply discount" picker's promotion mode (distinct from
+   * listEligiblePromotions' auto-eligible one-tap list above). Lets a
+   * cashier apply a promotion a manager has verbally approved outside its
+   * normal window/minimum-spend/day — applyPromotionOverride below is the
+   * matching mutation, and it requires a reason precisely because it
+   * bypasses those checks.
+   */
+  listAllPromotions: permissionProcedure(Permission.APPLY_DISCOUNTS).query(async ({ ctx }) => {
+    const promotions = await ctx.prisma.promotion.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      include: { rewardMenuItem: { select: { nameEn: true } } },
+    });
+    return promotions.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
+      value: toNum(p.value),
+      rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
+    }));
+  }),
+
+  /**
+   * Manually apply a specific Back Office promotion with a required reason,
+   * skipping the date/day/time/minimum-spend/member-only eligibility
+   * checks listEligiblePromotions/applyPromotion enforce — this is the
+   * override path for "manager approved Happy Hour early" type cases. The
+   * one eligibility check that still applies is FREE_ITEM's: you can't
+   * give away an item that isn't actually in the order, override or not.
+   * Unlike applyManualDiscount's free-typed amount, this always links back
+   * to a real Promotion row (promotionId on the resulting AppliedDiscount)
+   * so it's traceable to what was actually approved.
+   */
+  applyPromotionOverride: permissionProcedure(Permission.APPLY_DISCOUNTS)
+    .input(
+      z.object({
+        sessionId: z.string(),
+        promotionId: z.string(),
+        reason: z.string().min(1).max(300),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
+      if (session.paymentStatus === "PAID") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
+      }
+      const promotion = await ctx.prisma.promotion.findUnique({
+        where: { id: input.promotionId },
+        include: { rewardMenuItem: { select: { basePrice: true, nameEn: true } } },
+      });
+      if (!promotion || !promotion.active) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Not a valid active promotion." });
+      }
+      if (session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
+      }
+
+      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
+      const existingDiscountTotal = session.appliedDiscounts.reduce(
+        (s, d) => s + toNum(d.amount),
+        0,
+      );
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const config = toPromotionConfig(promotion);
+
+      if (config.type === "FREE_ITEM") {
+        const orderedMenuItemIds = new Set(
+          session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
+        );
+        if (!config.rewardMenuItemId || !orderedMenuItemIds.has(config.rewardMenuItemId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `"${promotion.name}" gives away ${promotion.rewardMenuItem?.nameEn ?? "an item"}, which isn't in this order.`,
+          });
+        }
+      }
+
+      const amount = computeDiscountAmount(config, base);
+      const baseLabel =
+        promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
+          ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
+          : promotion.name;
+      const label = `${baseLabel} — override: ${input.reason}`;
+
+      await ctx.prisma.appliedDiscount.create({
+        data: {
+          sessionId: session.id,
+          promotionId: promotion.id,
+          label,
+          amount,
+          appliedById: ctx.staff.id,
+        },
+      });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "PROMOTION_APPLIED",
+        entityType: "TableSession",
+        entityId: session.id,
+        newValue: { promotionId: promotion.id, label, amount, override: true },
+        reason: input.reason,
       });
       return { ok: true, amount };
     }),

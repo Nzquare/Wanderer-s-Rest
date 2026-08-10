@@ -40,7 +40,6 @@ const promotionShape = z.object({
   activeDays: z.array(z.number().int().min(0).max(6)).optional().nullable(),
   startTime: z.string().optional().nullable(),
   endTime: z.string().optional().nullable(),
-  eligiblePricingTypeIds: z.array(z.string()).optional().nullable(),
   minimumSpend: z.number().min(0).optional().nullable(),
   memberOnly: z.boolean().default(false),
   stackable: z.boolean().default(false),
@@ -73,7 +72,6 @@ function serialize(p: {
   activeDays: unknown;
   startTime: string | null;
   endTime: string | null;
-  eligiblePricingTypeIds: unknown;
   minimumSpend: unknown;
   memberOnly: boolean;
   stackable: boolean;
@@ -94,7 +92,6 @@ function serialize(p: {
     activeDays: (p.activeDays as number[] | null) ?? null,
     startTime: p.startTime,
     endTime: p.endTime,
-    eligiblePricingTypeIds: (p.eligiblePricingTypeIds as string[] | null) ?? null,
     minimumSpend: toNumOrNull(p.minimumSpend),
     memberOnly: p.memberOnly,
     stackable: p.stackable,
@@ -114,12 +111,11 @@ export const promotionsRouter = router({
   create: manage()
     .input(promotionInput)
     .mutation(async ({ ctx, input }) => {
-      const { startDate, endDate, activeDays, eligiblePricingTypeIds, ...rest } = input;
+      const { startDate, endDate, activeDays, ...rest } = input;
       const promotion = await ctx.prisma.promotion.create({
         data: {
           ...rest,
           activeDays: jsonOrNull(activeDays),
-          eligiblePricingTypeIds: jsonOrNull(eligiblePricingTypeIds),
           startDate: startDate ? new Date(startDate) : undefined,
           endDate: endDate ? new Date(endDate) : undefined,
         },
@@ -138,13 +134,12 @@ export const promotionsRouter = router({
   update: manage()
     .input(promotionShape.partial().extend({ id: z.string(), active: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const { id, startDate, endDate, activeDays, eligiblePricingTypeIds, ...rest } = input;
+      const { id, startDate, endDate, activeDays, ...rest } = input;
       const promotion = await ctx.prisma.promotion.update({
         where: { id },
         data: {
           ...rest,
           activeDays: jsonOrNull(activeDays),
-          eligiblePricingTypeIds: jsonOrNull(eligiblePricingTypeIds),
           ...(startDate !== undefined
             ? { startDate: startDate ? new Date(startDate) : null }
             : {}),

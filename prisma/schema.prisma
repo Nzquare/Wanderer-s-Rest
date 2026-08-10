@@ -584,7 +584,6 @@ model Promotion {
   startTime              String?
   endTime                String?
   eligibleMenuItemIds    Json?
-  eligiblePricingTypeIds Json?
   minimumSpend           Decimal?     @db.Decimal(12, 2)
   memberOnly             Boolean      @default(false)
   stackable              Boolean      @default(false)
