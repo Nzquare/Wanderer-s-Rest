@@ -162,6 +162,35 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
         <Card className="space-y-3">
           <p className="font-medium text-foreground">Profile</p>
           <label className="block text-xs text-foreground-muted">
+            Adventurer name
+            <input
+              defaultValue={profile.adventurerName}
+              onBlur={(e) =>
+                e.target.value.trim() &&
+                e.target.value !== profile.adventurerName &&
+                updateProfile.mutate({ memberId, adventurerName: e.target.value.trim() })
+              }
+              className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+            />
+          </label>
+          <label className="block text-xs text-foreground-muted">
+            Phone
+            <input
+              defaultValue={profile.phone ?? ""}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                if (value !== (profile.phone ?? "")) {
+                  updateProfile.mutate({ memberId, phone: value || null });
+                }
+              }}
+              placeholder="e.g. 0812345678"
+              className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+            />
+          </label>
+          {updateProfile.error && (
+            <p className="text-xs text-status-danger">{updateProfile.error.message}</p>
+          )}
+          <label className="block text-xs text-foreground-muted">
             Class
             <select
               defaultValue={profile.class?.id ?? ""}

@@ -33,7 +33,7 @@ export function GameLogPanel({ sessionId }: { sessionId: string }) {
         >
           <span className="text-foreground">
             {gs.game.nameEn}
-            {gs.game.cooperative ? " · Co-op" : ""}
+            {gs.game.category ? ` · ${gs.game.category.nameEn}` : ""}
           </span>
           <button
             onClick={() => remove.mutate({ gameSessionId: gs.id })}
@@ -60,7 +60,7 @@ export function GameLogPanel({ sessionId }: { sessionId: string }) {
               className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-black/5"
             >
               <span>{g.nameEn}</span>
-              <span className="text-foreground-muted">{g.category}</span>
+              <span className="text-foreground-muted">{g.category?.nameEn}</span>
             </button>
           ))}
           {results?.length === 0 && (

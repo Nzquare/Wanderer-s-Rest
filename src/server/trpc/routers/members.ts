@@ -179,11 +179,24 @@ export const membersRouter = router({
         status: z.enum(["ACTIVE", "INACTIVE", "BANNED"]).optional(),
         staffNotes: z.string().optional(),
         adventurerName: z.string().min(1).optional(),
+        phone: z.string().max(30).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { memberId, ...data } = input;
-      return ctx.prisma.member.update({ where: { id: memberId }, data });
+      const { memberId, phone, ...data } = input;
+      if (phone) {
+        const existing = await ctx.prisma.member.findUnique({ where: { phone } });
+        if (existing && existing.id !== memberId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Phone ${phone} is already used by ${existing.adventurerName}.`,
+          });
+        }
+      }
+      return ctx.prisma.member.update({
+        where: { id: memberId },
+        data: { ...data, ...(phone !== undefined ? { phone: phone || null } : {}) },
+      });
     }),
 
   adjustExp: permissionProcedure(Permission.ADJUST_EXP)

@@ -824,14 +824,34 @@ enum GameStatus {
   ARCHIVED
 }
 
+/**
+ * Managed game categories (replaces free-text Game.category). A category
+ * can be flagged isCoop so the achievement engine's "cooperative games
+ * played" stat is data-driven — staff designate whichever category means
+ * "cooperative" (usually one named "Co-op") instead of a separate
+ * checkbox on every game.
+ */
+model GameCategory {
+  id        String   @id @default(cuid())
+  nameTh    String
+  nameEn    String
+  isCoop    Boolean  @default(false)
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  games Game[]
+}
+
 model Game {
-  id                String     @id @default(cuid())
+  id                String        @id @default(cuid())
   nameTh            String
   nameEn            String
   imageUrl          String?
-  category          String?
+  categoryId        String?
+  category          GameCategory? @relation(fields: [categoryId], references: [id])
   genre             String?
-  cooperative       Boolean    @default(false)
   minPlayers        Int?
   maxPlayers        Int?
   estimatedMinutes  Int?
@@ -839,17 +859,17 @@ model Game {
   ageRecommendation String?
   language          String?
   shelfLocation     String?
-  totalQuantity     Int        @default(1)
-  availableQuantity Int        @default(1)
-  status            GameStatus @default(AVAILABLE)
+  totalQuantity     Int           @default(1)
+  availableQuantity Int           @default(1)
+  status            GameStatus    @default(AVAILABLE)
   notes             String?
-  active            Boolean    @default(true)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  active            Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   gameSessions GameSession[]
 
-  @@index([category])
+  @@index([categoryId])
 }
 
 model GameSession {

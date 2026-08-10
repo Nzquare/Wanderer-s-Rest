@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 
@@ -6,7 +7,10 @@ const statusEnum = z.enum(["AVAILABLE", "IN_USE", "MISSING", "DAMAGED", "ARCHIVE
 
 export const gamesRouter = router({
   listAll: staffProcedure.query(({ ctx }) => {
-    return ctx.prisma.game.findMany({ orderBy: { nameEn: "asc" } });
+    return ctx.prisma.game.findMany({
+      include: { category: true },
+      orderBy: { nameEn: "asc" },
+    });
   }),
 
   /** Lightweight list for the "record a game" search during a table session. */
@@ -26,6 +30,7 @@ export const gamesRouter = router({
               }
             : {}),
         },
+        include: { category: true },
         orderBy: { nameEn: "asc" },
         take: 30,
       });
@@ -36,9 +41,8 @@ export const gamesRouter = router({
       z.object({
         nameTh: z.string().min(1),
         nameEn: z.string().min(1),
-        category: z.string().optional(),
+        categoryId: z.string().optional(),
         genre: z.string().optional(),
-        cooperative: z.boolean().default(false),
         minPlayers: z.number().int().min(1).optional(),
         maxPlayers: z.number().int().min(1).optional(),
         estimatedMinutes: z.number().int().min(1).optional(),
@@ -57,6 +61,7 @@ export const gamesRouter = router({
     .input(
       z.object({
         id: z.string(),
+        categoryId: z.string().nullable().optional(),
         status: statusEnum.optional(),
         active: z.boolean().optional(),
         notes: z.string().optional(),
@@ -65,6 +70,64 @@ export const gamesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.prisma.game.update({ where: { id }, data });
+    }),
+
+  // --- Categories (§34) --------------------------------------------------
+  // A managed list instead of free text, so it stays consistent across
+  // the library. isCoop marks whichever category means "cooperative" —
+  // the COOP_GAMES_COUNT achievement stat reads that flag instead of a
+  // separate checkbox on every game.
+
+  listCategories: staffProcedure.query(({ ctx }) => {
+    return ctx.prisma.gameCategory.findMany({
+      orderBy: { sortOrder: "asc" },
+      include: { _count: { select: { games: true } } },
+    });
+  }),
+
+  createCategory: permissionProcedure(Permission.MANAGE_GAMES)
+    .input(z.object({ nameTh: z.string().min(1), nameEn: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const last = await ctx.prisma.gameCategory.findFirst({
+        orderBy: { sortOrder: "desc" },
+      });
+      return ctx.prisma.gameCategory.create({
+        data: { ...input, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      });
+    }),
+
+  updateCategory: permissionProcedure(Permission.MANAGE_GAMES)
+    .input(
+      z.object({
+        id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
+        isCoop: z.boolean().optional(),
+        active: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.prisma.gameCategory.update({ where: { id }, data });
+    }),
+
+  /** True delete — only for a category no game currently uses. */
+  deleteCategory: permissionProcedure(Permission.MANAGE_GAMES)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const category = await ctx.prisma.gameCategory.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { games: true } } },
+      });
+      if (!category) throw new TRPCError({ code: "NOT_FOUND" });
+      if (category._count.games > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${category.nameEn}" is still used by ${category._count.games} game(s) — move them to another category first, or mark it Inactive instead.`,
+        });
+      }
+      await ctx.prisma.gameCategory.delete({ where: { id: input.id } });
+      return { ok: true };
     }),
 
   /** Attach a played game to the current table session (§35) — Tavern Keeper-level action. */
@@ -98,7 +161,7 @@ export const gamesRouter = router({
     .query(({ ctx, input }) => {
       return ctx.prisma.gameSession.findMany({
         where: { sessionId: input.sessionId },
-        include: { game: true },
+        include: { game: { include: { category: true } } },
         orderBy: { playedAt: "desc" },
       });
     }),

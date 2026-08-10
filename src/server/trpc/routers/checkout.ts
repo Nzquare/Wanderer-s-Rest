@@ -117,16 +117,16 @@ function toPromotionConfig(p: {
 async function getMemberGameStats(tx: Prisma.TransactionClient, memberId: string) {
   const played = await tx.gameSession.findMany({
     where: { memberId },
-    include: { game: { select: { category: true, cooperative: true } } },
+    include: { game: { select: { categoryId: true, category: { select: { isCoop: true } } } } },
   });
   const uniqueGameIds = new Set(played.map((p) => p.gameId));
   const categories = new Set(
-    played.map((p) => p.game.category).filter((c): c is string => !!c),
+    played.map((p) => p.game.categoryId).filter((c): c is string => !!c),
   );
   return {
     totalGamesCount: played.length,
     uniqueGamesCount: uniqueGameIds.size,
-    coopGamesCount: played.filter((p) => p.game.cooperative).length,
+    coopGamesCount: played.filter((p) => p.game.category?.isCoop).length,
     categoriesPlayedCount: categories.size,
     specificGamesPlayed: Array.from(uniqueGameIds),
   };
