@@ -1,0 +1,322 @@
+"use client";
+
+import { useState } from "react";
+import { trpc } from "@/lib/trpc/client";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ToggleButton } from "@/components/ui/toggle-button";
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500"
+    />
+  );
+}
+
+type Promotion = {
+  id: string;
+  name: string;
+  type: "PERCENTAGE" | "FIXED_AMOUNT";
+  value: number;
+  startDate: string | Date | null;
+  endDate: string | Date | null;
+  activeDays: number[] | null;
+  startTime: string | null;
+  endTime: string | null;
+  eligiblePricingTypeIds: string[] | null;
+  minimumSpend: number | null;
+  memberOnly: boolean;
+  stackable: boolean;
+  active: boolean;
+};
+
+function toDateInputValue(d: string | Date | null): string {
+  if (!d) return "";
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+function PromotionCard({
+  promotion,
+  pricingTypes,
+}: {
+  promotion: Promotion;
+  pricingTypes: { id: string; name: string }[];
+}) {
+  const utils = trpc.useUtils();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const invalidate = () => utils.promotions.listAll.invalidate();
+  const update = trpc.promotions.update.useMutation({ onSuccess: invalidate });
+  const remove = trpc.promotions.remove.useMutation({ onSuccess: invalidate });
+
+  const days = new Set(promotion.activeDays ?? []);
+  const eligibleIds = new Set(promotion.eligiblePricingTypeIds ?? []);
+
+  function toggleDay(d: number) {
+    const next = new Set(days);
+    if (next.has(d)) next.delete(d);
+    else next.add(d);
+    update.mutate({ id: promotion.id, activeDays: Array.from(next) });
+  }
+
+  function togglePricingType(id: string) {
+    const next = new Set(eligibleIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    update.mutate({ id: promotion.id, eligiblePricingTypeIds: Array.from(next) });
+  }
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <input
+            defaultValue={promotion.name}
+            onBlur={(e) =>
+              e.target.value !== promotion.name &&
+              update.mutate({ id: promotion.id, name: e.target.value })
+            }
+            className="rounded border border-transparent bg-transparent text-lg font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
+          />
+          <p className="text-sm text-foreground-muted">
+            {promotion.type === "PERCENTAGE" ? `${promotion.value}% off` : `฿${promotion.value} off`}
+          </p>
+        </div>
+        <ToggleButton
+          on={promotion.active}
+          onLabel="Active"
+          offLabel="Inactive"
+          onClick={() => update.mutate({ id: promotion.id, active: !promotion.active })}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="text-xs text-foreground-muted">Discount type</label>
+          <select
+            value={promotion.type}
+            onChange={(e) =>
+              update.mutate({ id: promotion.id, type: e.target.value as "PERCENTAGE" | "FIXED_AMOUNT" })
+            }
+            className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+          >
+            <option value="PERCENTAGE">% off</option>
+            <option value="FIXED_AMOUNT">฿ fixed off</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Value</label>
+          <TextInput
+            type="number"
+            defaultValue={promotion.value}
+            onBlur={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
+            }}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Start date (optional)</label>
+          <TextInput
+            type="date"
+            defaultValue={toDateInputValue(promotion.startDate)}
+            onBlur={(e) =>
+              update.mutate({
+                id: promotion.id,
+                startDate: e.target.value ? new Date(e.target.value).toISOString() : null,
+              })
+            }
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">End date (optional)</label>
+          <TextInput
+            type="date"
+            defaultValue={toDateInputValue(promotion.endDate)}
+            onBlur={(e) =>
+              update.mutate({
+                id: promotion.id,
+                endDate: e.target.value ? new Date(e.target.value).toISOString() : null,
+              })
+            }
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Start time (optional)</label>
+          <TextInput
+            type="time"
+            defaultValue={promotion.startTime ?? ""}
+            onBlur={(e) => update.mutate({ id: promotion.id, startTime: e.target.value || null })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">End time (optional)</label>
+          <TextInput
+            type="time"
+            defaultValue={promotion.endTime ?? ""}
+            onBlur={(e) => update.mutate({ id: promotion.id, endTime: e.target.value || null })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-foreground-muted">Minimum spend ฿ (optional)</label>
+          <TextInput
+            type="number"
+            defaultValue={promotion.minimumSpend ?? ""}
+            onBlur={(e) =>
+              update.mutate({
+                id: promotion.id,
+                minimumSpend: e.target.value ? Number(e.target.value) : null,
+              })
+            }
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs text-foreground-muted">Active days (leave all off = every day)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {DAY_LABELS.map((label, i) => (
+            <ToggleButton
+              key={i}
+              on={days.has(i)}
+              onLabel={label}
+              onClick={() => toggleDay(i)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {pricingTypes.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-foreground-muted">
+            Eligible pricing types (leave all off = every pricing type)
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {pricingTypes.map((pt) => (
+              <ToggleButton
+                key={pt.id}
+                on={eligibleIds.has(pt.id)}
+                onLabel={pt.name}
+                onClick={() => togglePricingType(pt.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <ToggleButton
+          on={promotion.memberOnly}
+          onLabel="Members only"
+          offLabel="Everyone"
+          onClick={() => update.mutate({ id: promotion.id, memberOnly: !promotion.memberOnly })}
+        />
+        <ToggleButton
+          on={promotion.stackable}
+          onLabel="Stackable"
+          offLabel="Exclusive"
+          onClick={() => update.mutate({ id: promotion.id, stackable: !promotion.stackable })}
+        />
+      </div>
+
+      <div className="border-t border-border pt-2">
+        {confirmingDelete ? (
+          <span className="flex items-center gap-2 text-xs">
+            <span className="text-status-danger">Delete for good?</span>
+            <button
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: promotion.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmingDelete(true)} className="text-xs text-status-danger underline">
+            Delete
+          </button>
+        )}
+        {remove.error && confirmingDelete && (
+          <p className="mt-1 text-xs text-status-danger">{remove.error.message}</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function CreatePromotionForm() {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
+  const [value, setValue] = useState("");
+  const utils = trpc.useUtils();
+  const create = trpc.promotions.create.useMutation({
+    onSuccess: async () => {
+      setName("");
+      setValue("");
+      await utils.promotions.listAll.invalidate();
+    },
+  });
+
+  return (
+    <Card className="flex flex-wrap items-end gap-2">
+      <div className="w-56">
+        <label className="text-xs text-foreground-muted">Name</label>
+        <TextInput
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Happy Hour"
+        />
+      </div>
+      <div className="w-32">
+        <label className="text-xs text-foreground-muted">Type</label>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as typeof type)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        >
+          <option value="PERCENTAGE">% off</option>
+          <option value="FIXED_AMOUNT">฿ fixed off</option>
+        </select>
+      </div>
+      <div className="w-24">
+        <label className="text-xs text-foreground-muted">Value</label>
+        <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} />
+      </div>
+      {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
+      <Button
+        size="md"
+        disabled={!name || !value || create.isPending}
+        onClick={() => create.mutate({ name, type, value: Number(value) })}
+      >
+        Add promotion
+      </Button>
+    </Card>
+  );
+}
+
+export function PromotionsManager() {
+  const { data: promotions } = trpc.promotions.listAll.useQuery();
+  const { data: pricingTypes } = trpc.pricingTypes.list.useQuery();
+
+  return (
+    <div className="space-y-4">
+      <CreatePromotionForm />
+      <p className="text-xs text-foreground-muted">
+        Fine-tune each promotion&apos;s window, days, and eligibility below —
+        set up with just a name/type/value above, then narrow it down.
+      </p>
+      {promotions?.map((p) => (
+        <PromotionCard key={p.id} promotion={p} pricingTypes={pricingTypes ?? []} />
+      ))}
+      {promotions?.length === 0 && (
+        <p className="text-sm text-foreground-muted">No promotions yet — add one above.</p>
+      )}
+    </div>
+  );
+}

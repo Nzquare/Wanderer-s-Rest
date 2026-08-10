@@ -75,6 +75,7 @@ enum Permission {
   OPEN_SHIFT
   CLOSE_SHIFT
   OVERRIDE_LOCKED_TRANSACTION
+  MANAGE_PROMOTIONS
 }
 
 model Role {
@@ -343,6 +344,7 @@ model MenuItem {
   modifierGroups MenuItemModifierGroup[]
   comboSlots     ComboSlot[]
   orderItems     OrderItem[]
+  comboChoiceSelections OrderItemComboSelection[] @relation("ComboSelectionChoice")
 
   @@index([categoryId])
 }
@@ -399,6 +401,31 @@ model ComboSlot {
   minSelect   Int          @default(1)
   maxSelect   Int          @default(1)
   extraCharge Decimal      @default(0) @db.Decimal(12, 2)
+  sortOrder   Int          @default(0)
+
+  selections OrderItemComboSelection[]
+}
+
+/**
+ * A staff member's pick for one slot of a combo item on a specific order
+ * line (§11 combo/set items). V1 keeps this to one selection per slot
+ * (matching the order-panel picker) even though ComboSlot.maxSelect could
+ * in principle allow more. Everything is snapshotted at order time (§45)
+ * so a later menu/combo edit never rewrites a past order's receipt.
+ */
+model OrderItemComboSelection {
+  id                 String    @id @default(cuid())
+  orderItemId        String
+  orderItem          OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  comboSlotId        String?
+  comboSlot          ComboSlot? @relation(fields: [comboSlotId], references: [id], onDelete: SetNull)
+  slotNameSnapshotTh String
+  slotNameSnapshotEn String
+  selectedMenuItemId String?
+  selectedMenuItem   MenuItem? @relation("ComboSelectionChoice", fields: [selectedMenuItemId], references: [id])
+  nameSnapshotTh      String
+  nameSnapshotEn      String
+  extraChargeSnapshot Decimal  @default(0) @db.Decimal(12, 2)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -448,7 +475,8 @@ model OrderItem {
   notes             String?
   createdAt         DateTime @default(now())
 
-  modifiers OrderItemModifier[]
+  modifiers       OrderItemModifier[]
+  comboSelections OrderItemComboSelection[]
 }
 
 model OrderItemModifier {

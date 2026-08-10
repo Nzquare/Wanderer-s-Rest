@@ -71,7 +71,7 @@ const sessionInclude = {
   member: true,
   orders: {
     where: { status: "SUBMITTED" as const },
-    include: { items: { include: { modifiers: true } } },
+    include: { items: { include: { modifiers: true, comboSelections: true } } },
     orderBy: { createdAt: "asc" as const },
   },
 };

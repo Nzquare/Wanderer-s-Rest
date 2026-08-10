@@ -300,6 +300,140 @@ function QuickAddItemForm({ categoryId }: { categoryId: string }) {
 // all in one place per the "adjust modifiers on the item itself" request.
 // ------------------------------------------------------------------------
 
+type ComboSlot = {
+  id: string;
+  nameTh: string;
+  nameEn: string;
+  categoryId: string | null;
+  extraCharge: number;
+};
+
+function ComboSlotRow({
+  slot,
+  categories,
+}: {
+  slot: ComboSlot;
+  categories: { id: string; nameEn: string }[];
+}) {
+  const utils = trpc.useUtils();
+  const update = trpc.menu.updateComboSlot.useMutation({
+    onSuccess: () => utils.menu.getItem.invalidate(),
+  });
+  const remove = trpc.menu.deleteComboSlot.useMutation({
+    onSuccess: () => utils.menu.getItem.invalidate(),
+  });
+
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded-lg bg-background p-2">
+      <div className="w-40">
+        <label className="text-xs text-foreground-muted">Slot name</label>
+        <TextInput
+          defaultValue={slot.nameEn}
+          onBlur={(e) =>
+            e.target.value !== slot.nameEn && update.mutate({ id: slot.id, nameEn: e.target.value })
+          }
+        />
+      </div>
+      <div className="w-44">
+        <label className="text-xs text-foreground-muted">Pick from category</label>
+        <select
+          value={slot.categoryId ?? ""}
+          onChange={(e) => update.mutate({ id: slot.id, categoryId: e.target.value || null })}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        >
+          <option value="">Any active item</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nameEn}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="w-28">
+        <label className="text-xs text-foreground-muted">Extra charge (฿)</label>
+        <TextInput
+          type="number"
+          defaultValue={slot.extraCharge}
+          onBlur={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isNaN(n) && n !== slot.extraCharge) update.mutate({ id: slot.id, extraCharge: n });
+          }}
+        />
+      </div>
+      <button
+        onClick={() => remove.mutate({ id: slot.id })}
+        disabled={remove.isPending}
+        className="text-xs text-status-danger underline"
+      >
+        Remove slot
+      </button>
+    </div>
+  );
+}
+
+function AddComboSlotForm({ itemId }: { itemId: string }) {
+  const [nameEn, setNameEn] = useState("");
+  const [nameTh, setNameTh] = useState("");
+  const utils = trpc.useUtils();
+  const create = trpc.menu.createComboSlot.useMutation({
+    onSuccess: async () => {
+      setNameEn("");
+      setNameTh("");
+      await utils.menu.getItem.invalidate();
+    },
+  });
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="w-40">
+        <TextInput placeholder="Slot name (English)" value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+      </div>
+      <div className="w-40">
+        <TextInput placeholder="Slot name (Thai)" value={nameTh} onChange={(e) => setNameTh(e.target.value)} />
+      </div>
+      <Button
+        size="md"
+        variant="outline"
+        disabled={!nameEn || !nameTh || create.isPending}
+        onClick={() => create.mutate({ comboItemId: itemId, nameEn, nameTh })}
+      >
+        + Add slot
+      </Button>
+    </div>
+  );
+}
+
+/** Combo/set items (§11) are built from slots — "choose one Drink", "choose
+ * one Side" — each optionally scoped to a category and carrying its own
+ * surcharge. The cashier/staff order screen prompts for one pick per slot. */
+function ComboSlotsSection({
+  itemId,
+  slots,
+  categories,
+}: {
+  itemId: string;
+  slots: ComboSlot[];
+  categories: { id: string; nameEn: string }[];
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-foreground-muted">
+        Combo slots — what the customer picks when ordering this
+      </p>
+      <div className="space-y-1">
+        {slots.map((slot) => (
+          <ComboSlotRow key={slot.id} slot={slot} categories={categories} />
+        ))}
+        {slots.length === 0 && (
+          <p className="text-xs text-foreground-muted">
+            No slots yet — add one below (e.g. &quot;Drink&quot;, scoped to your Drinks category).
+          </p>
+        )}
+      </div>
+      <AddComboSlotForm itemId={itemId} />
+    </div>
+  );
+}
+
 function ItemEditor({
   itemId,
   categories,
@@ -467,9 +601,15 @@ function ItemEditor({
           />
           <ToggleButton
             on={item.discountEligible}
-            onLabel="Discount-eligible"
             offLabel="No discounts"
+            onLabel="Discount-eligible"
             onClick={() => update.mutate({ id: item.id, discountEligible: !item.discountEligible })}
+          />
+          <ToggleButton
+            on={item.isCombo}
+            onLabel="Combo/set item"
+            offLabel="Single item"
+            onClick={() => update.mutate({ id: item.id, isCombo: !item.isCombo })}
           />
         </div>
       </div>
@@ -506,6 +646,8 @@ function ItemEditor({
           </p>
         )}
       </div>
+
+      {item.isCombo && <ComboSlotsSection itemId={item.id} slots={item.comboSlots} categories={categories} />}
 
       <div className="flex items-center justify-between border-t border-border pt-3">
         {confirmingDelete ? (

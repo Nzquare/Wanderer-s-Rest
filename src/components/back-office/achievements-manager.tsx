@@ -44,6 +44,7 @@ export function AchievementsManager() {
   const [triggerValue, setTriggerValue] = useState("");
   const [hasReward, setHasReward] = useState(false);
   const [benefitValue, setBenefitValue] = useState("");
+  const [hidden, setHidden] = useState(false);
 
   const create = trpc.achievements.create.useMutation({
     onSuccess: async () => {
@@ -52,6 +53,7 @@ export function AchievementsManager() {
       setCode("");
       setTriggerValue("");
       setBenefitValue("");
+      setHidden(false);
       await utils.achievements.list.invalidate();
       await utils.achievements.listManualAwardable.invalidate();
     },
@@ -153,6 +155,12 @@ export function AchievementsManager() {
         )}
 
         <div className="flex flex-wrap items-end gap-2">
+          <ToggleButton
+            on={hidden}
+            onLabel="Secret — hidden until unlocked"
+            offLabel="Visible in the catalog"
+            onClick={() => setHidden((h) => !h)}
+          />
           <label className="flex items-center gap-2 text-sm text-foreground-muted">
             <input
               type="checkbox"
@@ -188,6 +196,7 @@ export function AchievementsManager() {
               icon,
               category,
               type,
+              hidden,
               triggerType: type === "AUTOMATIC" ? triggerType : undefined,
               triggerValue:
                 type === "AUTOMATIC" && triggerValue
@@ -214,14 +223,23 @@ export function AchievementsManager() {
               <p className="text-xs text-foreground-muted">
                 {a.category}
                 {a.hasReward ? " · has benefit" : ""}
+                {a.hidden ? " · secret" : ""}
               </p>
             </div>
-            <ToggleButton
-              on={a.active}
-              onLabel="Active"
-              offLabel="Inactive"
-              onClick={() => toggleActive.mutate({ id: a.id, active: !a.active })}
-            />
+            <div className="flex gap-2">
+              <ToggleButton
+                on={a.hidden}
+                onLabel="Secret"
+                offLabel="Visible"
+                onClick={() => toggleActive.mutate({ id: a.id, hidden: !a.hidden })}
+              />
+              <ToggleButton
+                on={a.active}
+                onLabel="Active"
+                offLabel="Inactive"
+                onClick={() => toggleActive.mutate({ id: a.id, active: !a.active })}
+              />
+            </div>
           </Card>
         ))}
       </div>

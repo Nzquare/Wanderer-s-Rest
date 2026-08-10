@@ -20,6 +20,12 @@ interface ModifierGroup {
   maxSelect: number;
   options: ModifierOption[];
 }
+interface ComboSlot {
+  id: string;
+  nameEn: string;
+  extraCharge: number;
+  eligibleItems: { id: string; nameEn: string; basePrice: number }[];
+}
 interface MenuItem {
   id: string;
   nameEn: string;
@@ -27,6 +33,8 @@ interface MenuItem {
   soldOut: boolean;
   photoUrl: string | null;
   modifierGroups: ModifierGroup[];
+  isCombo: boolean;
+  comboSlots: ComboSlot[];
 }
 
 /** First-letter placeholder tile for items without a photo yet — still
@@ -52,6 +60,11 @@ function ItemThumb({ item }: { item: Pick<MenuItem, "nameEn" | "photoUrl"> }) {
   );
 }
 
+interface ComboSelectionLine {
+  comboSlotId: string;
+  selectedMenuItemId: string;
+  label: string;
+}
 interface CartLine {
   key: string;
   menuItemId: string;
@@ -60,6 +73,7 @@ interface CartLine {
   unitPrice: number;
   modifierOptionIds: string[];
   modifierLabel: string;
+  comboSelections: ComboSelectionLine[];
 }
 
 export function OrderPanel({
@@ -75,6 +89,7 @@ export function OrderPanel({
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [pickingItem, setPickingItem] = useState<MenuItem | null>(null);
   const [selection, setSelection] = useState<Record<string, string[]>>({});
+  const [comboSelection, setComboSelection] = useState<Record<string, string>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
   const utils = trpc.useUtils();
 
@@ -93,25 +108,29 @@ export function OrderPanel({
 
   function startAdd(item: MenuItem) {
     if (item.soldOut) return;
-    if (item.modifierGroups.length === 0) {
-      addToCart(item, [], "");
+    if (item.modifierGroups.length === 0 && item.comboSlots.length === 0) {
+      addToCart(item, [], "", []);
       return;
     }
     setPickingItem(item);
     setSelection({});
+    setComboSelection({});
   }
 
   function addToCart(
     item: MenuItem,
     modifierOptionIds: string[],
     modifierLabel: string,
+    comboSelections: ComboSelectionLine[],
   ) {
-    const unitPrice =
-      item.basePrice +
-      item.modifierGroups
-        .flatMap((g) => g.options)
-        .filter((o) => modifierOptionIds.includes(o.id))
-        .reduce((s, o) => s + o.priceAdjustment, 0);
+    const modifierTotal = item.modifierGroups
+      .flatMap((g) => g.options)
+      .filter((o) => modifierOptionIds.includes(o.id))
+      .reduce((s, o) => s + o.priceAdjustment, 0);
+    const comboExtraTotal = item.comboSlots
+      .filter((slot) => comboSelections.some((cs) => cs.comboSlotId === slot.id))
+      .reduce((s, slot) => s + slot.extraCharge, 0);
+    const unitPrice = item.basePrice + modifierTotal + comboExtraTotal;
     setCart((c) => [
       ...c,
       {
@@ -122,6 +141,7 @@ export function OrderPanel({
         unitPrice,
         modifierOptionIds,
         modifierLabel,
+        comboSelections,
       },
     ]);
     setPickingItem(null);
@@ -134,17 +154,29 @@ export function OrderPanel({
       .flatMap((g) => g.options)
       .filter((o) => chosenIds.includes(o.id))
       .map((o) => o.nameEn);
-    addToCart(pickingItem, chosenIds, labels.join(", "));
+    const comboSelections: ComboSelectionLine[] = pickingItem.comboSlots
+      .filter((slot) => comboSelection[slot.id])
+      .map((slot) => {
+        const chosenItem = slot.eligibleItems.find((i) => i.id === comboSelection[slot.id]);
+        return {
+          comboSlotId: slot.id,
+          selectedMenuItemId: comboSelection[slot.id],
+          label: `${slot.nameEn}: ${chosenItem?.nameEn ?? "?"}`,
+        };
+      });
+    addToCart(pickingItem, chosenIds, labels.join(", "), comboSelections);
   }
 
   const pickerValid = useMemo(() => {
     if (!pickingItem) return false;
-    return pickingItem.modifierGroups.every((g) => {
+    const modifiersOk = pickingItem.modifierGroups.every((g) => {
       const count = selection[g.id]?.length ?? 0;
       if (g.required && count < Math.max(1, g.minSelect)) return false;
       return true;
     });
-  }, [pickingItem, selection]);
+    const comboOk = pickingItem.comboSlots.every((slot) => !!comboSelection[slot.id]);
+    return modifiersOk && comboOk;
+  }, [pickingItem, selection, comboSelection]);
 
   const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
 
@@ -213,6 +245,34 @@ export function OrderPanel({
               {pickingItem.nameEn}
             </p>
           </div>
+          {pickingItem.comboSlots.map((slot) => (
+            <div key={slot.id}>
+              <p className="text-xs text-foreground-muted">
+                {slot.nameEn} (required)
+                {slot.extraCharge ? ` · +฿${slot.extraCharge}` : ""}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {slot.eligibleItems.map((opt) => {
+                  const selected = comboSelection[slot.id] === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setComboSelection((s) => ({ ...s, [slot.id]: opt.id }))}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm",
+                        selected ? "border-teal-500 bg-teal-500/20" : "border-border",
+                      )}
+                    >
+                      {opt.nameEn}
+                    </button>
+                  );
+                })}
+                {slot.eligibleItems.length === 0 && (
+                  <p className="text-xs text-status-danger">No eligible items for this slot.</p>
+                )}
+              </div>
+            </div>
+          ))}
           {pickingItem.modifierGroups.map((group) => (
             <div key={group.id}>
               <p className="text-xs text-foreground-muted">
@@ -275,8 +335,15 @@ export function OrderPanel({
             <div key={line.key} className="flex items-center justify-between text-sm">
               <div>
                 <span className="font-medium text-foreground">{line.nameEn}</span>
-                {line.modifierLabel && (
-                  <span className="text-foreground-muted"> ({line.modifierLabel})</span>
+                {(line.modifierLabel || line.comboSelections.length > 0) && (
+                  <span className="text-foreground-muted">
+                    {" "}
+                    (
+                    {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
+                      .filter(Boolean)
+                      .join(", ")}
+                    )
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -336,6 +403,10 @@ export function OrderPanel({
                   menuItemId: l.menuItemId,
                   quantity: l.quantity,
                   modifierOptionIds: l.modifierOptionIds,
+                  comboSelections: l.comboSelections.map((cs) => ({
+                    comboSlotId: cs.comboSlotId,
+                    selectedMenuItemId: cs.selectedMenuItemId,
+                  })),
                 })),
               })
             }

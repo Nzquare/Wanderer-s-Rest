@@ -12,6 +12,10 @@ export const cartItemSchema = z.object({
   quantity: z.number().int().min(1).max(50),
   notes: z.string().max(200).optional(),
   modifierOptionIds: z.array(z.string()).default([]),
+  /** One selection per combo slot (§11) — required for every slot on a combo/set item. */
+  comboSelections: z
+    .array(z.object({ comboSlotId: z.string(), selectedMenuItemId: z.string() }))
+    .default([]),
 });
 
 export type CartItemInput = z.infer<typeof cartItemSchema>;
@@ -54,6 +58,21 @@ export async function createOrder(
     : [];
   const modifierOptionMap = new Map(modifierOptions.map((o) => [o.id, o]));
 
+  // Combo slots + the items selected for them (§11) — fetched once for the
+  // whole batch, same pattern as modifier options above.
+  const comboItemIds = menuItems.filter((m) => m.isCombo).map((m) => m.id);
+  const comboSlots = comboItemIds.length
+    ? await prisma.comboSlot.findMany({ where: { comboItemId: { in: comboItemIds } } })
+    : [];
+  const comboSlotMap = new Map(comboSlots.map((s) => [s.id, s]));
+  const selectedItemIds = params.items.flatMap((i) =>
+    i.comboSelections.map((cs) => cs.selectedMenuItemId),
+  );
+  const selectedItems = selectedItemIds.length
+    ? await prisma.menuItem.findMany({ where: { id: { in: selectedItemIds } } })
+    : [];
+  const selectedItemMap = new Map(selectedItems.map((m) => [m.id, m]));
+
   for (const item of params.items) {
     const menuItem = menuItemMap.get(item.menuItemId);
     if (!menuItem || !menuItem.active) {
@@ -64,6 +83,26 @@ export async function createOrder(
     }
     if (menuItem.soldOut) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `${menuItem.nameEn} is sold out.` });
+    }
+    if (menuItem.isCombo) {
+      const slotsForItem = comboSlots.filter((s) => s.comboItemId === menuItem.id);
+      const selectedSlotIds = new Set(item.comboSelections.map((cs) => cs.comboSlotId));
+      const missing = slotsForItem.filter((s) => !selectedSlotIds.has(s.id));
+      if (missing.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${menuItem.nameEn} is missing a choice for "${missing[0].nameEn}".`,
+        });
+      }
+      for (const cs of item.comboSelections) {
+        const chosen = selectedItemMap.get(cs.selectedMenuItemId);
+        if (!chosen || !chosen.active || chosen.soldOut) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `A combo choice for ${menuItem.nameEn} is no longer available.`,
+          });
+        }
+      }
     }
   }
 
@@ -76,6 +115,10 @@ export async function createOrder(
       items: {
         create: params.items.map((item) => {
           const menuItem = menuItemMap.get(item.menuItemId)!;
+          const comboExtraTotal = item.comboSelections.reduce(
+            (sum, cs) => sum + toNum(comboSlotMap.get(cs.comboSlotId)?.extraCharge),
+            0,
+          );
           return {
             menuItemId: menuItem.id,
             nameSnapshotTh: menuItem.nameTh,
@@ -86,7 +129,8 @@ export async function createOrder(
               item.modifierOptionIds.reduce(
                 (sum, id) => sum + toNum(modifierOptionMap.get(id)?.priceAdjustment),
                 0,
-              ),
+              ) +
+              comboExtraTotal,
             notes: item.notes,
             modifiers: {
               create: item.modifierOptionIds
@@ -99,11 +143,26 @@ export async function createOrder(
                   priceSnapshot: toNum(o.priceAdjustment),
                 })),
             },
+            comboSelections: {
+              create: item.comboSelections.map((cs) => {
+                const slot = comboSlotMap.get(cs.comboSlotId);
+                const chosen = selectedItemMap.get(cs.selectedMenuItemId)!;
+                return {
+                  comboSlotId: cs.comboSlotId,
+                  slotNameSnapshotTh: slot?.nameTh ?? "",
+                  slotNameSnapshotEn: slot?.nameEn ?? "",
+                  selectedMenuItemId: chosen.id,
+                  nameSnapshotTh: chosen.nameTh,
+                  nameSnapshotEn: chosen.nameEn,
+                  extraChargeSnapshot: toNum(slot?.extraCharge),
+                };
+              }),
+            },
           };
         }),
       },
     },
-    include: { items: { include: { modifiers: true } } },
+    include: { items: { include: { modifiers: true, comboSelections: true } } },
   });
 
   return order;

@@ -18,6 +18,9 @@ export const settingsRouter = router({
   /** Read-only — every cashier needs this to know whether/how to alert, not just Owner/Manager. */
   getNotifications: cashierProcedure.query(() => getSettings("notifications")),
 
+  /** Read-only — the receipt view needs printerWidthMm to print at the right paper size. */
+  getCheckout: cashierProcedure.query(() => getSettings("checkout")),
+
   updateCafe: manage()
     .input(cafeSettingsSchema.partial())
     .mutation(({ input }) => updateSettings("cafe", input)),

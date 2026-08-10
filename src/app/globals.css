@@ -97,9 +97,16 @@ button,
     position: absolute;
     top: 0;
     left: 0;
-    width: 80mm;
-    max-width: 80mm;
+    /* Set inline by ReceiptView from Settings > Checkout > printerWidthMm
+       (58mm or 80mm thermal paper) — falls back to 80mm if unset. */
+    width: var(--receipt-print-width, 80mm);
+    max-width: var(--receipt-print-width, 80mm);
     border: none;
     box-shadow: none;
+  }
+
+  @page {
+    size: var(--receipt-print-width, 80mm) auto;
+    margin: 0;
   }
 }

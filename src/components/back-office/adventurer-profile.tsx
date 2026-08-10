@@ -10,6 +10,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
   const { data: profile, isLoading } = trpc.members.getProfile.useQuery({ memberId });
   const { data: classes } = trpc.members.listClasses.useQuery();
   const { data: manualAchievements } = trpc.achievements.listManualAwardable.useQuery();
+  const { data: catalog } = trpc.achievements.list.useQuery();
 
   const [expAmount, setExpAmount] = useState("");
   const [expReason, setExpReason] = useState<"BONUS" | "EVENT" | "ADMIN_ADJUSTMENT" | "CORRECTION">(
@@ -79,22 +80,64 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-2">
-          <p className="font-medium text-foreground">Achievements ({profile.achievements.length})</p>
-          {profile.achievements.length === 0 && (
-            <p className="text-sm text-foreground-muted">No achievements unlocked yet.</p>
-          )}
+          <p className="font-medium text-foreground">
+            Achievements ({profile.achievements.length}
+            {catalog ? ` / ${catalog.filter((c) => c.active).length}` : ""})
+          </p>
           <div className="grid grid-cols-2 gap-2">
-            {profile.achievements.map((a) => (
-              <div key={a.id} className="rounded-lg bg-background p-2 text-sm">
-                <p className="font-medium text-foreground">
-                  {a.achievement.icon ?? "🏆"} {a.achievement.nameEn}
-                </p>
-                <p className="text-xs text-foreground-muted">
-                  {new Date(a.unlockedAt).toLocaleDateString()}
-                  {a.benefit && a.benefit.status === "AVAILABLE" && " · Benefit available"}
-                </p>
-              </div>
-            ))}
+            {(() => {
+              const unlockedByAchievementId = new Map(
+                profile.achievements.map((a) => [a.achievement.id, a]),
+              );
+              const all = catalog?.filter((c) => c.active) ?? [];
+              // Unlocked first, then the rest — so what the adventurer has
+              // actually earned reads before what's still ahead of them.
+              const ordered = [
+                ...all.filter((c) => unlockedByAchievementId.has(c.id)),
+                ...all.filter((c) => !unlockedByAchievementId.has(c.id)),
+              ];
+              return ordered.map((achievement) => {
+                const unlocked = unlockedByAchievementId.get(achievement.id);
+                if (unlocked) {
+                  return (
+                    <div key={achievement.id} className="rounded-lg bg-background p-2 text-sm">
+                      <p className="font-medium text-foreground">
+                        {achievement.icon ?? "🏆"} {achievement.nameEn}
+                      </p>
+                      <p className="text-xs text-foreground-muted">
+                        {new Date(unlocked.unlockedAt).toLocaleDateString()}
+                        {unlocked.benefit && unlocked.benefit.status === "AVAILABLE" && " · Benefit available"}
+                      </p>
+                    </div>
+                  );
+                }
+                // Not yet unlocked. Hidden/secret achievements (§32) don't
+                // reveal what they are until earned — a locked "???" card
+                // instead of the real name/description.
+                if (achievement.hidden) {
+                  return (
+                    <div
+                      key={achievement.id}
+                      className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
+                    >
+                      <p className="font-medium text-foreground-muted">🔒 ???</p>
+                      <p className="text-xs text-foreground-muted">Secret — not yet unlocked</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    key={achievement.id}
+                    className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
+                  >
+                    <p className="font-medium text-foreground-muted">
+                      {achievement.icon ?? "🏆"} {achievement.nameEn}
+                    </p>
+                    <p className="text-xs text-foreground-muted">Not yet unlocked</p>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </Card>
 

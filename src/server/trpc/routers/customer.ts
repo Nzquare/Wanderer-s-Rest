@@ -47,7 +47,11 @@ export const customerRouter = router({
         orderBy: { sortOrder: "asc" },
         include: {
           items: {
-            where: { active: true, customerVisible: true, staffOnly: false },
+            // Combo/set items need a slot picker the customer QR menu
+            // doesn't have yet (§11) — Cashier/Staff can sell them, but
+            // hide them here rather than let a customer submit an order
+            // that createOrder would reject for missing combo choices.
+            where: { active: true, customerVisible: true, staffOnly: false, isCombo: false },
             orderBy: { sortOrder: "asc" },
             include: {
               modifierGroups: {

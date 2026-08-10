@@ -47,10 +47,24 @@ export const menuRouter = router({
                 },
               },
             },
+            comboSlots: { orderBy: { sortOrder: "asc" } },
           },
         },
       },
     });
+
+    // Eligible-item lookups for combo slots, built from what's already
+    // fetched above rather than a second round-trip: a slot picks from one
+    // category (or, if categoryId is unset, from every active item).
+    const itemsByCategory = new Map(
+      categories.map((c) => [
+        c.id,
+        c.items
+          .filter((i) => !i.soldOut)
+          .map((i) => ({ id: i.id, nameTh: i.nameTh, nameEn: i.nameEn, basePrice: toNum(i.basePrice) })),
+      ]),
+    );
+    const allActiveItems = categories.flatMap((c) => itemsByCategory.get(c.id) ?? []);
 
     return categories.map((cat) => ({
       id: cat.id,
@@ -63,6 +77,7 @@ export const menuRouter = router({
         basePrice: toNum(item.basePrice),
         soldOut: item.soldOut,
         photoUrl: item.photoUrl,
+        isCombo: item.isCombo,
         modifierGroups: item.modifierGroups.map((link) => ({
           id: link.modifierGroup.id,
           nameTh: link.modifierGroup.nameTh,
@@ -81,6 +96,15 @@ export const menuRouter = router({
               soldOut: o.soldOut,
             })),
         })),
+        comboSlots: item.isCombo
+          ? item.comboSlots.map((slot) => ({
+              id: slot.id,
+              nameTh: slot.nameTh,
+              nameEn: slot.nameEn,
+              extraCharge: toNum(slot.extraCharge),
+              eligibleItems: (slot.categoryId ? itemsByCategory.get(slot.categoryId) : null) ?? allActiveItems,
+            }))
+          : [],
       })),
     }));
   }),
@@ -175,12 +199,14 @@ export const menuRouter = router({
             orderBy: { sortOrder: "asc" },
             include: { modifierGroup: true },
           },
+          comboSlots: { orderBy: { sortOrder: "asc" } },
         },
       });
       if (!item) throw new TRPCError({ code: "NOT_FOUND" });
       return {
         ...item,
         basePrice: toNum(item.basePrice),
+        comboSlots: item.comboSlots.map((s) => ({ ...s, extraCharge: toNum(s.extraCharge) })),
       };
     }),
 
@@ -225,6 +251,7 @@ export const menuRouter = router({
         staffOnly: z.boolean().optional(),
         customerVisible: z.boolean().optional(),
         discountEligible: z.boolean().optional(),
+        isCombo: z.boolean().optional(),
         notes: z.string().optional(),
         photoUrl: photoUrlSchema,
       }),
@@ -434,6 +461,56 @@ export const menuRouter = router({
           },
         },
       });
+      return { ok: true };
+    }),
+
+  // --- Combo/set item slots (§11) -----------------------------------------
+  // A combo item (MenuItem.isCombo) is built from slots — "choose one
+  // Drink", "choose one Side" — each pointing at a category to pick from
+  // (or any active item, if no category is set) with an optional surcharge.
+
+  createComboSlot: permissionProcedure(Permission.MANAGE_MENU)
+    .input(
+      z.object({
+        comboItemId: z.string(),
+        nameTh: z.string().min(1),
+        nameEn: z.string().min(1),
+        categoryId: z.string().optional(),
+        extraCharge: z.number().default(0),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const last = await ctx.prisma.comboSlot.findFirst({
+        where: { comboItemId: input.comboItemId },
+        orderBy: { sortOrder: "desc" },
+      });
+      return ctx.prisma.comboSlot.create({
+        data: { ...input, sortOrder: (last?.sortOrder ?? -1) + 1 },
+      });
+    }),
+
+  updateComboSlot: permissionProcedure(Permission.MANAGE_MENU)
+    .input(
+      z.object({
+        id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
+        categoryId: z.string().nullable().optional(),
+        extraCharge: z.number().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.prisma.comboSlot.update({ where: { id }, data });
+    }),
+
+  deleteComboSlot: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Historical orders keep their own name/price snapshot on
+      // OrderItemComboSelection (onDelete: SetNull on the FK back to this
+      // slot), so a slot can always be deleted without losing receipt data.
+      await ctx.prisma.comboSlot.delete({ where: { id: input.id } });
       return { ok: true };
     }),
 });

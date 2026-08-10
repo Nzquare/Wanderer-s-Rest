@@ -32,6 +32,9 @@ export function CheckoutClient({
   const { data: preview, isLoading } = trpc.checkout.getPreview.useQuery({
     sessionId,
   });
+  const { data: eligiblePromotions } = trpc.checkout.listEligiblePromotions.useQuery({
+    sessionId,
+  });
 
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">(
     "PERCENTAGE",
@@ -47,11 +50,25 @@ export function CheckoutClient({
     onSuccess: async () => {
       setDiscountValue("");
       setDiscountReason("");
-      await utils.checkout.getPreview.invalidate({ sessionId });
+      await Promise.all([
+        utils.checkout.getPreview.invalidate({ sessionId }),
+        utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+      ]);
     },
   });
   const removeDiscount = trpc.checkout.removeDiscount.useMutation({
-    onSuccess: () => utils.checkout.getPreview.invalidate({ sessionId }),
+    onSuccess: () =>
+      Promise.all([
+        utils.checkout.getPreview.invalidate({ sessionId }),
+        utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+      ]),
+  });
+  const applyPromotion = trpc.checkout.applyPromotion.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.checkout.getPreview.invalidate({ sessionId }),
+        utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+      ]),
   });
   const recordPayment = trpc.checkout.recordPayment.useMutation({
     onSuccess: async (data) => {
@@ -147,6 +164,39 @@ export function CheckoutClient({
               {preview.memberPreview.rankAfter !== preview.memberPreview.rankBefore &&
                 ` · Rank up to ${preview.memberPreview.rankAfter}!`}
             </p>
+          )}
+        </Card>
+      )}
+
+      {eligiblePromotions && eligiblePromotions.length > 0 && (
+        <Card className="space-y-2">
+          <p className="text-sm font-medium text-foreground-muted">Available promotions</p>
+          <div className="space-y-2">
+            {eligiblePromotions.map((promo) => (
+              <div
+                key={promo.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm"
+              >
+                <span>
+                  {promo.name} —{" "}
+                  <span className="text-teal-600">save ฿{promo.previewAmount.toFixed(0)}</span>
+                  {promo.memberOnly && (
+                    <span className="text-xs text-foreground-muted"> · members only</span>
+                  )}
+                </span>
+                <Button
+                  size="md"
+                  variant="outline"
+                  disabled={applyPromotion.isPending}
+                  onClick={() => applyPromotion.mutate({ sessionId, promotionId: promo.id })}
+                >
+                  Apply
+                </Button>
+              </div>
+            ))}
+          </div>
+          {applyPromotion.error && (
+            <p className="text-sm text-status-danger">{applyPromotion.error.message}</p>
           )}
         </Card>
       )}

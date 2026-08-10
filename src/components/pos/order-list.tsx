@@ -4,12 +4,18 @@ interface OrderItemModifier {
   id: string;
   nameSnapshotEn: string;
 }
+interface OrderItemComboSelection {
+  id: string;
+  slotNameSnapshotEn: string;
+  nameSnapshotEn: string;
+}
 interface OrderItem {
   id: string;
   nameSnapshotEn: string;
   quantity: number;
   unitPriceSnapshot: unknown;
   modifiers: OrderItemModifier[];
+  comboSelections?: OrderItemComboSelection[];
 }
 interface Order {
   id: string;
@@ -52,10 +58,17 @@ export function OrderList({ orders }: { orders: Order[] }) {
             <div key={item.id} className="flex justify-between text-sm">
               <span className="text-foreground">
                 {item.quantity} × {item.nameSnapshotEn}
-                {item.modifiers.length > 0 && (
+                {(item.modifiers.length > 0 || (item.comboSelections?.length ?? 0) > 0) && (
                   <span className="text-foreground-muted">
                     {" "}
-                    ({item.modifiers.map((m) => m.nameSnapshotEn).join(", ")})
+                    (
+                    {[
+                      ...item.modifiers.map((m) => m.nameSnapshotEn),
+                      ...(item.comboSelections ?? []).map(
+                        (cs) => `${cs.slotNameSnapshotEn}: ${cs.nameSnapshotEn}`,
+                      ),
+                    ].join(", ")}
+                    )
                   </span>
                 )}
               </span>

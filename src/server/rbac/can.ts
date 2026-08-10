@@ -30,6 +30,7 @@ export const BACK_OFFICE_PERMISSIONS: Permission[] = [
   Permission.MANAGE_GAMES,
   Permission.MANAGE_MEMBERS,
   Permission.VIEW_REPORTS,
+  Permission.MANAGE_PROMOTIONS,
 ];
 
 export const CASHIER_PERMISSIONS: Permission[] = [

@@ -373,6 +373,11 @@ export function TableDetail({
                     id: m.id,
                     nameSnapshotEn: m.nameSnapshotEn,
                   })),
+                  comboSelections: i.comboSelections.map((cs) => ({
+                    id: cs.id,
+                    slotNameSnapshotEn: cs.slotNameSnapshotEn,
+                    nameSnapshotEn: cs.nameSnapshotEn,
+                  })),
                 })),
               }))}
             />

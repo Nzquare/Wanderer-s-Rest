@@ -24,6 +24,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   OPEN_SHIFT: "Open shift",
   CLOSE_SHIFT: "Close shift",
   OVERRIDE_LOCKED_TRANSACTION: "Override locked transaction",
+  MANAGE_PROMOTIONS: "Manage promotions",
 };
 
 /**
@@ -54,6 +55,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
     Permission.OPEN_SHIFT,
     Permission.CLOSE_SHIFT,
     Permission.OVERRIDE_LOCKED_TRANSACTION,
+    Permission.MANAGE_PROMOTIONS,
   ],
   GM: [
     Permission.MANAGE_TABLES,

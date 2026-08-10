@@ -5,7 +5,11 @@ import { router, permissionProcedure, cashierProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
 import { computeTableFee } from "@/server/domain/pricing";
-import { computeDiscountAmount } from "@/server/domain/discounts";
+import {
+  computeDiscountAmount,
+  isPromotionEligible,
+  type PromotionConfig,
+} from "@/server/domain/discounts";
 import { computeBill, eligibleExpSpending } from "@/server/domain/billing";
 import { expFromSpending, computeProgression } from "@/server/domain/exp";
 import { evaluateNewlyUnlocked, type AchievementDef } from "@/server/domain/achievements";
@@ -73,6 +77,40 @@ async function computeBreakdown(
   });
 
   return { tableFee, foodDrinkItems, foodDrinkSubtotal, bill, checkoutSettings };
+}
+
+function toPromotionConfig(p: {
+  id: string;
+  name: string;
+  type: string;
+  value: unknown;
+  startDate: Date | null;
+  endDate: Date | null;
+  activeDays: unknown;
+  startTime: string | null;
+  endTime: string | null;
+  eligiblePricingTypeIds: unknown;
+  minimumSpend: unknown;
+  memberOnly: boolean;
+  stackable: boolean;
+  active: boolean;
+}): PromotionConfig {
+  return {
+    id: p.id,
+    name: p.name,
+    type: p.type as PromotionConfig["type"],
+    value: toNum(p.value),
+    startDate: p.startDate,
+    endDate: p.endDate,
+    activeDays: (p.activeDays as number[] | null) ?? null,
+    startTime: p.startTime,
+    endTime: p.endTime,
+    eligiblePricingTypeIds: (p.eligiblePricingTypeIds as string[] | null) ?? null,
+    minimumSpend: p.minimumSpend == null ? null : Number(p.minimumSpend),
+    memberOnly: p.memberOnly,
+    stackable: p.stackable,
+    active: p.active,
+  };
 }
 
 /** Feeds the game-based achievement triggers (§36) now that the Game Library exists. */
@@ -194,6 +232,111 @@ export const checkoutRouter = router({
         entityId: session.id,
         newValue: { label, amount },
         reason: input.reason,
+      });
+      return { ok: true, amount };
+    }),
+
+  /**
+   * Promotions (§19) a cashier can actually apply to this bill right now —
+   * active, in their date/day/time window, member-only respected, minimum
+   * spend met — with the discount amount pre-computed so the checkout
+   * screen can show "Happy Hour 20% off — save ฿40" instead of just a name.
+   * Already-applied promotions are excluded so the same one can't stack
+   * with itself.
+   */
+  listEligiblePromotions: cashierProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
+      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
+      const existingDiscountTotal = session.appliedDiscounts.reduce(
+        (s, d) => s + toNum(d.amount),
+        0,
+      );
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const appliedPromotionIds = new Set(
+        session.appliedDiscounts.map((d) => d.promotionId).filter((id): id is string => !!id),
+      );
+
+      const promotions = await ctx.prisma.promotion.findMany({ where: { active: true } });
+      const now = new Date();
+      return promotions
+        .filter((p) => !appliedPromotionIds.has(p.id))
+        .map(toPromotionConfig)
+        .filter((p) =>
+          isPromotionEligible(p, {
+            now,
+            hasMember: !!session.member,
+            currentSpend: base,
+            pricingTypeId: session.pricingTypeId,
+          }),
+        )
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          value: p.value,
+          stackable: p.stackable,
+          memberOnly: p.memberOnly,
+          previewAmount: computeDiscountAmount(p, base),
+        }));
+    }),
+
+  applyPromotion: permissionProcedure(Permission.APPLY_DISCOUNTS)
+    .input(z.object({ sessionId: z.string(), promotionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
+      if (session.paymentStatus === "PAID") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
+      }
+      const promotion = await ctx.prisma.promotion.findUnique({
+        where: { id: input.promotionId },
+      });
+      if (!promotion) throw new TRPCError({ code: "NOT_FOUND" });
+      if (session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
+      }
+
+      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
+      const existingDiscountTotal = session.appliedDiscounts.reduce(
+        (s, d) => s + toNum(d.amount),
+        0,
+      );
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const config = toPromotionConfig(promotion);
+      // Re-check eligibility server-side rather than trusting the client's
+      // stale preview — a promotion's window or minimum spend may have
+      // moved between the preview query and this click.
+      if (
+        !isPromotionEligible(config, {
+          now: new Date(),
+          hasMember: !!session.member,
+          currentSpend: base,
+          pricingTypeId: session.pricingTypeId,
+        })
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${promotion.name}" isn't eligible for this bill right now.`,
+        });
+      }
+      const amount = computeDiscountAmount(config, base);
+
+      await ctx.prisma.appliedDiscount.create({
+        data: {
+          sessionId: session.id,
+          promotionId: promotion.id,
+          label: promotion.name,
+          amount,
+          appliedById: ctx.staff.id,
+        },
+      });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "PROMOTION_APPLIED",
+        entityType: "TableSession",
+        entityId: session.id,
+        newValue: { promotionId: promotion.id, label: promotion.name, amount },
       });
       return { ok: true, amount };
     }),

@@ -1,6 +1,8 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { Button } from "@/components/ui/button";
+import { trpc } from "@/lib/trpc/client";
 
 interface ReceiptSnapshot {
   receiptNumber: string;
@@ -41,6 +43,9 @@ export function ReceiptView({
   const leveledUp = progression && progression.levelAfter > progression.levelBefore;
   const rankedUp = progression && progression.rankAfter !== progression.rankBefore;
 
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
+  const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
+
   return (
     <div className="space-y-4">
       {snapshot.member && (
@@ -78,7 +83,12 @@ export function ReceiptView({
 
       <div
         id="receipt-print-area"
-        className="mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface p-5 font-mono text-sm"
+        style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
+        className={
+          printerWidthMm === 58
+            ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface p-4 font-mono text-xs"
+            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface p-5 font-mono text-sm"
+        }
       >
         <div className="text-center">
           <p className="font-semibold">Wanderer&apos;s Rest</p>
