@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
+import { canAccessCashier, canAccessStaffMobile } from "@/server/rbac/can";
 
 const NAV_ITEMS = [
   { href: "/back-office", label: "Dashboard" },
@@ -33,6 +34,20 @@ export function BackOfficeShell({
           <p className="mt-1 text-lg font-semibold text-white">
             Back Office
           </p>
+          {(canAccessCashier(staff) || canAccessStaffMobile(staff)) && (
+            <div className="mt-3 flex gap-3 text-xs">
+              {canAccessCashier(staff) && (
+                <Link href="/cashier" className="text-teal-400 hover:text-teal-300">
+                  Cashier POS →
+                </Link>
+              )}
+              {canAccessStaffMobile(staff) && (
+                <Link href="/staff" className="text-teal-400 hover:text-teal-300">
+                  Staff Mobile →
+                </Link>
+              )}
+            </div>
+          )}
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
           {NAV_ITEMS.map((item) => (
