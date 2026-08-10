@@ -31,23 +31,23 @@ export const menuRouter = router({
   listForOrdering: staffProcedure.query(async ({ ctx }) => {
     const categories = await ctx.prisma.menuCategory.findMany({
       where: { active: true },
-      orderBy: { sortOrder: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
       include: {
         items: {
           where: { active: true },
-          orderBy: { sortOrder: "asc" },
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           include: {
             modifierGroups: {
-              orderBy: { sortOrder: "asc" },
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
               include: {
                 modifierGroup: {
                   include: {
-                    options: { orderBy: { sortOrder: "asc" } },
+                    options: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
                   },
                 },
               },
             },
-            comboSlots: { orderBy: { sortOrder: "asc" } },
+            comboSlots: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
           },
         },
       },
@@ -123,7 +123,7 @@ export const menuRouter = router({
 
   listCategories: staffProcedure.query(async ({ ctx }) => {
     return ctx.prisma.menuCategory.findMany({
-      orderBy: { sortOrder: "asc" },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
       include: { _count: { select: { items: true } } },
     });
   }),
@@ -152,6 +152,42 @@ export const menuRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.prisma.menuCategory.update({ where: { id }, data });
+    }),
+
+  /**
+   * Swaps position with the previous/next category so the left rail can be
+   * reordered. Renumbers every category's sortOrder to 0,1,2,... (in
+   * current display order) before swapping — items created before this
+   * feature existed can share a sortOrder (ties), and swapping two equal
+   * values is a no-op, so straightening ties out first is what makes the
+   * swap actually move anything.
+   */
+  reorderCategory: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string(), direction: z.enum(["up", "down"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const categories = await ctx.prisma.menuCategory.findMany({
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      });
+      const index = categories.findIndex((c) => c.id === input.id);
+      if (index === -1) throw new TRPCError({ code: "NOT_FOUND" });
+      const neighborIndex = input.direction === "up" ? index - 1 : index + 1;
+      if (neighborIndex < 0 || neighborIndex >= categories.length) {
+        return { ok: true }; // already at that end — no-op, not an error
+      }
+      const renumbered = categories.map((c, i) => ({ ...c, sortOrder: i }));
+      // Swap the two positions in the renumbered array, then persist every
+      // row whose sortOrder actually changed from what it currently has.
+      [renumbered[index].sortOrder, renumbered[neighborIndex].sortOrder] = [
+        renumbered[neighborIndex].sortOrder,
+        renumbered[index].sortOrder,
+      ];
+      const updates = renumbered
+        .filter((c, i) => c.sortOrder !== categories[i].sortOrder)
+        .map((c) =>
+          ctx.prisma.menuCategory.update({ where: { id: c.id }, data: { sortOrder: c.sortOrder } }),
+        );
+      await ctx.prisma.$transaction(updates);
+      return { ok: true };
     }),
 
   /**
@@ -196,10 +232,10 @@ export const menuRouter = router({
         where: { id: input.id },
         include: {
           modifierGroups: {
-            orderBy: { sortOrder: "asc" },
+            orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
             include: { modifierGroup: true },
           },
-          comboSlots: { orderBy: { sortOrder: "asc" } },
+          comboSlots: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
         },
       });
       if (!item) throw new TRPCError({ code: "NOT_FOUND" });
@@ -268,6 +304,43 @@ export const menuRouter = router({
     }),
 
   /**
+   * Swaps position with the previous/next item — scoped to items in the
+   * same category, matching how the item list is grouped in the editor.
+   * Moving an item to a different category (via updateItem) drops it at
+   * the end of that category rather than trying to preserve a position.
+   * Renumbers the whole category first, same reasoning as reorderCategory
+   * — ties from items created before reordering existed would otherwise
+   * make the swap a no-op.
+   */
+  reorderItem: permissionProcedure(Permission.MANAGE_MENU)
+    .input(z.object({ id: z.string(), direction: z.enum(["up", "down"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.prisma.menuItem.findUnique({ where: { id: input.id } });
+      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+      const siblings = await ctx.prisma.menuItem.findMany({
+        where: { categoryId: item.categoryId },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      });
+      const index = siblings.findIndex((i) => i.id === item.id);
+      const neighborIndex = input.direction === "up" ? index - 1 : index + 1;
+      if (neighborIndex < 0 || neighborIndex >= siblings.length) {
+        return { ok: true };
+      }
+      const renumbered = siblings.map((s, i) => ({ ...s, sortOrder: i }));
+      [renumbered[index].sortOrder, renumbered[neighborIndex].sortOrder] = [
+        renumbered[neighborIndex].sortOrder,
+        renumbered[index].sortOrder,
+      ];
+      const updates = renumbered
+        .filter((s, i) => s.sortOrder !== siblings[i].sortOrder)
+        .map((s) =>
+          ctx.prisma.menuItem.update({ where: { id: s.id }, data: { sortOrder: s.sortOrder } }),
+        );
+      await ctx.prisma.$transaction(updates);
+      return { ok: true };
+    }),
+
+  /**
    * True delete — only for an item that's never actually been ordered.
    * Anything with order history stays forever (§45) and gets deactivated
    * instead, same pattern as tables/categories.
@@ -301,7 +374,7 @@ export const menuRouter = router({
 
   listModifierGroups: staffProcedure.query(async ({ ctx }) => {
     return ctx.prisma.modifierGroup.findMany({
-      include: { options: { orderBy: { sortOrder: "asc" } } },
+      include: { options: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
       orderBy: { nameEn: "asc" },
     });
   }),

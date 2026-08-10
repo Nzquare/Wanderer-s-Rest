@@ -42,6 +42,8 @@ export const checkoutSettingsSchema = z.object({
   receiptFooterTh: z.string().default("ขอบคุณที่มาเยือน Wanderer's Rest!"),
   receiptFooterEn: z.string().default("Thank you for visiting Wanderer's Rest!"),
   printerWidthMm: z.union([z.literal(58), z.literal(80)]).default(80),
+  /** Phone number, 13-digit national/tax ID, or e-Wallet ID registered for PromptPay (§20) — used to generate the scan-to-pay QR at checkout. Blank = QR not shown. */
+  promptpayId: z.string().default(""),
 });
 export type CheckoutSettings = z.infer<typeof checkoutSettingsSchema>;
 

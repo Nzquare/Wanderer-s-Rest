@@ -8,6 +8,8 @@ import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ReceiptView } from "./receipt-view";
+import { QrCodeImage } from "@/components/back-office/qr-code-image";
+import { buildPromptPayPayload } from "@/lib/promptpay";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type CheckoutResult = RouterOutputs["checkout"]["recordPayment"];
@@ -35,6 +37,7 @@ export function CheckoutClient({
   const { data: eligiblePromotions } = trpc.checkout.listEligiblePromotions.useQuery({
     sessionId,
   });
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
 
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">(
     "PERCENTAGE",
@@ -306,6 +309,30 @@ export function CheckoutClient({
             )}
           </div>
         ))}
+        {(() => {
+          const promptPayRow = payments.find((p) => p.method === "PROMPTPAY");
+          if (!promptPayRow) return null;
+          const qrAmount = Number(promptPayRow.amount) > 0 ? Number(promptPayRow.amount) : remaining;
+          if (!checkoutSettings?.promptpayId) {
+            return (
+              <p className="text-sm text-status-warning">
+                No PromptPay ID set — add one in Settings → Checkout to show a scan-to-pay QR here.
+              </p>
+            );
+          }
+          if (qrAmount <= 0) return null;
+          return (
+            <div className="flex flex-col items-center gap-2 rounded-xl bg-background p-4">
+              <QrCodeImage
+                value={buildPromptPayPayload(checkoutSettings.promptpayId, qrAmount)}
+                size={180}
+              />
+              <p className="text-sm text-foreground-muted">
+                Scan to pay ฿{qrAmount.toFixed(2)} — confirm once the transfer lands in your banking app.
+              </p>
+            </div>
+          );
+        })()}
         <div className="flex justify-between text-sm text-foreground-muted">
           <span>Remaining</span>
           <span className={remaining !== 0 ? "text-status-warning" : "text-status-success"}>

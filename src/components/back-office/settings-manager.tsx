@@ -257,6 +257,35 @@ function SettingsForm({ data }: { data: AllSettings }) {
             onChange={(e) => setCheckout({ ...checkout, receiptFooterEn: e.target.value })}
           />
         </Field>
+        <div className="flex flex-wrap gap-4">
+          <Field label="Receipt printer width">
+            <select
+              className={inputCls}
+              value={checkout.printerWidthMm}
+              onChange={(e) =>
+                setCheckout({
+                  ...checkout,
+                  printerWidthMm: Number(e.target.value) as 58 | 80,
+                })
+              }
+            >
+              <option value={58}>58mm</option>
+              <option value={80}>80mm</option>
+            </select>
+          </Field>
+          <Field label="PromptPay ID (phone, national/tax ID, or e-Wallet)">
+            <input
+              className={inputCls}
+              placeholder="e.g. 0812345678"
+              value={checkout.promptpayId}
+              onChange={(e) => setCheckout({ ...checkout, promptpayId: e.target.value })}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-foreground-muted">
+          Set a PromptPay ID to show a real scan-to-pay QR code at checkout
+          whenever PromptPay is selected as the payment method.
+        </p>
         <Button
           size="md"
           disabled={saveCheckout.isPending}

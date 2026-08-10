@@ -44,26 +44,38 @@ export const customerRouter = router({
 
       const categories = await ctx.prisma.menuCategory.findMany({
         where: { active: true },
-        orderBy: { sortOrder: "asc" },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
         include: {
           items: {
-            // Combo/set items need a slot picker the customer QR menu
-            // doesn't have yet (§11) — Cashier/Staff can sell them, but
-            // hide them here rather than let a customer submit an order
-            // that createOrder would reject for missing combo choices.
-            where: { active: true, customerVisible: true, staffOnly: false, isCombo: false },
-            orderBy: { sortOrder: "asc" },
+            where: { active: true, customerVisible: true, staffOnly: false },
+            orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
             include: {
               modifierGroups: {
-                orderBy: { sortOrder: "asc" },
+                orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
                 include: {
-                  modifierGroup: { include: { options: { orderBy: { sortOrder: "asc" } } } },
+                  modifierGroup: { include: { options: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
                 },
               },
+              comboSlots: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
             },
           },
         },
       });
+
+      // Eligible-item lookups for combo slots (§11) — same approach as the
+      // staff menu.listForOrdering: a slot picks from one category, or from
+      // every customer-visible active item if it has none set. Sold-out
+      // items are excluded — a customer shouldn't be offered a pick that
+      // can't actually be fulfilled.
+      const itemsByCategory = new Map(
+        categories.map((c) => [
+          c.id,
+          c.items
+            .filter((i) => !i.soldOut)
+            .map((i) => ({ id: i.id, nameEn: i.nameEn, basePrice: toNum(i.basePrice) })),
+        ]),
+      );
+      const allActiveItems = categories.flatMap((c) => itemsByCategory.get(c.id) ?? []);
 
       return {
         tableName: table.name,
@@ -84,6 +96,7 @@ export const customerRouter = router({
               basePrice: toNum(item.basePrice),
               soldOut: item.soldOut,
               photoUrl: item.photoUrl,
+              isCombo: item.isCombo,
               modifierGroups: item.modifierGroups.map((link) => ({
                 id: link.modifierGroup.id,
                 nameEn: link.modifierGroup.nameEn,
@@ -100,6 +113,16 @@ export const customerRouter = router({
                     soldOut: o.soldOut,
                   })),
               })),
+              comboSlots: item.isCombo
+                ? item.comboSlots.map((slot) => ({
+                    id: slot.id,
+                    nameEn: slot.nameEn,
+                    extraCharge: toNum(slot.extraCharge),
+                    eligibleItems:
+                      (slot.categoryId ? itemsByCategory.get(slot.categoryId) : null) ??
+                      allActiveItems,
+                  }))
+                : [],
             })),
           })),
       };
@@ -152,7 +175,7 @@ export const customerRouter = router({
 
       const orders = await ctx.prisma.order.findMany({
         where: { sessionId: session.id, status: "SUBMITTED" },
-        include: { items: { include: { modifiers: true } } },
+        include: { items: { include: { modifiers: true, comboSelections: true } } },
         orderBy: { createdAt: "desc" },
       });
       return orders.map((o) => ({
@@ -164,7 +187,10 @@ export const customerRouter = router({
           nameEn: i.nameSnapshotEn,
           quantity: i.quantity,
           unitPrice: toNum(i.unitPriceSnapshot),
-          modifiers: i.modifiers.map((m) => m.nameSnapshotEn),
+          modifiers: [
+            ...i.modifiers.map((m) => m.nameSnapshotEn),
+            ...i.comboSelections.map((cs) => `${cs.slotNameSnapshotEn}: ${cs.nameSnapshotEn}`),
+          ],
         })),
       }));
     }),

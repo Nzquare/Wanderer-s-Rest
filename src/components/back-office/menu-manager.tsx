@@ -47,10 +47,14 @@ function CategoryRow({
   category,
   selected,
   onSelect,
+  isFirst,
+  isLast,
 }: {
   category: CategoryListItem;
   selected: boolean;
   onSelect: () => void;
+  isFirst: boolean;
+  isLast: boolean;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -68,6 +72,7 @@ function CategoryRow({
       await invalidate();
     },
   });
+  const reorder = trpc.menu.reorderCategory.useMutation({ onSuccess: invalidate });
   const remove = trpc.menu.deleteCategory.useMutation({
     onSuccess: async () => {
       setConfirmingDelete(false);
@@ -121,7 +126,27 @@ function CategoryRow({
           {category._count.items} item{category._count.items === 1 ? "" : "s"}
         </p>
       </button>
-      <div className="mt-1 flex flex-wrap gap-3">
+      <div className="mt-1 flex flex-wrap items-center gap-3">
+        <span className="flex gap-1">
+          <button
+            type="button"
+            disabled={isFirst || reorder.isPending}
+            onClick={() => reorder.mutate({ id: category.id, direction: "up" })}
+            title="Move up"
+            className="rounded border border-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            disabled={isLast || reorder.isPending}
+            onClick={() => reorder.mutate({ id: category.id, direction: "down" })}
+            title="Move down"
+            className="rounded border border-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
+          >
+            ▼
+          </button>
+        </span>
         <button
           type="button"
           onClick={() => setEditing(true)}
@@ -214,27 +239,62 @@ type OrderingItem = {
   photoUrl: string | null;
 };
 
-function ItemRow({ item, onEdit }: { item: OrderingItem; onEdit: () => void }) {
+function ItemRow({
+  item,
+  onEdit,
+  isFirst,
+  isLast,
+}: {
+  item: OrderingItem;
+  onEdit: () => void;
+  isFirst: boolean;
+  isLast: boolean;
+}) {
   const utils = trpc.useUtils();
   const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
+    onSuccess: () => utils.menu.listForOrdering.invalidate(),
+  });
+  const reorder = trpc.menu.reorderItem.useMutation({
     onSuccess: () => utils.menu.listForOrdering.invalidate(),
   });
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
-      <button onClick={onEdit} className="flex items-center gap-3 text-left">
-        {item.photoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.photoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
-        ) : (
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-foreground-muted">
-            📷
-          </span>
-        )}
-        <span>
-          {item.nameEn} · ฿{item.basePrice}
+      <div className="flex items-center gap-2">
+        <span className="flex flex-col gap-0.5">
+          <button
+            type="button"
+            disabled={isFirst || reorder.isPending}
+            onClick={() => reorder.mutate({ id: item.id, direction: "up" })}
+            title="Move up"
+            className="rounded border border-border px-1 text-[10px] leading-tight text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            disabled={isLast || reorder.isPending}
+            onClick={() => reorder.mutate({ id: item.id, direction: "down" })}
+            title="Move down"
+            className="rounded border border-border px-1 text-[10px] leading-tight text-foreground-muted hover:border-foreground-muted disabled:opacity-30"
+          >
+            ▼
+          </button>
         </span>
-      </button>
+        <button onClick={onEdit} className="flex items-center gap-3 text-left">
+          {item.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.photoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
+          ) : (
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface text-foreground-muted">
+              📷
+            </span>
+          )}
+          <span>
+            {item.nameEn} · ฿{item.basePrice}
+          </span>
+        </button>
+      </div>
       <div className="flex items-center gap-2">
         <ToggleButton
           on={!item.soldOut}
@@ -958,12 +1018,14 @@ export function MenuManager() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
           <div className="space-y-2">
             <AddCategoryForm />
-            {categories?.map((cat) => (
+            {categories?.map((cat, i) => (
               <CategoryRow
                 key={cat.id}
                 category={cat}
                 selected={cat.id === activeCategoryId}
                 onSelect={() => setSelectedCategoryId(cat.id)}
+                isFirst={i === 0}
+                isLast={i === categories.length - 1}
               />
             ))}
           </div>
@@ -975,8 +1037,14 @@ export function MenuManager() {
                   {categories?.find((c) => c.id === activeCategoryId)?.nameEn}
                 </p>
                 <div className="space-y-1">
-                  {itemsForCategory.map((item) => (
-                    <ItemRow key={item.id} item={item} onEdit={() => setEditingItemId(item.id)} />
+                  {itemsForCategory.map((item, i) => (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      onEdit={() => setEditingItemId(item.id)}
+                      isFirst={i === 0}
+                      isLast={i === itemsForCategory.length - 1}
+                    />
                   ))}
                   {itemsForCategory.length === 0 && (
                     <p className="text-sm text-foreground-muted">No items in this category yet.</p>

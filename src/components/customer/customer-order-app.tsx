@@ -19,6 +19,12 @@ interface ModifierGroup {
   maxSelect: number;
   options: ModifierOption[];
 }
+interface ComboSlot {
+  id: string;
+  nameEn: string;
+  extraCharge: number;
+  eligibleItems: { id: string; nameEn: string; basePrice: number }[];
+}
 interface MenuItem {
   id: string;
   nameEn: string;
@@ -27,8 +33,15 @@ interface MenuItem {
   soldOut: boolean;
   photoUrl: string | null;
   modifierGroups: ModifierGroup[];
+  isCombo: boolean;
+  comboSlots: ComboSlot[];
 }
 
+interface ComboSelectionLine {
+  comboSlotId: string;
+  selectedMenuItemId: string;
+  label: string;
+}
 interface CartLine {
   key: string;
   menuItemId: string;
@@ -37,6 +50,7 @@ interface CartLine {
   unitPrice: number;
   modifierOptionIds: string[];
   modifierLabel: string;
+  comboSelections: ComboSelectionLine[];
 }
 
 function ItemThumb({ item }: { item: Pick<MenuItem, "nameEn" | "photoUrl"> }) {
@@ -67,6 +81,7 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [pickingItem, setPickingItem] = useState<MenuItem | null>(null);
   const [selection, setSelection] = useState<Record<string, string[]>>({});
+  const [comboSelection, setComboSelection] = useState<Record<string, string>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -88,21 +103,29 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
 
   function startAdd(item: MenuItem) {
     if (item.soldOut) return;
-    if (item.modifierGroups.length === 0) {
-      addToCart(item, [], "");
+    if (item.modifierGroups.length === 0 && item.comboSlots.length === 0) {
+      addToCart(item, [], "", []);
       return;
     }
     setPickingItem(item);
     setSelection({});
+    setComboSelection({});
   }
 
-  function addToCart(item: MenuItem, modifierOptionIds: string[], modifierLabel: string) {
-    const unitPrice =
-      item.basePrice +
-      item.modifierGroups
-        .flatMap((g) => g.options)
-        .filter((o) => modifierOptionIds.includes(o.id))
-        .reduce((s, o) => s + o.priceAdjustment, 0);
+  function addToCart(
+    item: MenuItem,
+    modifierOptionIds: string[],
+    modifierLabel: string,
+    comboSelections: ComboSelectionLine[],
+  ) {
+    const modifierTotal = item.modifierGroups
+      .flatMap((g) => g.options)
+      .filter((o) => modifierOptionIds.includes(o.id))
+      .reduce((s, o) => s + o.priceAdjustment, 0);
+    const comboExtraTotal = item.comboSlots
+      .filter((slot) => comboSelections.some((cs) => cs.comboSlotId === slot.id))
+      .reduce((s, slot) => s + slot.extraCharge, 0);
+    const unitPrice = item.basePrice + modifierTotal + comboExtraTotal;
     setCart((c) => [
       ...c,
       {
@@ -113,6 +136,7 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
         unitPrice,
         modifierOptionIds,
         modifierLabel,
+        comboSelections,
       },
     ]);
     setPickingItem(null);
@@ -125,17 +149,29 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
       .flatMap((g) => g.options)
       .filter((o) => chosenIds.includes(o.id))
       .map((o) => o.nameEn);
-    addToCart(pickingItem, chosenIds, labels.join(", "));
+    const comboSelections: ComboSelectionLine[] = pickingItem.comboSlots
+      .filter((slot) => comboSelection[slot.id])
+      .map((slot) => {
+        const chosenItem = slot.eligibleItems.find((i) => i.id === comboSelection[slot.id]);
+        return {
+          comboSlotId: slot.id,
+          selectedMenuItemId: comboSelection[slot.id],
+          label: `${slot.nameEn}: ${chosenItem?.nameEn ?? "?"}`,
+        };
+      });
+    addToCart(pickingItem, chosenIds, labels.join(", "), comboSelections);
   }
 
   const pickerValid = useMemo(() => {
     if (!pickingItem) return false;
-    return pickingItem.modifierGroups.every((g) => {
+    const modifiersOk = pickingItem.modifierGroups.every((g) => {
       const count = selection[g.id]?.length ?? 0;
       if (g.required && count < Math.max(1, g.minSelect)) return false;
       return true;
     });
-  }, [pickingItem, selection]);
+    const comboOk = pickingItem.comboSlots.every((slot) => !!comboSelection[slot.id]);
+    return modifiersOk && comboOk;
+  }, [pickingItem, selection, comboSelection]);
 
   const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
 
@@ -260,6 +296,31 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
           {pickingItem && (
             <div className="space-y-3 rounded-2xl border border-teal-400 bg-brand-900 p-4">
               <p className="font-semibold text-white">{pickingItem.nameEn}</p>
+              {pickingItem.comboSlots.map((slot) => (
+                <div key={slot.id}>
+                  <p className="text-xs text-white/60">
+                    {slot.nameEn} (required)
+                    {slot.extraCharge ? ` · +฿${slot.extraCharge}` : ""}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {slot.eligibleItems.map((opt) => {
+                      const selected = comboSelection[slot.id] === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          onClick={() => setComboSelection((s) => ({ ...s, [slot.id]: opt.id }))}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm text-white",
+                            selected ? "border-teal-400 bg-teal-500/30" : "border-white/20",
+                          )}
+                        >
+                          {opt.nameEn}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
               {pickingItem.modifierGroups.map((group) => (
                 <div key={group.id}>
                   <p className="text-xs text-white/60">
@@ -325,8 +386,15 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
                 <div key={line.key} className="flex items-center justify-between text-sm text-white">
                   <div>
                     <span>{line.nameEn}</span>
-                    {line.modifierLabel && (
-                      <span className="text-white/60"> ({line.modifierLabel})</span>
+                    {(line.modifierLabel || line.comboSelections.length > 0) && (
+                      <span className="text-white/60">
+                        {" "}
+                        (
+                        {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
+                          .filter(Boolean)
+                          .join(", ")}
+                        )
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -378,6 +446,10 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
                       menuItemId: l.menuItemId,
                       quantity: l.quantity,
                       modifierOptionIds: l.modifierOptionIds,
+                      comboSelections: l.comboSelections.map((cs) => ({
+                        comboSlotId: cs.comboSlotId,
+                        selectedMenuItemId: cs.selectedMenuItemId,
+                      })),
                     })),
                   });
                 }}
