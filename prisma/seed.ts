@@ -6,6 +6,21 @@ import {
 } from "../src/server/rbac/permissions";
 
 async function main() {
+  // `npm run build` runs this on every deploy (§ so a brand-new Vercel
+  // project gets its login + starter data with zero manual steps — see
+  // README's "Get a live link" flow). But that means it MUST be a true
+  // one-time bootstrap: once the owner account exists, staff have had the
+  // chance to edit or delete any of the demo rows below (tables, menu,
+  // roles, ...) from the Back Office, and re-running the upserts on the
+  // next deploy would silently recreate/undo exactly those changes (e.g.
+  // a deleted demo table reappearing). So: seed once, then get out of the
+  // way permanently.
+  const alreadySeeded = await prisma.staff.findUnique({ where: { loginId: "owner" } });
+  if (alreadySeeded) {
+    console.log("Already seeded — skipping (delete the 'owner' staff row to force a reseed).");
+    return;
+  }
+
   console.log("Seeding Wanderer's Rest...");
 
   // ── Roles + Permissions (§2) ─────────────────────────────────────────
