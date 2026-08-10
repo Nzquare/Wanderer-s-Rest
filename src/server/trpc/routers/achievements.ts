@@ -93,6 +93,7 @@ export const achievementsRouter = router({
         descriptionTh: z.string().optional(),
         descriptionEn: z.string().optional(),
         icon: z.string().optional(),
+        category: categoryEnum.optional(),
         hidden: z.boolean().optional(),
         repeatable: z.boolean().optional(),
         active: z.boolean().optional(),
@@ -106,6 +107,36 @@ export const achievementsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.prisma.achievement.update({ where: { id }, data });
+    }),
+
+  /**
+   * True delete — only for an achievement no member has ever earned.
+   * Anything with award history stays forever (§45) and gets deactivated
+   * instead, same pattern as menu/tables/promotions.
+   */
+  delete: manage()
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const achievement = await ctx.prisma.achievement.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { memberAchievements: true } } },
+      });
+      if (!achievement) throw new TRPCError({ code: "NOT_FOUND" });
+      if (achievement._count.memberAchievements > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${achievement.nameEn}" has already been earned by ${achievement._count.memberAchievements} member(s) and can't be deleted — mark it Inactive instead.`,
+        });
+      }
+      await ctx.prisma.achievement.delete({ where: { id: input.id } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "ACHIEVEMENT_DELETED",
+        entityType: "Achievement",
+        entityId: input.id,
+        previousValue: { nameEn: achievement.nameEn, code: achievement.code },
+      });
+      return { ok: true };
     }),
 
   /** Predefined-manual-award-only per §30: staff pick from this catalog, never invent one. */
