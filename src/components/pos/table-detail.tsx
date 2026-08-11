@@ -206,11 +206,13 @@ export function TableDetail({
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidStaffId, setVoidStaffId] = useState("");
+  const [voidPin, setVoidPin] = useState("");
   const voidSession = trpc.sessions.voidSession.useMutation({
     onSuccess: () => {
       setVoidOpen(false);
       setVoidReason("");
       setVoidStaffId("");
+      setVoidPin("");
       router.push(basePath);
       utils.sessions.listTables.invalidate();
     },
@@ -387,13 +389,22 @@ export function TableDetail({
             <Card className="space-y-2 border-status-danger">
               <p className="text-sm font-medium text-foreground">
                 Void this table — this cancels it with no charge. Requires a
-                reason and who it&apos;s assigned to.
+                reason, who it&apos;s assigned to, and that person&apos;s
+                passcode to confirm.
               </p>
               <div className="flex flex-wrap gap-2">
                 <StaffAssignSelect
                   value={voidStaffId}
                   onChange={setVoidStaffId}
                   className="h-11 rounded-lg border border-border bg-background px-3 text-sm"
+                />
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={voidPin}
+                  onChange={(e) => setVoidPin(e.target.value)}
+                  placeholder="Passcode"
+                  className="h-11 w-32 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-status-danger"
                 />
                 <input
                   value={voidReason}
@@ -411,11 +422,12 @@ export function TableDetail({
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={!voidReason.trim() || !voidStaffId || voidSession.isPending}
+                  disabled={!voidReason.trim() || !voidStaffId || !voidPin || voidSession.isPending}
                   onClick={() =>
                     voidSession.mutate({
                       sessionId: session.id,
                       staffId: voidStaffId,
+                      pin: voidPin,
                       reason: voidReason.trim(),
                     })
                   }

@@ -12,6 +12,7 @@ import { computeProgression } from "@/server/domain/exp";
 import { getSettings } from "@/server/settings/service";
 import type { Prisma } from "@/generated/prisma/client";
 import { logAudit } from "@/server/audit";
+import { verifyStaffSecret } from "@/server/auth/password";
 
 const ACTIVE_SESSION_STATUSES = [
   "OPEN",
@@ -611,6 +612,7 @@ export const sessionsRouter = router({
       z.object({
         sessionId: z.string(),
         staffId: z.string(),
+        pin: z.string().min(1),
         reason: z.string().min(1).max(300),
       }),
     )
@@ -627,6 +629,15 @@ export const sessionsRouter = router({
         const assignedStaff = await tx.staff.findUnique({ where: { id: input.staffId } });
         if (!assignedStaff || assignedStaff.status !== "ACTIVE") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid active staff member." });
+        }
+        // Picking a name from the "assign to" dropdown doesn't prove that
+        // person authorized it — require their own PIN/password, same
+        // check the login form uses, before the void goes through.
+        if (!(await verifyStaffSecret(assignedStaff, input.pin))) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Incorrect passcode for the assigned staff member.",
+          });
         }
 
         const now = new Date();
@@ -702,6 +713,7 @@ export const sessionsRouter = router({
       z.object({
         sessionId: z.string(),
         staffId: z.string(),
+        pin: z.string().min(1),
         reason: z.string().min(1).max(300),
       }),
     )
@@ -722,6 +734,15 @@ export const sessionsRouter = router({
         const assignedStaff = await tx.staff.findUnique({ where: { id: input.staffId } });
         if (!assignedStaff || assignedStaff.status !== "ACTIVE") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid active staff member." });
+        }
+        // Picking a name from the "assign to" dropdown doesn't prove that
+        // person authorized it — require their own PIN/password, same
+        // check the login form uses, before the refund goes through.
+        if (!(await verifyStaffSecret(assignedStaff, input.pin))) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Incorrect passcode for the assigned staff member.",
+          });
         }
 
         let expReversed = 0;

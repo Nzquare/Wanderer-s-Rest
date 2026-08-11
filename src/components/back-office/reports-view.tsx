@@ -54,11 +54,13 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
   const [staffId, setStaffId] = useState("");
+  const [pin, setPin] = useState("");
   const refund = trpc.sessions.refundSession.useMutation({
     onSuccess: async () => {
       setConfirming(false);
       setReason("");
       setStaffId("");
+      setPin("");
       await utils.reports.transactions.invalidate();
     },
   });
@@ -108,6 +110,17 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
                 <label className="text-xs text-foreground-muted">Assigned to</label>
                 <StaffAssignSelect value={staffId} onChange={setStaffId} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" />
               </div>
+              <div className="w-28">
+                <label className="text-xs text-foreground-muted">Passcode</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="Passcode"
+                  className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                />
+              </div>
               <div className="min-w-64 flex-1">
                 <label className="text-xs text-foreground-muted">
                   Reason (required — this bill has already been paid and checked out)
@@ -122,8 +135,8 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
               <Button
                 size="md"
                 variant="danger"
-                disabled={!reason.trim() || !staffId || refund.isPending}
-                onClick={() => refund.mutate({ sessionId: tx.id, staffId, reason: reason.trim() })}
+                disabled={!reason.trim() || !staffId || !pin || refund.isPending}
+                onClick={() => refund.mutate({ sessionId: tx.id, staffId, pin, reason: reason.trim() })}
               >
                 Confirm refund
               </Button>
