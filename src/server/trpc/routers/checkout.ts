@@ -518,7 +518,7 @@ export const checkoutRouter = router({
           });
         }
 
-        const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+        const { tableFee, foodDrinkItems, foodDrinkSubtotal, bill } = await computeBreakdown(session);
         const paidTotal = input.payments.reduce((s, p) => s + p.amount, 0);
         if (Math.abs(paidTotal - bill.total) > 0.5) {
           throw new TRPCError({
@@ -640,6 +640,7 @@ export const checkoutRouter = router({
           table: { code: session.table.code, name: session.table.name },
           players: session.players.length,
           tableFeeLines: tableFee.lines,
+          foodDrinkItems,
           foodDrinkSubtotal,
           discounts: session.appliedDiscounts.map((d) => ({
             label: d.label,

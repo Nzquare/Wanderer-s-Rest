@@ -84,10 +84,12 @@ button,
   touch-action: manipulation;
 }
 
-/* Receipt printing (§21) — only the receipt itself goes to the printer.
-   Same rules cover the PromptPay QR slip (checkout-client.tsx) — only one
-   of the two areas is ever in the DOM per screen, so sharing the selector
-   list is safe and keeps the print rules in one place. */
+/* Receipt/invoice printing (§20, §21) — only the printed area itself goes
+   to the printer. The checkout page can have both #invoice-print-area and
+   #promptpay-print-area in the DOM at once; checkout-client.tsx's printAs()
+   keeps only one of them classed print:block at a time (the other stays
+   `hidden`, i.e. display:none, so it's out of the print flow regardless of
+   the visibility rules below), so exactly one prints per button. */
 @media print {
   body * {
     visibility: hidden;
@@ -95,11 +97,17 @@ button,
   #receipt-print-area,
   #receipt-print-area *,
   #promptpay-print-area,
-  #promptpay-print-area * {
+  #promptpay-print-area *,
+  #invoice-print-area,
+  #invoice-print-area *,
+  #table-qr-print-area,
+  #table-qr-print-area * {
     visibility: visible;
   }
   #receipt-print-area,
-  #promptpay-print-area {
+  #promptpay-print-area,
+  #invoice-print-area,
+  #table-qr-print-area {
     position: absolute;
     top: 0;
     left: 0;

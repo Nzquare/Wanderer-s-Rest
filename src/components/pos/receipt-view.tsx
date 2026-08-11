@@ -3,11 +3,16 @@
 import type { CSSProperties } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/client";
+import { formatMinutesShort } from "./live-timer";
 
 interface ReceiptSnapshot {
   receiptNumber: string;
   table: { code: string; name: string };
   players: number;
+  // Older receipts (printed before this field existed) won't have these —
+  // always optional-chain/fallback rather than assuming they're present.
+  tableFeeLines?: { playerId: string; billableMinutes: number; fee: number }[];
+  foodDrinkItems?: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   foodDrinkSubtotal: number;
   discounts: { label: string; amount: number }[];
   bill: {
@@ -108,13 +113,30 @@ export function ReceiptView({
         </div>
         <div className="border-t border-dashed border-border pt-2 space-y-1">
           <div className="flex justify-between">
-            <span>Table time</span>
+            <span>Playtime</span>
             <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
           </div>
+          {snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
+            snapshot.tableFeeLines.map((line, i) => (
+              <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                <span>
+                  P{i + 1} {formatMinutesShort(line.billableMinutes)}
+                </span>
+                <span>฿{line.fee.toFixed(0)}</span>
+              </div>
+            ))}
           <div className="flex justify-between">
             <span>Food/drink</span>
             <span>฿{snapshot.bill.subtotalFoodDrink.toFixed(0)}</span>
           </div>
+          {snapshot.foodDrinkItems?.map((item) => (
+            <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+              <span>
+                {item.quantity}× {item.nameEn}
+              </span>
+              <span>฿{item.lineTotal.toFixed(0)}</span>
+            </div>
+          ))}
           {snapshot.discounts.map((d, i) => (
             <div key={i} className="flex justify-between text-status-danger">
               <span>{d.label}</span>

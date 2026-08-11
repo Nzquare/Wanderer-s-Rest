@@ -5,7 +5,11 @@ import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
 import type { Prisma } from "@/generated/prisma/client";
 
-export const OPEN_ORDER_STATUSES = ["OPEN", "PAUSED", "READY_FOR_CHECKOUT"] as const;
+// READY_FOR_CHECKOUT is deliberately excluded — once a table is sent to
+// checkout the bill is meant to be locked (§6/§20), for staff and the
+// customer's own QR ordering alike. sessions.backToTable reopens a table
+// (reverting it to OPEN) specifically for "customer wants to order more".
+export const OPEN_ORDER_STATUSES = ["OPEN", "PAUSED"] as const;
 
 export const cartItemSchema = z.object({
   menuItemId: z.string(),

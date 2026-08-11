@@ -53,8 +53,8 @@ export function TableGrid({ basePath }: { basePath: "/cashier" | "/staff" }) {
                   ฿{table.session.currentBill.toFixed(0)} current bill
                 </p>
                 <p className="text-xs text-foreground-muted">
-                  ฿{table.session.tableFee.toFixed(0)} time · ฿
-                  {table.session.foodDrinkSubtotal.toFixed(0)} food/drink
+                  Playtime ฿{table.session.tableFee.toFixed(0)} · Food/drink ฿
+                  {table.session.foodDrinkSubtotal.toFixed(0)}
                 </p>
               </>
             ) : (

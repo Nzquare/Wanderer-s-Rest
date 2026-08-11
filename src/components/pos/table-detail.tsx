@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TableStatusBadge } from "@/components/ui/status-badge";
 import { StaffAssignSelect } from "@/components/ui/staff-assign-select";
-import { LiveTimer } from "./live-timer";
+import { QrCodeImage } from "@/components/back-office/qr-code-image";
+import { LiveTimer, formatMinutesShort } from "./live-timer";
 import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
 import { OrderPanel } from "./order-panel";
@@ -20,6 +21,7 @@ type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
 function PlayerRow({
   player,
   tableId,
+  locked,
 }: {
   player: {
     id: string;
@@ -31,6 +33,7 @@ function PlayerRow({
     endTime: string | null;
   };
   tableId: string;
+  locked: boolean;
 }) {
   const utils = trpc.useUtils();
   const invalidate = () =>
@@ -106,7 +109,7 @@ function PlayerRow({
             </Button>
           </>
         )}
-        {player.status === "STOPPED" && (
+        {player.status === "STOPPED" && !locked && (
           <Button
             size="md"
             variant="outline"
@@ -172,6 +175,12 @@ export function TableDetail({
     { refetchInterval: 15_000 },
   );
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  // Only read on the client; the QR block that uses this is hidden until
+  // expanded, so there's nothing to mismatch during hydration.
+  const [origin] = useState(() =>
+    typeof window !== "undefined" ? window.location.origin : "",
+  );
 
   const invalidate = () =>
     Promise.all([
@@ -183,6 +192,9 @@ export function TableDetail({
   const pauseTable = trpc.sessions.pauseTable.useMutation({ onSuccess: invalidate });
   const resumeTable = trpc.sessions.resumeTable.useMutation({ onSuccess: invalidate });
   const markReady = trpc.sessions.markReadyForCheckout.useMutation({
+    onSuccess: invalidate,
+  });
+  const backToTable = trpc.sessions.backToTable.useMutation({
     onSuccess: invalidate,
   });
   const updateNotes = trpc.sessions.updateNotes.useMutation({
@@ -218,6 +230,10 @@ export function TableDetail({
   }
 
   const { table, session, grandTotal, liveBill, foodDrinkSubtotal } = data;
+  // Sent to checkout — the bill is meant to be locked (no new players, no
+  // new orders, no timer restarts) until Back to Table explicitly reopens
+  // it. See sessions.backToTable / sessions.ts's OPEN_ORDER_STATUSES.
+  const locked = session?.status === "READY_FOR_CHECKOUT";
 
   return (
     <div className="space-y-4">
@@ -233,8 +249,39 @@ export function TableDetail({
             {table.name}
           </h1>
         </div>
-        <TableStatusBadge status={table.status} />
+        <div className="flex items-center gap-2">
+          {table.qrEnabled && (
+            <Button size="md" variant="outline" onClick={() => setQrOpen((v) => !v)}>
+              {qrOpen ? "Hide QR" : "Show QR"}
+            </Button>
+          )}
+          <TableStatusBadge status={table.status} />
+        </div>
       </div>
+
+      {qrOpen && table.qrEnabled && origin && (
+        <Card className="flex flex-wrap items-center gap-4">
+          <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={140} />
+          <div className="space-y-2">
+            <p className="text-sm text-foreground-muted break-all">
+              {origin}/t/{table.qrToken}
+            </p>
+            <Button size="md" variant="outline" onClick={() => window.print()}>
+              Print QR
+            </Button>
+          </div>
+          {/* Printed slip — hidden on screen, shown only by @media print. */}
+          <div id="table-qr-print-area" className="hidden print:block">
+            <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
+              <p className="font-semibold">Wanderer&apos;s Rest</p>
+              <p className="text-xs">Table {table.code} — Scan to order</p>
+              <div className="flex justify-center py-2">
+                <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={220} />
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {!session ? (
         table.status === "AVAILABLE" || table.status === "RESERVED" ? (
@@ -251,10 +298,21 @@ export function TableDetail({
                 ฿{grandTotal.toFixed(0)}
               </p>
               {liveBill && (
-                <p className="mt-1 text-xs text-foreground-muted">
-                  Play time fee ฿{liveBill.total.toFixed(0)} · Food/drink ฿
-                  {foodDrinkSubtotal.toFixed(0)}
-                </p>
+                <>
+                  <p className="mt-1 text-xs text-foreground-muted">
+                    {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
+                    {formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))}{" "}
+                    played · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                    {foodDrinkSubtotal.toFixed(0)}
+                  </p>
+                  {liveBill.lines.length > 1 && (
+                    <p className="mt-0.5 text-xs text-foreground-muted">
+                      {liveBill.lines
+                        .map((l, i) => `P${i + 1} ${formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div className="flex gap-2">
@@ -286,6 +344,15 @@ export function TableDetail({
                     Send to Checkout
                   </Button>
                 )}
+              {session.status === "READY_FOR_CHECKOUT" && (
+                <Button
+                  variant="outline"
+                  onClick={() => backToTable.mutate({ sessionId: session.id })}
+                  disabled={backToTable.isPending}
+                >
+                  {backToTable.isPending ? "Reopening…" : "Back to Table"}
+                </Button>
+              )}
               {basePath === "/cashier" &&
                 session.status === "READY_FOR_CHECKOUT" && (
                   <Button
@@ -349,19 +416,22 @@ export function TableDetail({
               <p className="text-sm font-medium text-foreground-muted">
                 Players ({session.players.length})
               </p>
-              <Button
-                size="md"
-                variant="outline"
-                onClick={() => addPlayer.mutate({ sessionId: session.id })}
-                disabled={addPlayer.isPending}
-              >
-                + Add Player
-              </Button>
+              {!locked && (
+                <Button
+                  size="md"
+                  variant="outline"
+                  onClick={() => addPlayer.mutate({ sessionId: session.id })}
+                  disabled={addPlayer.isPending}
+                >
+                  + Add Player
+                </Button>
+              )}
             </div>
             {session.players.map((p) => (
               <PlayerRow
                 key={p.id}
                 tableId={tableId}
+                locked={locked}
                 player={{
                   id: p.id,
                   label: p.label,
@@ -403,11 +473,21 @@ export function TableDetail({
             />
           </div>
 
-          <OrderPanel
-            sessionId={session.id}
-            tableId={tableId}
-            source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
-          />
+          {locked ? (
+            <Card className="text-sm text-foreground-muted">
+              Locked for checkout — no new orders until this table goes{" "}
+              <button onClick={() => backToTable.mutate({ sessionId: session.id })} className="text-teal-600 underline">
+                Back to Table
+              </button>
+              .
+            </Card>
+          ) : (
+            <OrderPanel
+              sessionId={session.id}
+              tableId={tableId}
+              source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
+            />
+          )}
 
           <GameLogPanel sessionId={session.id} />
 

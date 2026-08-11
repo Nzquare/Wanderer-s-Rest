@@ -242,6 +242,16 @@ export const sessionsRouter = router({
             message: `Table ${table.code} is not available to open.`,
           });
         }
+        // Same rule payment already enforces (checkout.recordPayment) — a
+        // table's billable time and orders should always fall inside some
+        // shift's accountability, not float outside every shift.
+        const openShift = await tx.shift.findFirst({ where: { status: "OPEN" } });
+        if (!openShift) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Open a shift before opening a table.",
+          });
+        }
 
         let pricingTypeId = input.pricingTypeId;
         if (!pricingTypeId) {
@@ -289,8 +299,14 @@ export const sessionsRouter = router({
       const session = await ctx.prisma.tableSession.findUnique({
         where: { id: input.sessionId },
       });
-      if (!session || session.status === "CLOSED") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Session is not open." });
+      if (!session || !["OPEN", "PAUSED"].includes(session.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            session?.status === "READY_FOR_CHECKOUT"
+              ? "Table is locked for checkout — use Back to Table first."
+              : "Session is not open.",
+        });
       }
       await ctx.prisma.$transaction([
         ctx.prisma.sessionPlayer.create({
@@ -379,16 +395,26 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Un-stops a stopped player, resuming their clock without losing
       // previously accumulated billable/paused time (§6: "Restart Player if
-      // permitted" — gated the same as other timer actions in V1).
+      // permitted" — gated the same as other timer actions in V1). The gap
+      // between when they were stopped and now must NOT become billable —
+      // folded into accumulatedPausedMs, same as backToTable below, so
+      // restarting someone who's been sitting stopped for an hour doesn't
+      // suddenly charge for that hour.
       const player = await ctx.prisma.sessionPlayer.findUnique({
         where: { id: input.sessionPlayerId },
       });
       if (!player || player.status !== "STOPPED") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Player is not stopped." });
       }
+      const now = new Date();
+      const gapMs = player.endTime ? Math.max(0, now.getTime() - player.endTime.getTime()) : 0;
       await ctx.prisma.sessionPlayer.update({
         where: { id: player.id },
-        data: { status: "ACTIVE", endTime: null },
+        data: {
+          status: "ACTIVE",
+          endTime: null,
+          accumulatedPausedMs: player.accumulatedPausedMs + BigInt(gapMs),
+        },
       });
       return { ok: true };
     }),
@@ -493,6 +519,63 @@ export const sessionsRouter = router({
         ctx.prisma.restaurantTable.update({
           where: { id: session.tableId },
           data: { status: "READY_TO_CHECKOUT" },
+        }),
+      ]);
+      return { ok: true };
+    }),
+
+  /**
+   * Undo markReadyForCheckout — the customer wants to keep playing or
+   * order more after being sent to checkout. Resumes every player that
+   * got auto-stopped by Send to Checkout (§6) and reopens the table for
+   * orders/timers again. The gap between being stopped and resumed here
+   * doesn't count as billable time — same accumulatedPausedMs pattern
+   * used for an explicit pause, just computed from the auto-stop instead.
+   *
+   * Simplification: this resumes *every* currently-STOPPED player, not
+   * only the ones Send to Checkout itself stopped — in the common case
+   * that's the same set, since Send to Checkout stops everyone still
+   * running at once. A player who was individually stopped earlier for
+   * an unrelated reason (e.g. left early) would also resume; staff can
+   * stop them again if that's not wanted.
+   */
+  backToTable: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.prisma.tableSession.findUnique({
+        where: { id: input.sessionId },
+        include: { players: true },
+      });
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      if (session.status !== "READY_FOR_CHECKOUT") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This table isn't waiting for checkout.",
+        });
+      }
+      const now = new Date();
+      await ctx.prisma.$transaction([
+        ...session.players
+          .filter((p) => p.status === "STOPPED")
+          .map((p) => {
+            const gapMs = p.endTime ? Math.max(0, now.getTime() - p.endTime.getTime()) : 0;
+            return ctx.prisma.sessionPlayer.update({
+              where: { id: p.id },
+              data: {
+                status: "ACTIVE",
+                pausedAt: null,
+                endTime: null,
+                accumulatedPausedMs: p.accumulatedPausedMs + BigInt(gapMs),
+              },
+            });
+          }),
+        ctx.prisma.tableSession.update({
+          where: { id: session.id },
+          data: { status: "OPEN" },
+        }),
+        ctx.prisma.restaurantTable.update({
+          where: { id: session.tableId },
+          data: { status: "PLAYING" },
         }),
       ]);
       return { ok: true };

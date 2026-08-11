@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc/client";
@@ -11,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { ReceiptView } from "./receipt-view";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
+import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type CheckoutResult = RouterOutputs["checkout"]["recordPayment"];
@@ -53,6 +55,17 @@ export function CheckoutClient({
     { key: "p1", method: "CASH", amount: "" },
   ]);
   const [result, setResult] = useState<CheckoutResult | null>(null);
+  // Which hidden print area is "armed" for the next window.print() —
+  // invoice and the PromptPay QR slip can both be in the DOM at once on
+  // this page, so only one may carry the print:block class at a time (see
+  // printAs below). flushSync forces the class swap to land in the DOM
+  // before print() reads it — a plain setState wouldn't be guaranteed to
+  // flush in time.
+  const [printMode, setPrintMode] = useState<"invoice" | "promptpay">("invoice");
+  function printAs(mode: "invoice" | "promptpay") {
+    flushSync(() => setPrintMode(mode));
+    window.print();
+  }
 
   const applyDiscount = trpc.checkout.applyManualDiscount.useMutation({
     onSuccess: async () => {
@@ -98,6 +111,12 @@ export function CheckoutClient({
     },
   });
   const markAvailable = trpc.checkout.markTableAvailable.useMutation();
+  const backToTable = trpc.sessions.backToTable.useMutation({
+    onSuccess: () => {
+      utils.sessions.listTables.invalidate();
+      router.push(`/cashier/tables/${tableId}`);
+    },
+  });
 
   if (isLoading || !preview) {
     return <p className="text-sm text-foreground-muted">Loading bill…</p>;
@@ -116,16 +135,19 @@ export function CheckoutClient({
     );
   }
 
-  // PromptPay never needs a typed amount — there's nothing to split
-  // against, the QR always covers whatever's still outstanding once
-  // earlier rows are accounted for, so it "locks" to that automatically
-  // instead of asking the cashier to do the subtraction themselves.
+  // PromptPay only auto-locks to the full total when it's the sole payment
+  // row — nothing to split against, so there's no reason to make the
+  // cashier type the number that's already on screen. The moment it's part
+  // of a split, the lock comes off and it behaves like any other method
+  // (typed, adjustable) since the cashier is the one who knows how the
+  // split should actually divide.
+  const isSplitPayment = payments.length > 1;
   const effectiveAmounts: number[] = [];
   {
     let runningTotal = 0;
     for (const p of payments) {
       const amount =
-        p.method === "PROMPTPAY"
+        p.method === "PROMPTPAY" && !isSplitPayment
           ? Math.max(0, Math.round((preview.bill.total - runningTotal) * 100) / 100)
           : Number(p.amount) || 0;
       effectiveAmounts.push(amount);
@@ -137,22 +159,58 @@ export function CheckoutClient({
 
   return (
     <div className="space-y-4">
-      <button onClick={() => router.back()} className="text-sm text-teal-600">
-        ← Back to table
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button onClick={() => router.back()} className="text-sm text-teal-600">
+          ← Back to table
+        </button>
+        <Button
+          size="md"
+          variant="outline"
+          disabled={backToTable.isPending}
+          onClick={() => backToTable.mutate({ sessionId })}
+        >
+          {backToTable.isPending ? "Reopening…" : "Order more / Back to Table"}
+        </Button>
+      </div>
       <h1 className="text-2xl font-semibold text-foreground">
         Checkout — {preview.table.code}
       </h1>
 
       <Card className="space-y-2">
-        <p className="text-sm font-medium text-foreground-muted">Bill</p>
-        <div className="flex justify-between text-sm">
-          <span>Table time</span>
-          <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground-muted">Bill</p>
+          <Button size="md" variant="outline" onClick={() => printAs("invoice")}>
+            Print Invoice
+          </Button>
         </div>
-        <div className="flex justify-between text-sm">
-          <span>Food/drink</span>
-          <span>฿{preview.bill.subtotalFoodDrink.toFixed(0)}</span>
+        <div className="space-y-1">
+          <div className="flex justify-between text-sm">
+            <span>Playtime</span>
+            <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
+          </div>
+          {preview.tableFeeLines.length > 1 &&
+            preview.tableFeeLines.map((line, i) => (
+              <div key={line.playerId} className="flex justify-between pl-3 text-xs text-foreground-muted">
+                <span>
+                  Player {i + 1} · {formatMinutesShort(line.billableMinutes)}
+                </span>
+                <span>฿{line.fee.toFixed(0)}</span>
+              </div>
+            ))}
+        </div>
+        <div className="space-y-1">
+          <div className="flex justify-between text-sm">
+            <span>Food/drink</span>
+            <span>฿{preview.bill.subtotalFoodDrink.toFixed(0)}</span>
+          </div>
+          {preview.foodDrinkItems.map((item) => (
+            <div key={item.id} className="flex justify-between pl-3 text-xs text-foreground-muted">
+              <span>
+                {item.quantity}× {item.nameEn}
+              </span>
+              <span>฿{item.lineTotal.toFixed(0)}</span>
+            </div>
+          ))}
         </div>
         {preview.appliedDiscounts.map((d) => (
           <div key={d.id} className="flex justify-between text-sm text-status-danger">
@@ -185,6 +243,78 @@ export function CheckoutClient({
           <span>฿{preview.bill.total.toFixed(0)}</span>
         </div>
       </Card>
+
+      {/* Printed invoice — hidden on screen, shown only by @media print
+          (see globals.css #invoice-print-area). A guest reviewing/paying
+          the bill gets a compact itemized slip, separate from the themed
+          on-screen card above so print styling doesn't fight the app UI. */}
+      <div
+        id="invoice-print-area"
+        style={
+          {
+            "--receipt-print-width": `${checkoutSettings?.printerWidthMm ?? 80}mm`,
+          } as CSSProperties
+        }
+        className={printMode === "invoice" ? "hidden print:block" : "hidden"}
+      >
+        <div className="mx-auto max-w-xs space-y-2 p-4 font-mono text-sm">
+          <div className="text-center">
+            <p className="font-semibold">Wanderer&apos;s Rest</p>
+            <p className="text-xs">Invoice — Table {preview.table.code}</p>
+            <p className="text-xs">{new Date().toLocaleString()}</p>
+          </div>
+          <div className="border-t border-dashed border-border pt-2 space-y-1">
+            <div className="flex justify-between">
+              <span>Playtime</span>
+              <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
+            </div>
+            {preview.tableFeeLines.length > 1 &&
+              preview.tableFeeLines.map((line, i) => (
+                <div key={line.playerId} className="flex justify-between pl-2 text-xs">
+                  <span>
+                    P{i + 1} {formatMinutesShort(line.billableMinutes)}
+                  </span>
+                  <span>฿{line.fee.toFixed(0)}</span>
+                </div>
+              ))}
+            <div className="flex justify-between">
+              <span>Food/drink</span>
+              <span>฿{preview.bill.subtotalFoodDrink.toFixed(0)}</span>
+            </div>
+            {preview.foodDrinkItems.map((item) => (
+              <div key={item.id} className="flex justify-between pl-2 text-xs">
+                <span>
+                  {item.quantity}× {item.nameEn}
+                </span>
+                <span>฿{item.lineTotal.toFixed(0)}</span>
+              </div>
+            ))}
+            {preview.appliedDiscounts.map((d) => (
+              <div key={d.id} className="flex justify-between">
+                <span>{d.label}</span>
+                <span>-฿{d.amount.toFixed(0)}</span>
+              </div>
+            ))}
+            {preview.bill.serviceChargeAmount > 0 && (
+              <div className="flex justify-between">
+                <span>Service charge</span>
+                <span>฿{preview.bill.serviceChargeAmount.toFixed(0)}</span>
+              </div>
+            )}
+            {preview.bill.taxAmount > 0 && (
+              <div className="flex justify-between">
+                <span>Tax</span>
+                <span>฿{preview.bill.taxAmount.toFixed(0)}</span>
+              </div>
+            )}
+          </div>
+          <div className="border-t border-dashed border-border pt-2 flex justify-between font-semibold">
+            <span>Total</span>
+            <span>฿{preview.bill.total.toFixed(0)}</span>
+          </div>
+          <p className="pt-2 text-center text-xs">This is not a receipt — pay at the counter.</p>
+        </div>
+      </div>
 
       {preview.memberPreview && (
         <Card className="text-sm">
@@ -365,7 +495,7 @@ export function CheckoutClient({
               <option value="CARD">Card</option>
               <option value="OTHER">Other</option>
             </select>
-            {p.method === "PROMPTPAY" ? (
+            {p.method === "PROMPTPAY" && !isSplitPayment ? (
               <div className="flex h-11 flex-1 items-center rounded-lg border border-border bg-background px-2 text-sm text-foreground-muted">
                 ฿{effectiveAmounts[i].toFixed(2)} — locked to remaining balance
               </div>
@@ -380,7 +510,9 @@ export function CheckoutClient({
                     ),
                   )
                 }
-                placeholder="Amount"
+                placeholder={
+                  p.method === "PROMPTPAY" ? `Amount (e.g. ${remaining.toFixed(0)} left)` : "Amount"
+                }
                 className="h-11 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
               />
             )}
@@ -429,7 +561,7 @@ export function CheckoutClient({
               <p className="text-sm text-foreground-muted">
                 Scan to pay ฿{qrAmount.toFixed(2)} — confirm once the transfer lands in your banking app.
               </p>
-              <Button variant="outline" size="md" onClick={() => window.print()}>
+              <Button variant="outline" size="md" onClick={() => printAs("promptpay")}>
                 Print QR for customer
               </Button>
 
@@ -440,7 +572,7 @@ export function CheckoutClient({
               <div
                 id="promptpay-print-area"
                 style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-                className="hidden print:block"
+                className={printMode === "promptpay" ? "hidden print:block" : "hidden"}
               >
                 <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
                   <p className="font-semibold">Wanderer&apos;s Rest</p>
