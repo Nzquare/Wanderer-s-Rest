@@ -292,100 +292,107 @@ export function TableDetail({
           <NotOpenablePanel table={table} onCleared={invalidate} />
         )
       ) : (
-        <div className="space-y-4">
-          <Card className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs text-foreground-muted">Current bill</p>
-              <p className="text-3xl font-semibold text-foreground">
-                ฿{grandTotal.toFixed(0)}
-              </p>
-              {liveBill && (() => {
-                // Once every fee line has hit the daily cap, the bill is
-                // pinned flat for the rest of the day just like FIXED/
-                // PACKAGE pricing — the elapsed-time readout stops meaning
-                // anything and should read "All day" too, not "3h 15m".
-                const allCapped =
-                  liveBill.lines.length > 0 &&
-                  liveBill.lines.every((l) => l.cappedAtDailyCap);
-                const isHourly = session.pricingType?.model === "HOURLY";
-                const showAllDay = !isHourly || allCapped;
-                return (
-                  <>
-                    <p className="mt-1 text-xs text-foreground-muted">
-                      {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
-                      {showAllDay
-                        ? "All day"
-                        : `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`}{" "}
-                      · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
-                      {foodDrinkSubtotal.toFixed(0)}
-                    </p>
-                    {isHourly && liveBill.lines.length > 1 && (
-                      <p className="mt-0.5 text-xs text-foreground-muted">
-                        {liveBill.lines
-                          .map((l, i) =>
-                            `P${i + 1} ${l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`,
-                          )
-                          .join(" · ")}
+        (() => {
+          // Cashier terminals are wide enough for a two-column layout —
+          // table/bill/players/member on the left, orders on the right —
+          // but Staff Mobile stays single-column since it targets phones.
+          const twoColumn = basePath === "/cashier";
+
+          const billCard = (
+            <Card className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-foreground-muted">Current bill</p>
+                <p className="text-3xl font-semibold text-foreground">
+                  ฿{grandTotal.toFixed(0)}
+                </p>
+                {liveBill && (() => {
+                  // Once every fee line has hit the daily cap, the bill is
+                  // pinned flat for the rest of the day just like FIXED/
+                  // PACKAGE pricing — the elapsed-time readout stops meaning
+                  // anything and should read "All day" too, not "3h 15m".
+                  const allCapped =
+                    liveBill.lines.length > 0 &&
+                    liveBill.lines.every((l) => l.cappedAtDailyCap);
+                  const isHourly = session.pricingType?.model === "HOURLY";
+                  const showAllDay = !isHourly || allCapped;
+                  return (
+                    <>
+                      <p className="mt-1 text-xs text-foreground-muted">
+                        {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
+                        {showAllDay
+                          ? "All day"
+                          : `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`}{" "}
+                        · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                        {foodDrinkSubtotal.toFixed(0)}
                       </p>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-            <div className="flex gap-2">
-              {session.status === "OPEN" && (
-                <Button
-                  variant="outline"
-                  onClick={() => pauseTable.mutate({ sessionId: session.id })}
-                  disabled={pauseTable.isPending}
-                >
-                  Pause Table
-                </Button>
-              )}
-              {session.status === "PAUSED" && (
-                <Button
-                  variant="primary"
-                  onClick={() => resumeTable.mutate({ sessionId: session.id })}
-                  disabled={resumeTable.isPending}
-                >
-                  Resume Table
-                </Button>
-              )}
-              {session.status !== "READY_FOR_CHECKOUT" &&
-                session.status !== "CHECKOUT_IN_PROGRESS" && (
+                      {isHourly && liveBill.lines.length > 1 && (
+                        <p className="mt-0.5 text-xs text-foreground-muted">
+                          {liveBill.lines
+                            .map((l, i) =>
+                              `P${i + 1} ${l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`,
+                            )
+                            .join(" · ")}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {session.status === "OPEN" && (
                   <Button
-                    variant="brand"
-                    onClick={() => markReady.mutate({ sessionId: session.id })}
-                    disabled={markReady.isPending}
+                    variant="outline"
+                    onClick={() => pauseTable.mutate({ sessionId: session.id })}
+                    disabled={pauseTable.isPending}
                   >
-                    Send to Checkout
+                    Pause Table
                   </Button>
                 )}
-              {session.status === "READY_FOR_CHECKOUT" && (
-                <Button
-                  variant="outline"
-                  onClick={() => backToTable.mutate({ sessionId: session.id })}
-                  disabled={backToTable.isPending}
-                >
-                  {backToTable.isPending ? "Reopening…" : "Back to Table"}
-                </Button>
-              )}
-              {basePath === "/cashier" &&
-                session.status === "READY_FOR_CHECKOUT" && (
+                {session.status === "PAUSED" && (
                   <Button
                     variant="primary"
-                    onClick={() => router.push(`/cashier/tables/${tableId}/checkout`)}
+                    onClick={() => resumeTable.mutate({ sessionId: session.id })}
+                    disabled={resumeTable.isPending}
                   >
-                    Checkout →
+                    Resume Table
                   </Button>
                 )}
-              <Button variant="danger" onClick={() => setVoidOpen((v) => !v)}>
-                Void Table
-              </Button>
-            </div>
-          </Card>
+                {session.status !== "READY_FOR_CHECKOUT" &&
+                  session.status !== "CHECKOUT_IN_PROGRESS" && (
+                    <Button
+                      variant="brand"
+                      onClick={() => markReady.mutate({ sessionId: session.id })}
+                      disabled={markReady.isPending}
+                    >
+                      Send to Checkout
+                    </Button>
+                  )}
+                {session.status === "READY_FOR_CHECKOUT" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => backToTable.mutate({ sessionId: session.id })}
+                    disabled={backToTable.isPending}
+                  >
+                    {backToTable.isPending ? "Reopening…" : "Back to Table"}
+                  </Button>
+                )}
+                {basePath === "/cashier" &&
+                  session.status === "READY_FOR_CHECKOUT" && (
+                    <Button
+                      variant="primary"
+                      onClick={() => router.push(`/cashier/tables/${tableId}/checkout`)}
+                    >
+                      Checkout →
+                    </Button>
+                  )}
+                <Button variant="danger" onClick={() => setVoidOpen((v) => !v)}>
+                  Void Table
+                </Button>
+              </div>
+            </Card>
+          );
 
-          {voidOpen && (
+          const voidPanel = voidOpen && (
             <Card className="space-y-2 border-status-danger">
               <p className="text-sm font-medium text-foreground">
                 Void this table — this cancels it with no charge. Requires a
@@ -436,71 +443,75 @@ export function TableDetail({
                 </Button>
               </div>
             </Card>
-          )}
+          );
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-foreground-muted">
-                Players ({session.players.length})
-              </p>
-              {!locked && (
-                <Button
-                  size="md"
-                  variant="outline"
-                  onClick={() => addPlayer.mutate({ sessionId: session.id })}
-                  disabled={addPlayer.isPending}
-                >
-                  + Add Player
-                </Button>
-              )}
+          const playersSection = (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground-muted">
+                  Players ({session.players.length})
+                </p>
+                {!locked && (
+                  <Button
+                    size="md"
+                    variant="outline"
+                    onClick={() => addPlayer.mutate({ sessionId: session.id })}
+                    disabled={addPlayer.isPending}
+                  >
+                    + Add Player
+                  </Button>
+                )}
+              </div>
+              {session.players.map((p) => (
+                <PlayerRow
+                  key={p.id}
+                  tableId={tableId}
+                  locked={locked}
+                  player={{
+                    id: p.id,
+                    label: p.label,
+                    status: p.status,
+                    startTime: String(p.startTime),
+                    pausedAt: p.pausedAt ? String(p.pausedAt) : null,
+                    accumulatedPausedMs: Number(p.accumulatedPausedMs),
+                    endTime: p.endTime ? String(p.endTime) : null,
+                  }}
+                />
+              ))}
             </div>
-            {session.players.map((p) => (
-              <PlayerRow
-                key={p.id}
-                tableId={tableId}
-                locked={locked}
-                player={{
-                  id: p.id,
-                  label: p.label,
-                  status: p.status,
-                  startTime: String(p.startTime),
-                  pausedAt: p.pausedAt ? String(p.pausedAt) : null,
-                  accumulatedPausedMs: Number(p.accumulatedPausedMs),
-                  endTime: p.endTime ? String(p.endTime) : null,
-                }}
+          );
+
+          const ordersSection = (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground-muted">
+                Orders
+              </p>
+              <OrderList
+                orders={session.orders.map((o) => ({
+                  id: o.id,
+                  source: o.source,
+                  createdAt: String(o.createdAt),
+                  items: o.items.map((i) => ({
+                    id: i.id,
+                    nameSnapshotEn: i.nameSnapshotEn,
+                    quantity: i.quantity,
+                    unitPriceSnapshot: i.unitPriceSnapshot,
+                    modifiers: i.modifiers.map((m) => ({
+                      id: m.id,
+                      nameSnapshotEn: m.nameSnapshotEn,
+                    })),
+                    comboSelections: i.comboSelections.map((cs) => ({
+                      id: cs.id,
+                      slotNameSnapshotEn: cs.slotNameSnapshotEn,
+                      nameSnapshotEn: cs.nameSnapshotEn,
+                    })),
+                  })),
+                }))}
               />
-            ))}
-          </div>
+            </div>
+          );
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-foreground-muted">
-              Orders
-            </p>
-            <OrderList
-              orders={session.orders.map((o) => ({
-                id: o.id,
-                source: o.source,
-                createdAt: String(o.createdAt),
-                items: o.items.map((i) => ({
-                  id: i.id,
-                  nameSnapshotEn: i.nameSnapshotEn,
-                  quantity: i.quantity,
-                  unitPriceSnapshot: i.unitPriceSnapshot,
-                  modifiers: i.modifiers.map((m) => ({
-                    id: m.id,
-                    nameSnapshotEn: m.nameSnapshotEn,
-                  })),
-                  comboSelections: i.comboSelections.map((cs) => ({
-                    id: cs.id,
-                    slotNameSnapshotEn: cs.slotNameSnapshotEn,
-                    nameSnapshotEn: cs.nameSnapshotEn,
-                  })),
-                })),
-              }))}
-            />
-          </div>
-
-          {locked ? (
+          const addOrderSection = locked ? (
             <Card className="text-sm text-foreground-muted">
               Locked for checkout — no new orders until this table goes{" "}
               <button onClick={() => backToTable.mutate({ sessionId: session.id })} className="text-teal-600 underline">
@@ -514,34 +525,70 @@ export function TableDetail({
               tableId={tableId}
               source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
             />
-          )}
+          );
 
-          <GameLogPanel sessionId={session.id} />
+          const gameLogSection = <GameLogPanel sessionId={session.id} />;
 
-          <MemberLinkPanel
-            sessionId={session.id}
-            tableId={tableId}
-            member={session.member}
-          />
-
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground-muted">
-              Table notes
-            </p>
-            <textarea
-              defaultValue={session.notes ?? ""}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              onBlur={() => {
-                if (notesDraft !== null) {
-                  updateNotes.mutate({ sessionId: session.id, notes: notesDraft });
-                }
-              }}
-              rows={2}
-              className="w-full rounded-xl border border-border bg-surface p-3 text-sm outline-none focus:border-teal-500"
-              placeholder="Optional notes for this table…"
+          const memberSection = (
+            <MemberLinkPanel
+              sessionId={session.id}
+              tableId={tableId}
+              member={session.member}
             />
-          </div>
-        </div>
+          );
+
+          const notesSection = (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground-muted">
+                Table notes
+              </p>
+              <textarea
+                defaultValue={session.notes ?? ""}
+                onChange={(e) => setNotesDraft(e.target.value)}
+                onBlur={() => {
+                  if (notesDraft !== null) {
+                    updateNotes.mutate({ sessionId: session.id, notes: notesDraft });
+                  }
+                }}
+                rows={2}
+                className="w-full rounded-xl border border-border bg-surface p-3 text-sm outline-none focus:border-teal-500"
+                placeholder="Optional notes for this table…"
+              />
+            </div>
+          );
+
+          if (twoColumn) {
+            return (
+              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <div className="space-y-4">
+                  {billCard}
+                  {voidPanel}
+                  {playersSection}
+                  {gameLogSection}
+                  {memberSection}
+                  {notesSection}
+                </div>
+                <div className="space-y-4">
+                  {ordersSection}
+                  {addOrderSection}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              {billCard}
+              {voidPanel}
+              {playersSection}
+              {ordersSection}
+              {addOrderSection}
+              {gameLogSection}
+              {memberSection}
+              {notesSection}
+            </div>
+          );
+        })()
       )}
     </div>
   );
