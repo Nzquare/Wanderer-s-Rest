@@ -559,7 +559,7 @@ export function TableDetail({
 
           if (twoColumn) {
             return (
-              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div className="space-y-4">
                   {billCard}
                   {voidPanel}
