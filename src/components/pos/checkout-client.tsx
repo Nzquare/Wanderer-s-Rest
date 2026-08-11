@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc/client";
@@ -115,7 +116,23 @@ export function CheckoutClient({
     );
   }
 
-  const paidTotal = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  // PromptPay never needs a typed amount — there's nothing to split
+  // against, the QR always covers whatever's still outstanding once
+  // earlier rows are accounted for, so it "locks" to that automatically
+  // instead of asking the cashier to do the subtraction themselves.
+  const effectiveAmounts: number[] = [];
+  {
+    let runningTotal = 0;
+    for (const p of payments) {
+      const amount =
+        p.method === "PROMPTPAY"
+          ? Math.max(0, Math.round((preview.bill.total - runningTotal) * 100) / 100)
+          : Number(p.amount) || 0;
+      effectiveAmounts.push(amount);
+      runningTotal += amount;
+    }
+  }
+  const paidTotal = effectiveAmounts.reduce((s, a) => s + a, 0);
   const remaining = preview.bill.total - paidTotal;
 
   return (
@@ -348,19 +365,25 @@ export function CheckoutClient({
               <option value="CARD">Card</option>
               <option value="OTHER">Other</option>
             </select>
-            <input
-              type="number"
-              value={p.amount}
-              onChange={(e) =>
-                setPayments((rows) =>
-                  rows.map((r) =>
-                    r.key === p.key ? { ...r, amount: e.target.value } : r,
-                  ),
-                )
-              }
-              placeholder="Amount"
-              className="h-11 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
-            />
+            {p.method === "PROMPTPAY" ? (
+              <div className="flex h-11 flex-1 items-center rounded-lg border border-border bg-background px-2 text-sm text-foreground-muted">
+                ฿{effectiveAmounts[i].toFixed(2)} — locked to remaining balance
+              </div>
+            ) : (
+              <input
+                type="number"
+                value={p.amount}
+                onChange={(e) =>
+                  setPayments((rows) =>
+                    rows.map((r) =>
+                      r.key === p.key ? { ...r, amount: e.target.value } : r,
+                    ),
+                  )
+                }
+                placeholder="Amount"
+                className="h-11 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
+              />
+            )}
             {payments.length > 1 && (
               <button
                 onClick={() =>
@@ -387,9 +410,9 @@ export function CheckoutClient({
           </div>
         ))}
         {(() => {
-          const promptPayRow = payments.find((p) => p.method === "PROMPTPAY");
-          if (!promptPayRow) return null;
-          const qrAmount = Number(promptPayRow.amount) > 0 ? Number(promptPayRow.amount) : remaining;
+          const promptPayIndex = payments.findIndex((p) => p.method === "PROMPTPAY");
+          if (promptPayIndex === -1) return null;
+          const qrAmount = effectiveAmounts[promptPayIndex];
           if (!checkoutSettings?.promptpayId) {
             return (
               <p className="text-sm text-status-warning">
@@ -398,15 +421,37 @@ export function CheckoutClient({
             );
           }
           if (qrAmount <= 0) return null;
+          const qrValue = buildPromptPayPayload(checkoutSettings.promptpayId, qrAmount);
+          const printerWidthMm = checkoutSettings.printerWidthMm ?? 80;
           return (
-            <div className="flex flex-col items-center gap-2 rounded-xl bg-background p-4">
-              <QrCodeImage
-                value={buildPromptPayPayload(checkoutSettings.promptpayId, qrAmount)}
-                size={180}
-              />
+            <div className="flex flex-col items-center gap-3 rounded-xl bg-background p-4">
+              <QrCodeImage value={qrValue} size={180} />
               <p className="text-sm text-foreground-muted">
                 Scan to pay ฿{qrAmount.toFixed(2)} — confirm once the transfer lands in your banking app.
               </p>
+              <Button variant="outline" size="md" onClick={() => window.print()}>
+                Print QR for customer
+              </Button>
+
+              {/* Printed slip — hidden on screen, shown only by @media print
+                  (see globals.css #promptpay-print-area). Kept separate from
+                  the on-screen QR above so the printout can carry its own
+                  compact layout without affecting what staff see live. */}
+              <div
+                id="promptpay-print-area"
+                style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
+                className="hidden print:block"
+              >
+                <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
+                  <p className="font-semibold">Wanderer&apos;s Rest</p>
+                  <p className="text-xs">Table {preview.table.code}</p>
+                  <div className="flex justify-center py-2">
+                    <QrCodeImage value={qrValue} size={220} />
+                  </div>
+                  <p className="font-semibold">Scan to pay ฿{qrAmount.toFixed(2)}</p>
+                  <p className="text-xs">PromptPay — show staff once paid</p>
+                </div>
+              </div>
             </div>
           );
         })()}
@@ -427,8 +472,8 @@ export function CheckoutClient({
             recordPayment.mutate({
               sessionId,
               payments: payments
-                .filter((p) => Number(p.amount) > 0)
-                .map((p) => ({ method: p.method, amount: Number(p.amount) })),
+                .map((p, i) => ({ method: p.method, amount: effectiveAmounts[i] }))
+                .filter((p) => p.amount > 0),
             })
           }
         >

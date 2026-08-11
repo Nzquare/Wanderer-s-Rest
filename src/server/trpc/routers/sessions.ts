@@ -121,12 +121,15 @@ export const sessionsRouter = router({
         endTime: Date | null;
         status: "ACTIVE" | "PAUSED" | "STOPPED";
       };
+      let tableFee = 0;
+      let foodDrinkSubtotal = 0;
       if (session) {
         const fee = computeTableFee({
           pricingType: toPricingConfig(session.pricingType),
           players: session.players.map(toPlayerRecord),
         });
-        const foodDrinkSubtotal = session.orders.reduce(
+        tableFee = fee.total;
+        foodDrinkSubtotal = session.orders.reduce(
           (sum, order) =>
             sum +
             order.items.reduce(
@@ -172,6 +175,8 @@ export const sessionsRouter = router({
               activePlayers,
               member: session.member,
               currentBill: liveTotal,
+              tableFee,
+              foodDrinkSubtotal,
               mainTimer,
             }
           : null,

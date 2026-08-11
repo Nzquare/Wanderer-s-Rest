@@ -84,21 +84,27 @@ button,
   touch-action: manipulation;
 }
 
-/* Receipt printing (§21) — only the receipt itself goes to the printer. */
+/* Receipt printing (§21) — only the receipt itself goes to the printer.
+   Same rules cover the PromptPay QR slip (checkout-client.tsx) — only one
+   of the two areas is ever in the DOM per screen, so sharing the selector
+   list is safe and keeps the print rules in one place. */
 @media print {
   body * {
     visibility: hidden;
   }
   #receipt-print-area,
-  #receipt-print-area * {
+  #receipt-print-area *,
+  #promptpay-print-area,
+  #promptpay-print-area * {
     visibility: visible;
   }
-  #receipt-print-area {
+  #receipt-print-area,
+  #promptpay-print-area {
     position: absolute;
     top: 0;
     left: 0;
-    /* Set inline by ReceiptView from Settings > Checkout > printerWidthMm
-       (58mm or 80mm thermal paper) — falls back to 80mm if unset. */
+    /* Set inline from Settings > Checkout > printerWidthMm (58mm or 80mm
+       thermal paper) — falls back to 80mm if unset. */
     width: var(--receipt-print-width, 80mm);
     max-width: var(--receipt-print-width, 80mm);
     border: none;

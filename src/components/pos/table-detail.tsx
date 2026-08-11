@@ -217,7 +217,7 @@ export function TableDetail({
     return <p className="text-sm text-foreground-muted">Loading table…</p>;
   }
 
-  const { table, session, grandTotal } = data;
+  const { table, session, grandTotal, liveBill, foodDrinkSubtotal } = data;
 
   return (
     <div className="space-y-4">
@@ -250,6 +250,12 @@ export function TableDetail({
               <p className="text-3xl font-semibold text-foreground">
                 ฿{grandTotal.toFixed(0)}
               </p>
+              {liveBill && (
+                <p className="mt-1 text-xs text-foreground-muted">
+                  Play time fee ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                  {foodDrinkSubtotal.toFixed(0)}
+                </p>
+              )}
             </div>
             <div className="flex gap-2">
               {session.status === "OPEN" && (
