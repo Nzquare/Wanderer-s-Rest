@@ -175,9 +175,8 @@ export function TableDetail({
     { refetchInterval: 15_000 },
   );
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
-  const [qrOpen, setQrOpen] = useState(false);
-  // Only read on the client; the QR block that uses this is hidden until
-  // expanded, so there's nothing to mismatch during hydration.
+  // Only read on the client; the print area that uses this is hidden until
+  // printed (@media print), so there's nothing to mismatch during hydration.
   const [origin] = useState(() =>
     typeof window !== "undefined" ? window.location.origin : "",
   );
@@ -256,37 +255,29 @@ export function TableDetail({
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          {table.qrEnabled && (
-            <Button size="md" variant="outline" onClick={() => setQrOpen((v) => !v)}>
-              {qrOpen ? "Hide QR" : "Show QR"}
+          {/* Doesn't depend on the table having an active session — a QR
+              code identifies the table itself (§6), so it can be printed
+              and placed before the table is ever opened. */}
+          {table.qrEnabled && origin && (
+            <Button size="md" variant="outline" onClick={() => window.print()}>
+              Print QR
             </Button>
           )}
           <TableStatusBadge status={table.status} />
         </div>
       </div>
 
-      {qrOpen && table.qrEnabled && origin && (
-        <Card className="flex flex-wrap items-center gap-4">
-          <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={140} />
-          <div className="space-y-2">
-            <p className="text-sm text-foreground-muted break-all">
-              {origin}/t/{table.qrToken}
-            </p>
-            <Button size="md" variant="outline" onClick={() => window.print()}>
-              Print QR
-            </Button>
-          </div>
-          {/* Printed slip — hidden on screen, shown only by @media print. */}
-          <div id="table-qr-print-area" className="hidden print:block">
-            <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
-              <p className="font-semibold">Wanderer&apos;s Rest</p>
-              <p className="text-xs">Table {table.code} — Scan to order</p>
-              <div className="flex justify-center py-2">
-                <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={220} />
-              </div>
+      {/* Printed slip — hidden on screen, shown only by @media print. */}
+      {table.qrEnabled && origin && (
+        <div id="table-qr-print-area" className="hidden print:block">
+          <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
+            <p className="font-semibold">Wanderer&apos;s Rest</p>
+            <p className="text-xs">Table {table.code} — Scan to order</p>
+            <div className="flex justify-center py-2">
+              <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={220} />
             </div>
           </div>
-        </Card>
+        </div>
       )}
 
       {!session ? (
