@@ -141,6 +141,15 @@ export function CheckoutClient({
   // of a split, the lock comes off and it behaves like any other method
   // (typed, adjustable) since the cashier is the one who knows how the
   // split should actually divide.
+  // Once every fee line has hit the daily cap, the bill is pinned flat for
+  // the rest of the day just like FIXED/PACKAGE pricing — show "All day"
+  // instead of a per-player minutes breakdown that no longer means anything.
+  const allLinesCapped =
+    preview.tableFeeLines.length > 0 &&
+    preview.tableFeeLines.every((l) => l.cappedAtDailyCap);
+  const isHourly = preview.pricingModel === "HOURLY";
+  const showAllDay = !isHourly || allLinesCapped;
+
   const isSplitPayment = payments.length > 1;
   const effectiveAmounts: number[] = [];
   {
@@ -185,15 +194,16 @@ export function CheckoutClient({
         </div>
         <div className="space-y-1">
           <div className="flex justify-between text-sm">
-            <span>{preview.pricingModel === "HOURLY" ? "Playtime" : "All day"}</span>
+            <span>{showAllDay ? "All day" : "Playtime"}</span>
             <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
           </div>
-          {preview.pricingModel === "HOURLY" &&
+          {isHourly &&
             preview.tableFeeLines.length > 1 &&
             preview.tableFeeLines.map((line, i) => (
               <div key={line.playerId} className="flex justify-between pl-3 text-xs text-foreground-muted">
                 <span>
-                  Player {i + 1} · {formatMinutesShort(line.billableMinutes)}
+                  Player {i + 1} ·{" "}
+                  {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
                 </span>
                 <span>฿{line.fee.toFixed(0)}</span>
               </div>
@@ -266,15 +276,15 @@ export function CheckoutClient({
           </div>
           <div className="border-t border-dashed border-border pt-2 space-y-1">
             <div className="flex justify-between">
-              <span>{preview.pricingModel === "HOURLY" ? "Playtime" : "All day"}</span>
+              <span>{showAllDay ? "All day" : "Playtime"}</span>
               <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
             </div>
-            {preview.pricingModel === "HOURLY" &&
+            {isHourly &&
               preview.tableFeeLines.length > 1 &&
               preview.tableFeeLines.map((line, i) => (
                 <div key={line.playerId} className="flex justify-between pl-2 text-xs">
                   <span>
-                    P{i + 1} {formatMinutesShort(line.billableMinutes)}
+                    P{i + 1} {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
                   </span>
                   <span>฿{line.fee.toFixed(0)}</span>
                 </div>

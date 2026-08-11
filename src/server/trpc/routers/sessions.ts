@@ -123,12 +123,19 @@ export const sessionsRouter = router({
       };
       let tableFee = 0;
       let foodDrinkSubtotal = 0;
+      let allDay = false;
       if (session) {
         const fee = computeTableFee({
           pricingType: toPricingConfig(session.pricingType),
           players: session.players.map(toPlayerRecord),
         });
         tableFee = fee.total;
+        // Once every fee line has hit the daily cap the bill is pinned flat
+        // for the rest of the day just like FIXED/PACKAGE pricing — show
+        // "All day" instead of a duration that no longer means anything.
+        allDay =
+          session.pricingType?.model !== "HOURLY" ||
+          (fee.lines.length > 0 && fee.lines.every((l) => l.cappedAtDailyCap));
         foodDrinkSubtotal = session.orders.reduce(
           (sum, order) =>
             sum +
@@ -176,10 +183,12 @@ export const sessionsRouter = router({
               member: session.member,
               currentBill: liveTotal,
               tableFee,
-              // FIXED/PACKAGE pricing isn't billed by elapsed time at all —
-              // the frontend uses this to show "All day" instead of a
-              // duration/per-player time breakdown that wouldn't apply.
-              pricingModel: session.pricingType?.model ?? "HOURLY",
+              // True for FIXED/PACKAGE pricing (never billed by elapsed
+              // time) and for HOURLY pricing once every line has hit its
+              // daily cap — either way the frontend shows "All day" instead
+              // of a duration/per-player time breakdown that no longer
+              // means anything.
+              allDay,
               foodDrinkSubtotal,
               mainTimer,
             }

@@ -11,7 +11,7 @@ interface ReceiptSnapshot {
   players: number;
   // Older receipts (printed before this field existed) won't have these —
   // always optional-chain/fallback rather than assuming they're present.
-  tableFeeLines?: { playerId: string; billableMinutes: number; fee: number }[];
+  tableFeeLines?: { playerId: string; billableMinutes: number; fee: number; cappedAtDailyCap?: boolean }[];
   // Older receipts (printed before this field existed) default to HOURLY so
   // they keep rendering their per-player minutes breakdown as before.
   pricingModel?: string;
@@ -53,6 +53,17 @@ export function ReceiptView({
 
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
+
+  // Once every fee line hit the daily cap, the bill was pinned flat for the
+  // rest of the day just like FIXED/PACKAGE pricing — show "All day"
+  // instead of a duration that no longer means anything (mirrors the live
+  // checkout bill, §7).
+  const isHourly = (snapshot.pricingModel ?? "HOURLY") === "HOURLY";
+  const allCapped =
+    !!snapshot.tableFeeLines &&
+    snapshot.tableFeeLines.length > 0 &&
+    snapshot.tableFeeLines.every((l) => l.cappedAtDailyCap);
+  const showAllDay = !isHourly || allCapped;
 
   return (
     <div className="space-y-4">
@@ -116,15 +127,15 @@ export function ReceiptView({
         </div>
         <div className="border-t border-dashed border-border pt-2 space-y-1">
           <div className="flex justify-between">
-            <span>{(snapshot.pricingModel ?? "HOURLY") === "HOURLY" ? "Playtime" : "All day"}</span>
+            <span>{showAllDay ? "All day" : "Playtime"}</span>
             <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
           </div>
-          {(snapshot.pricingModel ?? "HOURLY") === "HOURLY" &&
+          {isHourly &&
             snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
             snapshot.tableFeeLines.map((line, i) => (
               <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
                 <span>
-                  P{i + 1} {formatMinutesShort(line.billableMinutes)}
+                  P{i + 1} {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
                 </span>
                 <span>฿{line.fee.toFixed(0)}</span>
               </div>

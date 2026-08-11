@@ -297,25 +297,38 @@ export function TableDetail({
               <p className="text-3xl font-semibold text-foreground">
                 ฿{grandTotal.toFixed(0)}
               </p>
-              {liveBill && (
-                <>
-                  <p className="mt-1 text-xs text-foreground-muted">
-                    {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
-                    {session.pricingType?.model === "HOURLY"
-                      ? `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`
-                      : "All day"}{" "}
-                    · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
-                    {foodDrinkSubtotal.toFixed(0)}
-                  </p>
-                  {session.pricingType?.model === "HOURLY" && liveBill.lines.length > 1 && (
-                    <p className="mt-0.5 text-xs text-foreground-muted">
-                      {liveBill.lines
-                        .map((l, i) => `P${i + 1} ${formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`)
-                        .join(" · ")}
+              {liveBill && (() => {
+                // Once every fee line has hit the daily cap, the bill is
+                // pinned flat for the rest of the day just like FIXED/
+                // PACKAGE pricing — the elapsed-time readout stops meaning
+                // anything and should read "All day" too, not "3h 15m".
+                const allCapped =
+                  liveBill.lines.length > 0 &&
+                  liveBill.lines.every((l) => l.cappedAtDailyCap);
+                const isHourly = session.pricingType?.model === "HOURLY";
+                const showAllDay = !isHourly || allCapped;
+                return (
+                  <>
+                    <p className="mt-1 text-xs text-foreground-muted">
+                      {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
+                      {showAllDay
+                        ? "All day"
+                        : `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`}{" "}
+                      · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                      {foodDrinkSubtotal.toFixed(0)}
                     </p>
-                  )}
-                </>
-              )}
+                    {isHourly && liveBill.lines.length > 1 && (
+                      <p className="mt-0.5 text-xs text-foreground-muted">
+                        {liveBill.lines
+                          .map((l, i) =>
+                            `P${i + 1} ${l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`,
+                          )
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div className="flex gap-2">
               {session.status === "OPEN" && (
