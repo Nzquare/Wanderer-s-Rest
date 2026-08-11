@@ -203,6 +203,10 @@ export function TableDetail({
   const acknowledgeAllForTable = trpc.orders.acknowledgeAllForTable.useMutation({
     onSuccess: () => utils.orders.listUnacknowledged.invalidate(),
   });
+  // Collapsible so a table with many players (6-8) doesn't dominate the
+  // left column — expanded by default since most tables are 1-2 players
+  // and staff usually want the pause/stop controls visible at a glance.
+  const [playersOpen, setPlayersOpen] = useState(true);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidStaffId, setVoidStaffId] = useState("");
@@ -448,9 +452,20 @@ export function TableDetail({
           const playersSection = (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-foreground-muted">
+                <button
+                  onClick={() => setPlayersOpen((v) => !v)}
+                  className="flex items-center gap-1.5 text-sm font-medium text-foreground-muted"
+                >
+                  <span
+                    className={cn(
+                      "inline-block transition-transform",
+                      playersOpen ? "rotate-90" : "rotate-0",
+                    )}
+                  >
+                    ▸
+                  </span>
                   Players ({session.players.length})
-                </p>
+                </button>
                 {!locked && (
                   <Button
                     size="md"
@@ -462,22 +477,23 @@ export function TableDetail({
                   </Button>
                 )}
               </div>
-              {session.players.map((p) => (
-                <PlayerRow
-                  key={p.id}
-                  tableId={tableId}
-                  locked={locked}
-                  player={{
-                    id: p.id,
-                    label: p.label,
-                    status: p.status,
-                    startTime: String(p.startTime),
-                    pausedAt: p.pausedAt ? String(p.pausedAt) : null,
-                    accumulatedPausedMs: Number(p.accumulatedPausedMs),
-                    endTime: p.endTime ? String(p.endTime) : null,
-                  }}
-                />
-              ))}
+              {playersOpen &&
+                session.players.map((p) => (
+                  <PlayerRow
+                    key={p.id}
+                    tableId={tableId}
+                    locked={locked}
+                    player={{
+                      id: p.id,
+                      label: p.label,
+                      status: p.status,
+                      startTime: String(p.startTime),
+                      pausedAt: p.pausedAt ? String(p.pausedAt) : null,
+                      accumulatedPausedMs: Number(p.accumulatedPausedMs),
+                      endTime: p.endTime ? String(p.endTime) : null,
+                    }}
+                  />
+                ))}
             </div>
           );
 
