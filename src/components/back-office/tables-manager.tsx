@@ -1,11 +1,51 @@
 "use client";
 
 import { useState } from "react";
+import QRCode from "qrcode";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { QrCodeImage } from "./qr-code-image";
+
+/**
+ * Cashier's "Print QR" (table-detail.tsx) is deliberately receipt-width
+ * (58/80mm thermal paper, same as receipts/invoices) — but a Back Office
+ * print is for a sign to place/laminate at the table, so it needs to be
+ * big and centered on regular paper instead. Rather than fight the shared
+ * receipt-width @page CSS (src/app/globals.css), open a standalone print
+ * window with its own document — no app stylesheet, no @page override, so
+ * it just uses the browser/printer's normal page size.
+ */
+async function printBigTableQr(table: { code: string; qrToken: string }, origin: string) {
+  const url = `${origin}/t/${table.qrToken}`;
+  const dataUrl = await QRCode.toDataURL(url, { width: 640, margin: 2 });
+  const win = window.open("", "_blank", "width=800,height=900");
+  if (!win) return;
+  win.document.write(`<!doctype html>
+<html>
+<head>
+<title>Table ${table.code} QR</title>
+<style>
+  @page { margin: 20mm; }
+  body { font-family: Arial, Helvetica, sans-serif; text-align: center; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  p.sub { color: #555; margin: 0 0 24px; font-size: 18px; }
+  img { width: 400px; height: 400px; }
+  p.url { color: #888; margin-top: 16px; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h1>Wanderer's Rest</h1>
+  <p class="sub">Table ${table.code} — Scan to order</p>
+  <img src="${dataUrl}" alt="Table QR code" />
+  <p class="url">${url}</p>
+</body>
+</html>`);
+  win.document.close();
+  win.focus();
+  win.print();
+}
 
 function CreateTableForm() {
   const [code, setCode] = useState("");
@@ -236,6 +276,14 @@ export function TablesManager() {
                   >
                     {expanded === table.id ? "Hide QR code" : "Show QR code"}
                   </button>
+                  {table.qrEnabled && origin && (
+                    <button
+                      onClick={() => printBigTableQr(table, origin)}
+                      className="text-xs text-teal-600 underline"
+                    >
+                      Print QR (sign size)
+                    </button>
+                  )}
                 </div>
                 {confirmingDeleteId === table.id ? (
                   <div className="flex items-center gap-2">
