@@ -185,10 +185,11 @@ export function CheckoutClient({
         </div>
         <div className="space-y-1">
           <div className="flex justify-between text-sm">
-            <span>Playtime</span>
+            <span>{preview.pricingModel === "HOURLY" ? "Playtime" : "All day"}</span>
             <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
           </div>
-          {preview.tableFeeLines.length > 1 &&
+          {preview.pricingModel === "HOURLY" &&
+            preview.tableFeeLines.length > 1 &&
             preview.tableFeeLines.map((line, i) => (
               <div key={line.playerId} className="flex justify-between pl-3 text-xs text-foreground-muted">
                 <span>
@@ -265,10 +266,11 @@ export function CheckoutClient({
           </div>
           <div className="border-t border-dashed border-border pt-2 space-y-1">
             <div className="flex justify-between">
-              <span>Playtime</span>
+              <span>{preview.pricingModel === "HOURLY" ? "Playtime" : "All day"}</span>
               <span>฿{preview.bill.subtotalTableFee.toFixed(0)}</span>
             </div>
-            {preview.tableFeeLines.length > 1 &&
+            {preview.pricingModel === "HOURLY" &&
+              preview.tableFeeLines.length > 1 &&
               preview.tableFeeLines.map((line, i) => (
                 <div key={line.playerId} className="flex justify-between pl-2 text-xs">
                   <span>

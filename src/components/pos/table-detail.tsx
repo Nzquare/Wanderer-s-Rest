@@ -301,11 +301,13 @@ export function TableDetail({
                 <>
                   <p className="mt-1 text-xs text-foreground-muted">
                     {session.players.length} player{session.players.length === 1 ? "" : "s"} ·{" "}
-                    {formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))}{" "}
-                    played · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                    {session.pricingType?.model === "HOURLY"
+                      ? `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`
+                      : "All day"}{" "}
+                    · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
                     {foodDrinkSubtotal.toFixed(0)}
                   </p>
-                  {liveBill.lines.length > 1 && (
+                  {session.pricingType?.model === "HOURLY" && liveBill.lines.length > 1 && (
                     <p className="mt-0.5 text-xs text-foreground-muted">
                       {liveBill.lines
                         .map((l, i) => `P${i + 1} ${formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`)

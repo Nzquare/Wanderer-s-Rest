@@ -183,6 +183,10 @@ export const checkoutRouter = router({
           status: p.status,
         })),
         tableFeeLines: tableFee.lines,
+        // FIXED/PACKAGE pricing isn't billed by elapsed time — the
+        // checkout bill shows "All day" instead of a per-player minutes
+        // breakdown that wouldn't apply for those (§7).
+        pricingModel: session.pricingType?.model ?? "HOURLY",
         foodDrinkItems,
         appliedDiscounts: session.appliedDiscounts.map((d) => ({
           id: d.id,
@@ -640,6 +644,10 @@ export const checkoutRouter = router({
           table: { code: session.table.code, name: session.table.name },
           players: session.players.length,
           tableFeeLines: tableFee.lines,
+          // FIXED/PACKAGE pricing isn't billed by elapsed time — the
+          // printed/stored receipt shows "All day" instead of a per-player
+          // minutes breakdown that wouldn't apply for those (§7).
+          pricingModel: session.pricingType?.model ?? "HOURLY",
           foodDrinkItems,
           foodDrinkSubtotal,
           discounts: session.appliedDiscounts.map((d) => ({

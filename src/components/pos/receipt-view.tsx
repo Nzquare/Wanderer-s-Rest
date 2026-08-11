@@ -12,6 +12,9 @@ interface ReceiptSnapshot {
   // Older receipts (printed before this field existed) won't have these —
   // always optional-chain/fallback rather than assuming they're present.
   tableFeeLines?: { playerId: string; billableMinutes: number; fee: number }[];
+  // Older receipts (printed before this field existed) default to HOURLY so
+  // they keep rendering their per-player minutes breakdown as before.
+  pricingModel?: string;
   foodDrinkItems?: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   foodDrinkSubtotal: number;
   discounts: { label: string; amount: number }[];
@@ -113,10 +116,11 @@ export function ReceiptView({
         </div>
         <div className="border-t border-dashed border-border pt-2 space-y-1">
           <div className="flex justify-between">
-            <span>Playtime</span>
+            <span>{(snapshot.pricingModel ?? "HOURLY") === "HOURLY" ? "Playtime" : "All day"}</span>
             <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
           </div>
-          {snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
+          {(snapshot.pricingModel ?? "HOURLY") === "HOURLY" &&
+            snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
             snapshot.tableFeeLines.map((line, i) => (
               <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
                 <span>

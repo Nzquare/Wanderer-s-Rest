@@ -176,6 +176,10 @@ export const sessionsRouter = router({
               member: session.member,
               currentBill: liveTotal,
               tableFee,
+              // FIXED/PACKAGE pricing isn't billed by elapsed time at all —
+              // the frontend uses this to show "All day" instead of a
+              // duration/per-player time breakdown that wouldn't apply.
+              pricingModel: session.pricingType?.model ?? "HOURLY",
               foodDrinkSubtotal,
               mainTimer,
             }
