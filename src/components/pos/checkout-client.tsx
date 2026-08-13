@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc/client";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import { ReceiptView } from "./receipt-view";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
@@ -43,14 +44,22 @@ export function CheckoutClient({
   const { data: allPromotions } = trpc.checkout.listAllPromotions.useQuery();
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
 
-  const [discountMode, setDiscountMode] = useState<"promotion" | "custom">("promotion");
+  // "Available promotions" and "Apply discount -> From promotion" used to be
+  // two separate promotion pickers on screen at once, which just looked like
+  // duplication — consolidated into one "Add promotion" popup that lists
+  // every active promotion, one-tap Apply for eligible ones and an inline
+  // reason-gated override for ineligible ones. Custom (non-promotion)
+  // discount amounts stay their own small collapsible section since they
+  // aren't a promotion pick at all.
+  const [promoModalOpen, setPromoModalOpen] = useState(false);
+  const [overridingPromoId, setOverridingPromoId] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [customOpen, setCustomOpen] = useState(false);
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">(
     "PERCENTAGE",
   );
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
-  const [overridePromotionId, setOverridePromotionId] = useState("");
-  const [overrideReason, setOverrideReason] = useState("");
   const [payments, setPayments] = useState<PaymentRow[]>([
     { key: "p1", method: "CASH", amount: "" },
   ]);
@@ -93,7 +102,7 @@ export function CheckoutClient({
   });
   const applyPromotionOverride = trpc.checkout.applyPromotionOverride.useMutation({
     onSuccess: async () => {
-      setOverridePromotionId("");
+      setOverridingPromoId(null);
       setOverrideReason("");
       await Promise.all([
         utils.checkout.getPreview.invalidate({ sessionId }),
@@ -149,6 +158,19 @@ export function CheckoutClient({
     preview.tableFeeLines.every((l) => l.cappedAtDailyCap);
   const isHourly = preview.pricingModel === "HOURLY";
   const showAllDay = !isHourly || allLinesCapped;
+
+  const appliedPromotionIds = new Set(
+    preview.appliedDiscounts
+      .map((d) => d.promotionId)
+      .filter((id): id is string => !!id),
+  );
+  const eligiblePromotionIds = new Set((eligiblePromotions ?? []).map((p) => p.id));
+  // "Add promotion" modal list — every active promotion except ones already
+  // applied to this bill; each row is either one-tap-eligible or needs an
+  // override reason, decided per-row below via eligiblePromotionIds.
+  const promotionChoices = (allPromotions ?? []).filter(
+    (p) => !appliedPromotionIds.has(p.id),
+  );
 
   const isSplitPayment = payments.length > 1;
   const effectiveAmounts: number[] = [];
@@ -344,100 +366,21 @@ export function CheckoutClient({
         </Card>
       )}
 
-      {eligiblePromotions && eligiblePromotions.length > 0 && (
-        <Card className="space-y-2">
-          <p className="text-sm font-medium text-foreground-muted">Available promotions</p>
-          <div className="space-y-2">
-            {eligiblePromotions.map((promo) => (
-              <div
-                key={promo.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm"
-              >
-                <span>
-                  {promo.name}
-                  {promo.rewardMenuItemName ? ` (free: ${promo.rewardMenuItemName})` : ""} —{" "}
-                  <span className="text-teal-600">save ฿{promo.previewAmount.toFixed(0)}</span>
-                  {promo.memberOnly && (
-                    <span className="text-xs text-foreground-muted"> · members only</span>
-                  )}
-                </span>
-                <Button
-                  size="md"
-                  variant="outline"
-                  disabled={applyPromotion.isPending}
-                  onClick={() => applyPromotion.mutate({ sessionId, promotionId: promo.id })}
-                >
-                  Apply
-                </Button>
-              </div>
-            ))}
-          </div>
-          {applyPromotion.error && (
-            <p className="text-sm text-status-danger">{applyPromotion.error.message}</p>
-          )}
-        </Card>
-      )}
-
-      <Card className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground-muted">Apply discount</p>
-          <div className="flex gap-1 rounded-full bg-background p-0.5 text-xs">
-            <button
-              onClick={() => setDiscountMode("promotion")}
-              className={`rounded-full px-2.5 py-1 font-medium ${discountMode === "promotion" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
-            >
-              From promotion
-            </button>
-            <button
-              onClick={() => setDiscountMode("custom")}
-              className={`rounded-full px-2.5 py-1 font-medium ${discountMode === "custom" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
-            >
-              Custom amount
-            </button>
-          </div>
+      <Card className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-foreground-muted">Discounts</p>
+        <div className="flex gap-2">
+          <Button size="md" variant="outline" onClick={() => setPromoModalOpen(true)}>
+            + Add promotion
+          </Button>
+          <Button size="md" variant="outline" onClick={() => setCustomOpen((v) => !v)}>
+            + Custom discount
+          </Button>
         </div>
+      </Card>
 
-        {discountMode === "promotion" ? (
-          <div className="flex flex-wrap items-end gap-2">
-            <select
-              value={overridePromotionId}
-              onChange={(e) => setOverridePromotionId(e.target.value)}
-              className="h-10 min-w-48 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
-            >
-              <option value="">Choose a promotion…</option>
-              {allPromotions?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} —{" "}
-                  {p.type === "PERCENTAGE"
-                    ? `${p.value}% off`
-                    : p.type === "FIXED_AMOUNT"
-                      ? `฿${p.value} off`
-                      : `free: ${p.rewardMenuItemName ?? "item"}`}
-                </option>
-              ))}
-            </select>
-            <input
-              value={overrideReason}
-              onChange={(e) => setOverrideReason(e.target.value)}
-              placeholder="Reason (e.g. manager approved outside normal window)"
-              className="h-10 flex-1 min-w-40 rounded-lg border border-border bg-background px-2 text-sm"
-            />
-            <Button
-              size="md"
-              variant="outline"
-              disabled={!overridePromotionId || !overrideReason || applyPromotionOverride.isPending}
-              onClick={() =>
-                applyPromotionOverride.mutate({
-                  sessionId,
-                  promotionId: overridePromotionId,
-                  reason: overrideReason,
-                })
-              }
-            >
-              Apply
-            </Button>
-          </div>
-        ) : (
+      {customOpen && (
+        <Card className="space-y-2">
+          <p className="text-sm font-medium text-foreground-muted">Custom discount</p>
           <div className="flex flex-wrap items-end gap-2">
             <select
               value={discountType}
@@ -476,14 +419,119 @@ export function CheckoutClient({
               Apply
             </Button>
           </div>
-        )}
-        {applyPromotionOverride.error && (
-          <p className="text-sm text-status-danger">{applyPromotionOverride.error.message}</p>
-        )}
-        {applyDiscount.error && (
-          <p className="text-sm text-status-danger">{applyDiscount.error.message}</p>
-        )}
-      </Card>
+          {applyDiscount.error && (
+            <p className="text-sm text-status-danger">{applyDiscount.error.message}</p>
+          )}
+        </Card>
+      )}
+
+      <Modal open={promoModalOpen} onClose={() => setPromoModalOpen(false)}>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-base font-semibold text-foreground">Add promotion</p>
+            <button
+              onClick={() => setPromoModalOpen(false)}
+              className="text-sm text-foreground-muted"
+            >
+              Close
+            </button>
+          </div>
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {promotionChoices.length === 0 && (
+              <p className="text-sm text-foreground-muted">
+                No promotions left to apply — every active one is already on this bill.
+              </p>
+            )}
+            {promotionChoices.map((p) => {
+              const eligible = eligiblePromotionIds.has(p.id);
+              const eligibleInfo = eligiblePromotions?.find((e) => e.id === p.id);
+              const overriding = overridingPromoId === p.id;
+              return (
+                <div
+                  key={p.id}
+                  className="space-y-2 rounded-lg bg-background px-3 py-2 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {p.name} —{" "}
+                      {p.type === "PERCENTAGE"
+                        ? `${p.value}% off`
+                        : p.type === "FIXED_AMOUNT"
+                          ? `฿${p.value} off`
+                          : `free: ${p.rewardMenuItemName ?? "item"}`}
+                      {eligible && eligibleInfo && (
+                        <span className="text-teal-600">
+                          {" "}
+                          · save ฿{eligibleInfo.previewAmount.toFixed(0)}
+                        </span>
+                      )}
+                      {!eligible && (
+                        <span className="text-xs text-foreground-muted">
+                          {" "}
+                          · not eligible right now
+                        </span>
+                      )}
+                    </span>
+                    {eligible ? (
+                      <Button
+                        size="md"
+                        variant="outline"
+                        disabled={applyPromotion.isPending}
+                        onClick={() =>
+                          applyPromotion.mutate({ sessionId, promotionId: p.id })
+                        }
+                      >
+                        Apply
+                      </Button>
+                    ) : (
+                      <Button
+                        size="md"
+                        variant="outline"
+                        onClick={() => {
+                          setOverridingPromoId(overriding ? null : p.id);
+                          setOverrideReason("");
+                        }}
+                      >
+                        {overriding ? "Cancel" : "Override"}
+                      </Button>
+                    )}
+                  </div>
+                  {overriding && (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <input
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="Reason (e.g. manager approved outside normal window)"
+                        className="h-10 flex-1 min-w-40 rounded-lg border border-border bg-surface px-2 text-sm"
+                      />
+                      <Button
+                        size="md"
+                        variant="danger"
+                        disabled={!overrideReason.trim() || applyPromotionOverride.isPending}
+                        onClick={() =>
+                          applyPromotionOverride.mutate({
+                            sessionId,
+                            promotionId: p.id,
+                            reason: overrideReason.trim(),
+                          })
+                        }
+                      >
+                        Confirm override
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {applyPromotion.error && (
+            <p className="text-sm text-status-danger">{applyPromotion.error.message}</p>
+          )}
+          {applyPromotionOverride.error && (
+            <p className="text-sm text-status-danger">{applyPromotionOverride.error.message}</p>
+          )}
+        </div>
+      </Modal>
 
       <Card className="space-y-3">
         <p className="text-sm font-medium text-foreground-muted">Payment</p>

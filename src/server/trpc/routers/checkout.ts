@@ -190,6 +190,7 @@ export const checkoutRouter = router({
         foodDrinkItems,
         appliedDiscounts: session.appliedDiscounts.map((d) => ({
           id: d.id,
+          promotionId: d.promotionId,
           label: d.label,
           amount: toNum(d.amount),
           appliedByName: d.appliedBy.name,
