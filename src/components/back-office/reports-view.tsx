@@ -37,7 +37,15 @@ const STATUS_STYLES: Record<string, string> = {
   PARTIAL: "bg-status-neutral/15 text-status-neutral",
 };
 
-function ExcelDownloadLink({ type, from, to }: { type: "summary" | "transactions"; from: string; to: string }) {
+type ExportType =
+  | "summary"
+  | "transactions"
+  | "salesByCategory"
+  | "salesByProduct"
+  | "gamesPlayed"
+  | "promotionUsage";
+
+function ExcelDownloadLink({ type, from, to }: { type: ExportType; from: string; to: string }) {
   return (
     <a
       href={`/api/reports/export?type=${type}&from=${from}&to=${to}`}
@@ -193,6 +201,154 @@ function TransactionsTable({ from, to }: { from: string; to: string }) {
   );
 }
 
+function SalesByCategoryTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.salesByCategory.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Sales by Category ({data.length})</p>
+        <ExcelDownloadLink type="salesByCategory" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No orders in range.</p>
+      ) : (
+        <table className="w-full min-w-[500px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Category</th>
+              <th className="px-3 py-2 text-right font-medium">Qty sold</th>
+              <th className="px-3 py-2 text-right font-medium">Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.categoryId} className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-foreground">{row.categoryName}</td>
+                <td className="px-3 py-2 text-right text-foreground-muted">{row.quantity}</td>
+                <td className="px-3 py-2 text-right text-foreground">฿{row.revenue.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function SalesByProductTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.salesByProduct.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Sales by Product ({data.length})</p>
+        <ExcelDownloadLink type="salesByProduct" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No orders in range.</p>
+      ) : (
+        <table className="w-full min-w-[600px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Product</th>
+              <th className="px-3 py-2 font-medium">Category</th>
+              <th className="px-3 py-2 text-right font-medium">Qty sold</th>
+              <th className="px-3 py-2 text-right font-medium">Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.menuItemId} className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-foreground">{row.name}</td>
+                <td className="px-3 py-2 text-foreground-muted">{row.categoryName}</td>
+                <td className="px-3 py-2 text-right text-foreground-muted">{row.quantity}</td>
+                <td className="px-3 py-2 text-right text-foreground">฿{row.revenue.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function GamesPlayedTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.gamesPlayed.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Games Played ({data.length})</p>
+        <ExcelDownloadLink type="gamesPlayed" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No games recorded in range.</p>
+      ) : (
+        <table className="w-full min-w-[500px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Game</th>
+              <th className="px-3 py-2 font-medium">Category</th>
+              <th className="px-3 py-2 text-right font-medium">Plays</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.gameId} className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-foreground">{row.name}</td>
+                <td className="px-3 py-2 text-foreground-muted">{row.categoryName}</td>
+                <td className="px-3 py-2 text-right text-foreground-muted">{row.plays}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function PromotionUsageTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.promotionUsage.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Promotions ({data.length})</p>
+        <ExcelDownloadLink type="promotionUsage" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No discounts applied in range.</p>
+      ) : (
+        <table className="w-full min-w-[500px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Promotion</th>
+              <th className="px-3 py-2 text-right font-medium">Times used</th>
+              <th className="px-3 py-2 text-right font-medium">Total discount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.promotionId ?? "manual"} className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-foreground">{row.name}</td>
+                <td className="px-3 py-2 text-right text-foreground-muted">{row.usageCount}</td>
+                <td className="px-3 py-2 text-right text-status-danger">
+                  -฿{row.totalDiscount.toFixed(0)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 function AuditLogTable() {
   const { data: auditLog } = trpc.reports.auditLog.useQuery();
 
@@ -234,34 +390,36 @@ function AuditLogTable() {
   );
 }
 
+const REPORT_TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "transactions", label: "Transactions" },
+  { key: "salesByCategory", label: "Sales by Category" },
+  { key: "salesByProduct", label: "Sales by Product" },
+  { key: "gamesPlayed", label: "Games Played" },
+  { key: "promotionUsage", label: "Promotions" },
+  { key: "audit", label: "Audit Log" },
+] as const;
+type ReportTab = (typeof REPORT_TABS)[number]["key"];
+
 export function ReportsView() {
   const [from, setFrom] = useState(daysAgoISO(7));
   const [to, setTo] = useState(todayISO());
-  const [tab, setTab] = useState<"overview" | "transactions" | "audit">("overview");
+  const [tab, setTab] = useState<ReportTab>("overview");
   const { data, isLoading } = trpc.reports.summary.useQuery({ from, to }, { enabled: tab === "overview" });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-full bg-surface p-1">
-          <button
-            onClick={() => setTab("overview")}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "overview" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
-          >
-            Overview
-          </button>
-          <button
-            onClick={() => setTab("transactions")}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "transactions" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
-          >
-            Transactions
-          </button>
-          <button
-            onClick={() => setTab("audit")}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === "audit" ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
-          >
-            Audit Log
-          </button>
+        <div className="flex flex-wrap gap-1 rounded-full bg-surface p-1">
+          {REPORT_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium ${tab === t.key ? "bg-teal-500 text-brand-950" : "text-foreground-muted"}`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
         {tab !== "audit" && (
           <div className="flex items-center gap-2">
@@ -383,6 +541,14 @@ export function ReportsView() {
         ))}
 
       {tab === "transactions" && <TransactionsTable from={from} to={to} />}
+
+      {tab === "salesByCategory" && <SalesByCategoryTable from={from} to={to} />}
+
+      {tab === "salesByProduct" && <SalesByProductTable from={from} to={to} />}
+
+      {tab === "gamesPlayed" && <GamesPlayedTable from={from} to={to} />}
+
+      {tab === "promotionUsage" && <PromotionUsageTable from={from} to={to} />}
 
       {tab === "audit" && <AuditLogTable />}
     </div>

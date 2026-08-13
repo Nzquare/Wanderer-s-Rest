@@ -7,8 +7,16 @@ import { prisma } from "@/server/db";
 import {
   buildSummaryReport,
   buildTransactionsReport,
+  buildSalesByCategoryReport,
+  buildSalesByProductReport,
+  buildGamesPlayedReport,
+  buildPromotionUsageReport,
   parseDateRange,
   type SummaryReport,
+  type SalesByCategoryReport,
+  type SalesByProductReport,
+  type GamesPlayedReport,
+  type PromotionUsageReport,
 } from "@/server/reports/build";
 
 /**
@@ -108,6 +116,64 @@ function buildTransactionsSheet(
   }
 }
 
+function buildSalesByCategorySheet(workbook: ExcelJS.Workbook, rows: SalesByCategoryReport) {
+  const sheet = workbook.addWorksheet("Sales by Category");
+  sheet.columns = [
+    { header: "Category", key: "categoryName", width: 28 },
+    { header: "Qty sold", key: "quantity", width: 12 },
+    { header: "Revenue (฿)", key: "revenue", width: 16 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({ categoryName: row.categoryName, quantity: row.quantity, revenue: row.revenue.toFixed(2) });
+  }
+}
+
+function buildSalesByProductSheet(workbook: ExcelJS.Workbook, rows: SalesByProductReport) {
+  const sheet = workbook.addWorksheet("Sales by Product");
+  sheet.columns = [
+    { header: "Product", key: "name", width: 28 },
+    { header: "Category", key: "categoryName", width: 22 },
+    { header: "Qty sold", key: "quantity", width: 12 },
+    { header: "Revenue (฿)", key: "revenue", width: 16 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      name: row.name,
+      categoryName: row.categoryName,
+      quantity: row.quantity,
+      revenue: row.revenue.toFixed(2),
+    });
+  }
+}
+
+function buildGamesPlayedSheet(workbook: ExcelJS.Workbook, rows: GamesPlayedReport) {
+  const sheet = workbook.addWorksheet("Games Played");
+  sheet.columns = [
+    { header: "Game", key: "name", width: 28 },
+    { header: "Category", key: "categoryName", width: 22 },
+    { header: "Plays", key: "plays", width: 12 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({ name: row.name, categoryName: row.categoryName, plays: row.plays });
+  }
+}
+
+function buildPromotionUsageSheet(workbook: ExcelJS.Workbook, rows: PromotionUsageReport) {
+  const sheet = workbook.addWorksheet("Promotions");
+  sheet.columns = [
+    { header: "Promotion", key: "name", width: 28 },
+    { header: "Times used", key: "usageCount", width: 14 },
+    { header: "Total discount (฿)", key: "totalDiscount", width: 18 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({ name: row.name, usageCount: row.usageCount, totalDiscount: row.totalDiscount.toFixed(2) });
+  }
+}
+
 export async function GET(req: NextRequest) {
   const staff = await getCurrentStaff();
   if (!can(staff, Permission.VIEW_REPORTS)) {
@@ -115,7 +181,18 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const type = searchParams.get("type") === "transactions" ? "transactions" : "summary";
+  const VALID_TYPES = [
+    "summary",
+    "transactions",
+    "salesByCategory",
+    "salesByProduct",
+    "gamesPlayed",
+    "promotionUsage",
+  ] as const;
+  const rawType = searchParams.get("type");
+  const type = (VALID_TYPES as readonly string[]).includes(rawType ?? "")
+    ? (rawType as (typeof VALID_TYPES)[number])
+    : "summary";
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   if (!from || !to) {
@@ -127,10 +204,24 @@ export async function GET(req: NextRequest) {
   workbook.creator = "Wanderer's Rest";
   workbook.created = new Date();
 
-  if (type === "transactions") {
-    buildTransactionsSheet(workbook, await buildTransactionsReport(prisma, range));
-  } else {
-    buildSummarySheet(workbook, await buildSummaryReport(prisma, range));
+  switch (type) {
+    case "transactions":
+      buildTransactionsSheet(workbook, await buildTransactionsReport(prisma, range));
+      break;
+    case "salesByCategory":
+      buildSalesByCategorySheet(workbook, await buildSalesByCategoryReport(prisma, range));
+      break;
+    case "salesByProduct":
+      buildSalesByProductSheet(workbook, await buildSalesByProductReport(prisma, range));
+      break;
+    case "gamesPlayed":
+      buildGamesPlayedSheet(workbook, await buildGamesPlayedReport(prisma, range));
+      break;
+    case "promotionUsage":
+      buildPromotionUsageSheet(workbook, await buildPromotionUsageReport(prisma, range));
+      break;
+    default:
+      buildSummarySheet(workbook, await buildSummaryReport(prisma, range));
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

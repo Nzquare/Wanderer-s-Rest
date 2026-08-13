@@ -1,7 +1,15 @@
 import { z } from "zod";
 import { router, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
-import { buildSummaryReport, buildTransactionsReport, parseDateRange } from "@/server/reports/build";
+import {
+  buildSummaryReport,
+  buildTransactionsReport,
+  buildSalesByCategoryReport,
+  buildSalesByProductReport,
+  buildGamesPlayedReport,
+  buildPromotionUsageReport,
+  parseDateRange,
+} from "@/server/reports/build";
 
 const dateRange = z.object({
   from: z.string(), // ISO date
@@ -22,6 +30,30 @@ export const reportsRouter = router({
     .input(dateRange)
     .query(({ ctx, input }) => {
       return buildTransactionsReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  salesByCategory: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildSalesByCategoryReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  salesByProduct: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildSalesByProductReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  gamesPlayed: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildGamesPlayedReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  promotionUsage: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildPromotionUsageReport(ctx.prisma, parseDateRange(input.from, input.to));
     }),
 
   auditLog: viewReports()

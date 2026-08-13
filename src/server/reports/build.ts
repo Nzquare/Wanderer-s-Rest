@@ -193,3 +193,148 @@ export async function buildTransactionsReport(prisma: PrismaClient, range: DateR
 }
 
 export type TransactionsReport = Awaited<ReturnType<typeof buildTransactionsReport>>;
+
+/**
+ * Sales by Category — every menu category's items ordered in range, not
+ * just the Overview's top-5 items. Revenue is quantity × the *snapshotted*
+ * unit price on each order item (§45: never recomputed from the live menu
+ * item price), summed per category. groupBy can't do a computed
+ * quantity×price sum in Prisma, so this pulls the raw rows and reduces in
+ * JS — fine at café-scale order volumes.
+ */
+export async function buildSalesByCategoryReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const items = await prisma.orderItem.findMany({
+    where: { order: { createdAt: { gte: from, lte: to } } },
+    select: {
+      quantity: true,
+      unitPriceSnapshot: true,
+      menuItem: { select: { category: { select: { id: true, nameEn: true } } } },
+    },
+  });
+
+  const byCategory = new Map<string, { categoryName: string; quantity: number; revenue: number }>();
+  for (const item of items) {
+    const catId = item.menuItem.category.id;
+    const existing = byCategory.get(catId) ?? {
+      categoryName: item.menuItem.category.nameEn,
+      quantity: 0,
+      revenue: 0,
+    };
+    existing.quantity += item.quantity;
+    existing.revenue += toNum(item.unitPriceSnapshot) * item.quantity;
+    byCategory.set(catId, existing);
+  }
+
+  return Array.from(byCategory.entries())
+    .map(([categoryId, v]) => ({ categoryId, ...v }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export type SalesByCategoryReport = Awaited<ReturnType<typeof buildSalesByCategoryReport>>;
+
+/**
+ * Sales by Product — every menu item ordered in range (full list, not the
+ * Overview's top 5), using the same snapshotted-name/price approach as
+ * buildSalesByCategoryReport above.
+ */
+export async function buildSalesByProductReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const items = await prisma.orderItem.findMany({
+    where: { order: { createdAt: { gte: from, lte: to } } },
+    select: {
+      menuItemId: true,
+      nameSnapshotEn: true,
+      quantity: true,
+      unitPriceSnapshot: true,
+      menuItem: { select: { category: { select: { nameEn: true } } } },
+    },
+  });
+
+  const byItem = new Map<
+    string,
+    { name: string; categoryName: string; quantity: number; revenue: number }
+  >();
+  for (const item of items) {
+    const existing = byItem.get(item.menuItemId) ?? {
+      name: item.nameSnapshotEn,
+      categoryName: item.menuItem.category.nameEn,
+      quantity: 0,
+      revenue: 0,
+    };
+    existing.quantity += item.quantity;
+    existing.revenue += toNum(item.unitPriceSnapshot) * item.quantity;
+    byItem.set(item.menuItemId, existing);
+  }
+
+  return Array.from(byItem.entries())
+    .map(([menuItemId, v]) => ({ menuItemId, ...v }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export type SalesByProductReport = Awaited<ReturnType<typeof buildSalesByProductReport>>;
+
+/** Games Played — every game recorded in range (full list, not the Overview's top 5). */
+export async function buildGamesPlayedReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const grouped = await prisma.gameSession.groupBy({
+    by: ["gameId"],
+    where: { playedAt: { gte: from, lte: to } },
+    _count: { _all: true },
+    orderBy: { _count: { gameId: "desc" } },
+  });
+
+  const gameIds = grouped.map((g) => g.gameId);
+  const games = gameIds.length
+    ? await prisma.game.findMany({
+        where: { id: { in: gameIds } },
+        include: { category: { select: { nameEn: true } } },
+      })
+    : [];
+
+  return grouped.map((g) => {
+    const game = games.find((x) => x.id === g.gameId);
+    return {
+      gameId: g.gameId,
+      name: game?.nameEn ?? "Unknown",
+      categoryName: game?.category?.nameEn ?? "—",
+      plays: g._count._all,
+    };
+  });
+}
+
+export type GamesPlayedReport = Awaited<ReturnType<typeof buildGamesPlayedReport>>;
+
+/**
+ * Promotion usage — how many times each promotion was applied in range and
+ * how much it discounted in total. Manual/custom discounts (not tied to a
+ * Promotion row — see checkout.applyManualDiscount) are grouped together
+ * under a single "Manual / custom discount" row rather than dropped.
+ */
+export async function buildPromotionUsageReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const discounts = await prisma.appliedDiscount.findMany({
+    where: { createdAt: { gte: from, lte: to } },
+    select: { promotionId: true, amount: true, promotion: { select: { name: true } } },
+  });
+
+  const MANUAL_KEY = "__manual__";
+  const byPromo = new Map<string, { name: string; usageCount: number; totalDiscount: number }>();
+  for (const d of discounts) {
+    const key = d.promotionId ?? MANUAL_KEY;
+    const existing = byPromo.get(key) ?? {
+      name: d.promotion?.name ?? "Manual / custom discount",
+      usageCount: 0,
+      totalDiscount: 0,
+    };
+    existing.usageCount += 1;
+    existing.totalDiscount += toNum(d.amount);
+    byPromo.set(key, existing);
+  }
+
+  return Array.from(byPromo.entries())
+    .map(([key, v]) => ({ promotionId: key === MANUAL_KEY ? null : key, ...v }))
+    .sort((a, b) => b.totalDiscount - a.totalDiscount);
+}
+
+export type PromotionUsageReport = Awaited<ReturnType<typeof buildPromotionUsageReport>>;
