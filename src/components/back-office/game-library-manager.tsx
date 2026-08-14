@@ -7,6 +7,7 @@ import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
+import { ExcelImportButton } from "./excel-import-button";
 import { cn } from "@/lib/cn";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -282,28 +283,49 @@ export function GameLibraryManager() {
   const [tab, setTab] = useState<"games" | "categories">("games");
   const { data: games } = trpc.games.listAll.useQuery();
   const { data: categories } = trpc.games.listCategories.useQuery();
+  const utils = trpc.useUtils();
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <button
-          onClick={() => setTab("games")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm font-medium",
-            tab === "games" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
-          )}
-        >
-          Games
-        </button>
-        <button
-          onClick={() => setTab("categories")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm font-medium",
-            tab === "categories" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
-          )}
-        >
-          Categories
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setTab("games")}
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm font-medium",
+              tab === "games" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+            )}
+          >
+            Games
+          </button>
+          <button
+            onClick={() => setTab("categories")}
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm font-medium",
+              tab === "categories" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+            )}
+          >
+            Categories
+          </button>
+        </div>
+        {tab === "games" && (
+          <ExcelImportButton
+            importUrl="/api/games/import"
+            templateUrl="/api/games/import-template"
+            onImported={() =>
+              Promise.all([
+                utils.games.listAll.invalidate(),
+                utils.games.listCategories.invalidate(),
+                utils.games.listForRecording.invalidate(),
+              ])
+            }
+            summaryLabels={[
+              { key: "createdCategories", label: "Categories added" },
+              { key: "createdGames", label: "Games added" },
+              { key: "updatedGames", label: "Games updated" },
+            ]}
+          />
+        )}
       </div>
 
       {tab === "games" ? (

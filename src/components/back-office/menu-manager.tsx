@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { PhotoUpload } from "./photo-upload";
+import { ExcelImportButton } from "./excel-import-button";
 import { cn } from "@/lib/cn";
 
 /**
@@ -1091,25 +1092,44 @@ export function MenuManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <button
-          onClick={() => setTab("items")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm font-medium",
-            tab === "items" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
-          )}
-        >
-          Menu items
-        </button>
-        <button
-          onClick={() => setTab("modifiers")}
-          className={cn(
-            "rounded-lg px-3 py-2 text-sm font-medium",
-            tab === "modifiers" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
-          )}
-        >
-          Modifier groups
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setTab("items")}
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm font-medium",
+              tab === "items" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+            )}
+          >
+            Menu items
+          </button>
+          <button
+            onClick={() => setTab("modifiers")}
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm font-medium",
+              tab === "modifiers" ? "bg-teal-500/15 text-teal-700 dark:text-teal-300" : "text-foreground-muted",
+            )}
+          >
+            Modifier groups
+          </button>
+        </div>
+        {tab === "items" && (
+          <ExcelImportButton
+            importUrl="/api/menu/import"
+            templateUrl="/api/menu/import-template"
+            onImported={() =>
+              Promise.all([
+                utils.menu.listCategories.invalidate(),
+                utils.menu.listForOrdering.invalidate(),
+              ])
+            }
+            summaryLabels={[
+              { key: "createdCategories", label: "Categories added" },
+              { key: "createdItems", label: "Items added" },
+              { key: "updatedItems", label: "Items updated" },
+            ]}
+          />
+        )}
       </div>
 
       {tab === "items" ? (
