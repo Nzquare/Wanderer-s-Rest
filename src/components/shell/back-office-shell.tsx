@@ -6,6 +6,7 @@ import { canAccessCashier, canAccessStaffMobile } from "@/server/rbac/can";
 const NAV_ITEMS = [
   { href: "/back-office", label: "Dashboard" },
   { href: "/back-office/tables", label: "Tables" },
+  { href: "/back-office/pricing", label: "Pricing" },
   { href: "/back-office/menu", label: "Menu" },
   { href: "/back-office/games", label: "Game Library" },
   { href: "/back-office/members", label: "Members" },
