@@ -3,8 +3,6 @@ import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 
-const statusEnum = z.enum(["AVAILABLE", "IN_USE", "MISSING", "DAMAGED", "ARCHIVED"]);
-
 export const gamesRouter = router({
   listAll: staffProcedure.query(({ ctx }) => {
     return ctx.prisma.game.findMany({
@@ -62,7 +60,6 @@ export const gamesRouter = router({
       z.object({
         id: z.string(),
         categoryId: z.string().nullable().optional(),
-        status: statusEnum.optional(),
         active: z.boolean().optional(),
         notes: z.string().optional(),
       }),

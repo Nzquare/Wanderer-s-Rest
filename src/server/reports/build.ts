@@ -458,3 +458,57 @@ export async function buildMemberCrmReport(prisma: PrismaClient, range: DateRang
 }
 
 export type MemberCrmReport = Awaited<ReturnType<typeof buildMemberCrmReport>>;
+
+/**
+ * Playtime by Pricing Type — table-fee revenue and session count broken
+ * down by PricingType (e.g. Regular/Student/DND/Package, whatever's
+ * configured in Back Office -> Settings), the table-time equivalent of
+ * Sales by Category above but sourced from TableSession rather than
+ * OrderItem. Sessions whose pricing type was later deleted (SetNull on
+ * the FK) land in a "No pricing type" bucket rather than being dropped.
+ */
+export async function buildPlaytimeByPricingTypeReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const sessions = await prisma.tableSession.findMany({
+    where: { status: "CLOSED", paymentStatus: "PAID", endTime: { gte: from, lte: to } },
+    select: {
+      subtotalTableFee: true,
+      startTime: true,
+      endTime: true,
+      pricingType: { select: { id: true, name: true, code: true, model: true } },
+    },
+  });
+
+  const NONE_KEY = "__none__";
+  const byType = new Map<
+    string,
+    { name: string; code: string; model: string; sessionCount: number; revenue: number; totalMinutes: number }
+  >();
+  for (const s of sessions) {
+    const key = s.pricingType?.id ?? NONE_KEY;
+    const existing = byType.get(key) ?? {
+      name: s.pricingType?.name ?? "No pricing type",
+      code: s.pricingType?.code ?? "—",
+      model: s.pricingType?.model ?? "—",
+      sessionCount: 0,
+      revenue: 0,
+      totalMinutes: 0,
+    };
+    existing.sessionCount += 1;
+    existing.revenue += toNum(s.subtotalTableFee);
+    if (s.endTime) {
+      existing.totalMinutes += (s.endTime.getTime() - s.startTime.getTime()) / 60_000;
+    }
+    byType.set(key, existing);
+  }
+
+  return Array.from(byType.entries())
+    .map(([key, v]) => ({
+      pricingTypeId: key === NONE_KEY ? null : key,
+      ...v,
+      avgMinutes: v.sessionCount ? Math.round(v.totalMinutes / v.sessionCount) : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+export type PlaytimeByPricingTypeReport = Awaited<ReturnType<typeof buildPlaytimeByPricingTypeReport>>;

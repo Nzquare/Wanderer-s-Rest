@@ -14,6 +14,7 @@ import {
   buildShiftReconciliationReport,
   buildVoidRefundReport,
   buildMemberCrmReport,
+  buildPlaytimeByPricingTypeReport,
   parseDateRange,
   type SummaryReport,
   type SalesByCategoryReport,
@@ -23,6 +24,7 @@ import {
   type ShiftReconciliationReport,
   type VoidRefundReport,
   type MemberCrmReport,
+  type PlaytimeByPricingTypeReport,
 } from "@/server/reports/build";
 
 /**
@@ -154,6 +156,29 @@ function buildSalesByProductSheet(workbook: ExcelJS.Workbook, rows: SalesByProdu
   }
 }
 
+function buildPlaytimeByPricingTypeSheet(workbook: ExcelJS.Workbook, rows: PlaytimeByPricingTypeReport) {
+  const sheet = workbook.addWorksheet("Playtime by Pricing Type");
+  sheet.columns = [
+    { header: "Pricing type", key: "name", width: 24 },
+    { header: "Code", key: "code", width: 14 },
+    { header: "Model", key: "model", width: 12 },
+    { header: "Sessions", key: "sessionCount", width: 12 },
+    { header: "Avg length (min)", key: "avgMinutes", width: 16 },
+    { header: "Playtime revenue (฿)", key: "revenue", width: 18 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      name: row.name,
+      code: row.code,
+      model: row.model,
+      sessionCount: row.sessionCount,
+      avgMinutes: row.avgMinutes,
+      revenue: row.revenue.toFixed(2),
+    });
+  }
+}
+
 function buildGamesPlayedSheet(workbook: ExcelJS.Workbook, rows: GamesPlayedReport) {
   const sheet = workbook.addWorksheet("Games Played");
   sheet.columns = [
@@ -275,6 +300,7 @@ export async function GET(req: NextRequest) {
     "transactions",
     "salesByCategory",
     "salesByProduct",
+    "playtimeByPricingType",
     "gamesPlayed",
     "promotionUsage",
     "shiftReconciliation",
@@ -305,6 +331,9 @@ export async function GET(req: NextRequest) {
       break;
     case "salesByProduct":
       buildSalesByProductSheet(workbook, await buildSalesByProductReport(prisma, range));
+      break;
+    case "playtimeByPricingType":
+      buildPlaytimeByPricingTypeSheet(workbook, await buildPlaytimeByPricingTypeReport(prisma, range));
       break;
     case "gamesPlayed":
       buildGamesPlayedSheet(workbook, await buildGamesPlayedReport(prisma, range));

@@ -46,7 +46,8 @@ type ExportType =
   | "promotionUsage"
   | "shiftReconciliation"
   | "voidRefund"
-  | "memberCrm";
+  | "memberCrm"
+  | "playtimeByPricingType";
 
 function ExcelDownloadLink({ type, from, to }: { type: ExportType; from: string; to: string }) {
   return (
@@ -231,6 +232,54 @@ function SalesByCategoryTable({ from, to }: { from: string; to: string }) {
                 <td className="px-3 py-2 text-foreground">{row.categoryName}</td>
                 <td className="px-3 py-2 text-right text-foreground-muted">{row.quantity}</td>
                 <td className="px-3 py-2 text-right text-foreground">฿{row.revenue.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function PlaytimeByPricingTypeTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.playtimeByPricingType.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Playtime by Pricing Type ({data.length})</p>
+        <ExcelDownloadLink type="playtimeByPricingType" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No checked-out bills in range.</p>
+      ) : (
+        <table className="w-full min-w-[700px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Pricing type</th>
+              <th className="px-3 py-2 font-medium">Code</th>
+              <th className="px-3 py-2 font-medium">Model</th>
+              <th className="px-3 py-2 text-right font-medium">Sessions</th>
+              <th className="px-3 py-2 text-right font-medium">Avg length</th>
+              <th className="px-3 py-2 text-right font-medium">Playtime revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.pricingTypeId ?? "none"} className="border-b border-border last:border-0">
+                <td className="px-3 py-2 text-foreground">{row.name}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{row.code}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{row.model}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.sessionCount}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.avgMinutes} min
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground">
+                  ฿{row.revenue.toFixed(0)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -599,6 +648,7 @@ const REPORT_TABS = [
   { key: "transactions", label: "Transactions" },
   { key: "salesByCategory", label: "Sales by Category" },
   { key: "salesByProduct", label: "Sales by Product" },
+  { key: "playtimeByPricingType", label: "Playtime by Pricing Type" },
   { key: "gamesPlayed", label: "Games Played" },
   { key: "promotionUsage", label: "Promotions" },
   { key: "shiftReconciliation", label: "Shift Reconciliation" },
@@ -752,6 +802,8 @@ export function ReportsView() {
       {tab === "salesByCategory" && <SalesByCategoryTable from={from} to={to} />}
 
       {tab === "salesByProduct" && <SalesByProductTable from={from} to={to} />}
+
+      {tab === "playtimeByPricingType" && <PlaytimeByPricingTypeTable from={from} to={to} />}
 
       {tab === "gamesPlayed" && <GamesPlayedTable from={from} to={to} />}
 

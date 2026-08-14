@@ -11,6 +11,7 @@ import {
   buildShiftReconciliationReport,
   buildVoidRefundReport,
   buildMemberCrmReport,
+  buildPlaytimeByPricingTypeReport,
   parseDateRange,
 } from "@/server/reports/build";
 
@@ -75,6 +76,12 @@ export const reportsRouter = router({
     .input(dateRange)
     .query(({ ctx, input }) => {
       return buildMemberCrmReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  playtimeByPricingType: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildPlaytimeByPricingTypeReport(ctx.prisma, parseDateRange(input.from, input.to));
     }),
 
   auditLog: viewReports()

@@ -13,14 +13,6 @@ import { cn } from "@/lib/cn";
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type GameListItem = RouterOutputs["games"]["listAll"][number];
 
-const STATUS_STYLES: Record<string, string> = {
-  AVAILABLE: "bg-status-success/15 text-status-success",
-  IN_USE: "bg-status-active/15 text-status-active",
-  MISSING: "bg-status-warning/15 text-status-warning",
-  DAMAGED: "bg-status-danger/15 text-status-danger",
-  ARCHIVED: "bg-status-neutral/15 text-status-neutral",
-};
-
 // ------------------------------------------------------------------------
 // Categories — a managed list instead of free text (§34).
 // ------------------------------------------------------------------------
@@ -260,20 +252,6 @@ function GameCard({ game, categories }: { game: GameListItem; categories: GameCa
             </option>
           ))}
         </select>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {(["AVAILABLE", "IN_USE", "MISSING", "DAMAGED", "ARCHIVED"] as const).map((status) => (
-          <button
-            key={status}
-            onClick={() => update.mutate({ id: game.id, status })}
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium",
-              game.status === status ? STATUS_STYLES[status] : "bg-background text-foreground-muted",
-            )}
-          >
-            {status}
-          </button>
-        ))}
       </div>
     </Card>
   );
