@@ -45,6 +45,7 @@ export const gamesRouter = router({
         maxPlayers: z.number().int().min(1).optional(),
         estimatedMinutes: z.number().int().min(1).optional(),
         difficulty: z.string().optional(),
+        ageRecommendation: z.string().optional(),
         totalQuantity: z.number().int().min(1).default(1),
       }),
     )

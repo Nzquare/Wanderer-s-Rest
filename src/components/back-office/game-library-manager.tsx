@@ -135,15 +135,25 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   const [nameEn, setNameEn] = useState("");
   const [nameTh, setNameTh] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [genre, setGenre] = useState("");
   const [minPlayers, setMinPlayers] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("");
+  const [estimatedMinutes, setEstimatedMinutes] = useState("");
+  const [difficulty, setDifficulty] = useState("");
+  const [ageRecommendation, setAgeRecommendation] = useState("");
+  const [totalQuantity, setTotalQuantity] = useState("1");
   const utils = trpc.useUtils();
   const create = trpc.games.create.useMutation({
     onSuccess: async () => {
       setNameEn("");
       setNameTh("");
+      setGenre("");
       setMinPlayers("");
       setMaxPlayers("");
+      setEstimatedMinutes("");
+      setDifficulty("");
+      setAgeRecommendation("");
+      setTotalQuantity("1");
       await utils.games.listAll.invalidate();
       await utils.games.listForRecording.invalidate();
     },
@@ -182,6 +192,14 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
           ))}
         </select>
       </div>
+      <div className="w-32">
+        <label className="text-xs text-foreground-muted">Genre</label>
+        <input
+          value={genre}
+          onChange={(e) => setGenre(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
       <div className="w-20">
         <label className="text-xs text-foreground-muted">Min players</label>
         <input
@@ -200,6 +218,43 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
           className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
         />
       </div>
+      <div className="w-24">
+        <label className="text-xs text-foreground-muted">Est. minutes</label>
+        <input
+          type="number"
+          value={estimatedMinutes}
+          onChange={(e) => setEstimatedMinutes(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
+      <div className="w-28">
+        <label className="text-xs text-foreground-muted">Difficulty</label>
+        <input
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
+          placeholder="Easy/Medium/Hard"
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
+      <div className="w-20">
+        <label className="text-xs text-foreground-muted">Age</label>
+        <input
+          value={ageRecommendation}
+          onChange={(e) => setAgeRecommendation(e.target.value)}
+          placeholder="10+"
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
+      <div className="w-20">
+        <label className="text-xs text-foreground-muted">Copies</label>
+        <input
+          type="number"
+          min={1}
+          value={totalQuantity}
+          onChange={(e) => setTotalQuantity(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
       <Button
         size="md"
         disabled={!nameEn || !nameTh || create.isPending}
@@ -208,8 +263,13 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
             nameEn,
             nameTh,
             categoryId: categoryId || undefined,
+            genre: genre.trim() || undefined,
             minPlayers: minPlayers ? Number(minPlayers) : undefined,
             maxPlayers: maxPlayers ? Number(maxPlayers) : undefined,
+            estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : undefined,
+            difficulty: difficulty.trim() || undefined,
+            ageRecommendation: ageRecommendation.trim() || undefined,
+            totalQuantity: totalQuantity ? Number(totalQuantity) : 1,
           })
         }
       >
