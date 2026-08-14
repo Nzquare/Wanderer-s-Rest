@@ -59,14 +59,43 @@ export const gamesRouter = router({
     .input(
       z.object({
         id: z.string(),
+        nameTh: z.string().min(1).optional(),
+        nameEn: z.string().min(1).optional(),
         categoryId: z.string().nullable().optional(),
+        genre: z.string().nullable().optional(),
+        minPlayers: z.number().int().min(1).nullable().optional(),
+        maxPlayers: z.number().int().min(1).nullable().optional(),
+        estimatedMinutes: z.number().int().min(1).nullable().optional(),
+        difficulty: z.string().nullable().optional(),
+        ageRecommendation: z.string().nullable().optional(),
+        // Changing this shifts availableQuantity by the same delta rather
+        // than overwriting it outright (see totalQuantity handling below)
+        // — otherwise editing the count would silently "return" copies
+        // that are currently checked out.
+        totalQuantity: z.number().int().min(0).optional(),
         active: z.boolean().optional(),
         notes: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
-      return ctx.prisma.game.update({ where: { id }, data });
+      const { id, totalQuantity, ...data } = input;
+      if (totalQuantity == null) {
+        return ctx.prisma.game.update({ where: { id }, data });
+      }
+      const existing = await ctx.prisma.game.findUnique({
+        where: { id },
+        select: { totalQuantity: true, availableQuantity: true },
+      });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      const delta = totalQuantity - existing.totalQuantity;
+      return ctx.prisma.game.update({
+        where: { id },
+        data: {
+          ...data,
+          totalQuantity,
+          availableQuantity: Math.max(0, existing.availableQuantity + delta),
+        },
+      });
     }),
 
   // --- Categories (§34) --------------------------------------------------

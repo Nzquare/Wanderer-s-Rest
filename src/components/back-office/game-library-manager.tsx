@@ -219,10 +219,184 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   );
 }
 
+/**
+ * Full edit form for a game — everything CreateGameForm can set at
+ * creation, plus the fields it can't (genre, minutes, difficulty, age,
+ * copy count). Only the category dropdown was ever editable inline after
+ * creation; this fixes that gap.
+ */
+function EditGameForm({
+  game,
+  categories,
+  onDone,
+}: {
+  game: GameListItem;
+  categories: GameCategory[];
+  onDone: () => void;
+}) {
+  const [nameEn, setNameEn] = useState(game.nameEn);
+  const [nameTh, setNameTh] = useState(game.nameTh);
+  const [categoryId, setCategoryId] = useState(game.categoryId ?? "");
+  const [genre, setGenre] = useState(game.genre ?? "");
+  const [minPlayers, setMinPlayers] = useState(game.minPlayers?.toString() ?? "");
+  const [maxPlayers, setMaxPlayers] = useState(game.maxPlayers?.toString() ?? "");
+  const [estimatedMinutes, setEstimatedMinutes] = useState(game.estimatedMinutes?.toString() ?? "");
+  const [difficulty, setDifficulty] = useState(game.difficulty ?? "");
+  const [ageRecommendation, setAgeRecommendation] = useState(game.ageRecommendation ?? "");
+  const [totalQuantity, setTotalQuantity] = useState(String(game.totalQuantity));
+
+  const utils = trpc.useUtils();
+  const update = trpc.games.update.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.games.listAll.invalidate(),
+        utils.games.listForRecording.invalidate(),
+      ]);
+      onDone();
+    },
+  });
+
+  return (
+    <div className="space-y-2 rounded-lg border border-teal-500 bg-background p-3">
+      <div className="flex flex-wrap gap-2">
+        <div className="w-40">
+          <label className="text-xs text-foreground-muted">English name</label>
+          <input
+            value={nameEn}
+            onChange={(e) => setNameEn(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-40">
+          <label className="text-xs text-foreground-muted">Thai name</label>
+          <input
+            value={nameTh}
+            onChange={(e) => setNameTh(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-40">
+          <label className="text-xs text-foreground-muted">Category</label>
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          >
+            <option value="">No category</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nameEn}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="w-32">
+          <label className="text-xs text-foreground-muted">Genre</label>
+          <input
+            value={genre}
+            onChange={(e) => setGenre(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-20">
+          <label className="text-xs text-foreground-muted">Min players</label>
+          <input
+            type="number"
+            value={minPlayers}
+            onChange={(e) => setMinPlayers(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-20">
+          <label className="text-xs text-foreground-muted">Max players</label>
+          <input
+            type="number"
+            value={maxPlayers}
+            onChange={(e) => setMaxPlayers(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-24">
+          <label className="text-xs text-foreground-muted">Est. minutes</label>
+          <input
+            type="number"
+            value={estimatedMinutes}
+            onChange={(e) => setEstimatedMinutes(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-28">
+          <label className="text-xs text-foreground-muted">Difficulty</label>
+          <input
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value)}
+            placeholder="Easy/Medium/Hard"
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-20">
+          <label className="text-xs text-foreground-muted">Age</label>
+          <input
+            value={ageRecommendation}
+            onChange={(e) => setAgeRecommendation(e.target.value)}
+            placeholder="10+"
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+        <div className="w-20">
+          <label className="text-xs text-foreground-muted">Copies</label>
+          <input
+            type="number"
+            min={0}
+            value={totalQuantity}
+            onChange={(e) => setTotalQuantity(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          />
+        </div>
+      </div>
+      {update.error && <p className="text-xs text-status-danger">{update.error.message}</p>}
+      <div className="flex gap-2">
+        <Button
+          size="md"
+          disabled={!nameEn.trim() || !nameTh.trim() || update.isPending}
+          onClick={() =>
+            update.mutate({
+              id: game.id,
+              nameEn: nameEn.trim(),
+              nameTh: nameTh.trim(),
+              categoryId: categoryId || null,
+              genre: genre.trim() || null,
+              minPlayers: minPlayers ? Number(minPlayers) : null,
+              maxPlayers: maxPlayers ? Number(maxPlayers) : null,
+              estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : null,
+              difficulty: difficulty.trim() || null,
+              ageRecommendation: ageRecommendation.trim() || null,
+              totalQuantity: totalQuantity ? Number(totalQuantity) : 0,
+            })
+          }
+        >
+          {update.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button size="md" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** One row per game — a compact list (same visual pattern as the Menu items
  * list) reads faster than a card grid once the library grows past a
  * handful of titles. */
-function GameRow({ game, categories }: { game: GameListItem; categories: GameCategory[] }) {
+function GameRow({
+  game,
+  categories,
+  onEdit,
+}: {
+  game: GameListItem;
+  categories: GameCategory[];
+  onEdit: () => void;
+}) {
   const utils = trpc.useUtils();
   const update = trpc.games.update.useMutation({
     onSuccess: () => {
@@ -248,18 +422,23 @@ function GameRow({ game, categories }: { game: GameListItem; categories: GameCat
         <p className="font-medium text-foreground">{game.nameEn}</p>
         <p className="text-xs text-foreground-muted">{details || "No details set"}</p>
       </div>
-      <select
-        value={game.categoryId ?? ""}
-        onChange={(e) => update.mutate({ id: game.id, categoryId: e.target.value || null })}
-        className="h-9 w-44 rounded-lg border border-border bg-surface px-2 text-xs"
-      >
-        <option value="">No category</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.nameEn}
-          </option>
-        ))}
-      </select>
+      <div className="flex items-center gap-2">
+        <select
+          value={game.categoryId ?? ""}
+          onChange={(e) => update.mutate({ id: game.id, categoryId: e.target.value || null })}
+          className="h-9 w-44 rounded-lg border border-border bg-surface px-2 text-xs"
+        >
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nameEn}
+            </option>
+          ))}
+        </select>
+        <button onClick={onEdit} className="text-xs text-teal-600 underline">
+          Edit
+        </button>
+      </div>
     </div>
   );
 }
@@ -268,6 +447,7 @@ export function GameLibraryManager() {
   const [tab, setTab] = useState<"games" | "categories">("games");
   const { data: games } = trpc.games.listAll.useQuery();
   const { data: categories } = trpc.games.listCategories.useQuery();
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   return (
@@ -317,9 +497,23 @@ export function GameLibraryManager() {
         <div className="space-y-4">
           <CreateGameForm categories={categories ?? []} />
           <Card className="space-y-1">
-            {games?.map((game) => (
-              <GameRow key={game.id} game={game} categories={categories ?? []} />
-            ))}
+            {games?.map((game) =>
+              editingGameId === game.id ? (
+                <EditGameForm
+                  key={game.id}
+                  game={game}
+                  categories={categories ?? []}
+                  onDone={() => setEditingGameId(null)}
+                />
+              ) : (
+                <GameRow
+                  key={game.id}
+                  game={game}
+                  categories={categories ?? []}
+                  onEdit={() => setEditingGameId(game.id)}
+                />
+              ),
+            )}
             {games?.length === 0 && (
               <p className="text-sm text-foreground-muted">No games yet — add one above.</p>
             )}
