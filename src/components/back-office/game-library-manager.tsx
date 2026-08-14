@@ -219,7 +219,10 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   );
 }
 
-function GameCard({ game, categories }: { game: GameListItem; categories: GameCategory[] }) {
+/** One row per game — a compact list (same visual pattern as the Menu items
+ * list) reads faster than a card grid once the library grows past a
+ * handful of titles. */
+function GameRow({ game, categories }: { game: GameListItem; categories: GameCategory[] }) {
   const utils = trpc.useUtils();
   const update = trpc.games.update.useMutation({
     onSuccess: () => {
@@ -228,32 +231,36 @@ function GameCard({ game, categories }: { game: GameListItem; categories: GameCa
     },
   });
 
+  const details = [
+    game.minPlayers || game.maxPlayers
+      ? `${game.minPlayers ?? "?"}-${game.maxPlayers ?? "?"} players`
+      : null,
+    game.genre,
+    game.estimatedMinutes ? `${game.estimatedMinutes} min` : null,
+    game.totalQuantity > 1 ? `${game.totalQuantity} copies` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <Card className="space-y-2">
-      <div>
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
+      <div className="min-w-0">
         <p className="font-medium text-foreground">{game.nameEn}</p>
-        <p className="text-xs text-foreground-muted">
-          {game.minPlayers || game.maxPlayers
-            ? `${game.minPlayers ?? "?"}-${game.maxPlayers ?? "?"} players`
-            : "Player count not set"}
-        </p>
+        <p className="text-xs text-foreground-muted">{details || "No details set"}</p>
       </div>
-      <div>
-        <label className="text-xs text-foreground-muted">Category</label>
-        <select
-          value={game.categoryId ?? ""}
-          onChange={(e) => update.mutate({ id: game.id, categoryId: e.target.value || null })}
-          className="h-9 w-full rounded-lg border border-border bg-background px-2 text-xs"
-        >
-          <option value="">No category</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nameEn}
-            </option>
-          ))}
-        </select>
-      </div>
-    </Card>
+      <select
+        value={game.categoryId ?? ""}
+        onChange={(e) => update.mutate({ id: game.id, categoryId: e.target.value || null })}
+        className="h-9 w-44 rounded-lg border border-border bg-surface px-2 text-xs"
+      >
+        <option value="">No category</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.nameEn}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -309,11 +316,14 @@ export function GameLibraryManager() {
       {tab === "games" ? (
         <div className="space-y-4">
           <CreateGameForm categories={categories ?? []} />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <Card className="space-y-1">
             {games?.map((game) => (
-              <GameCard key={game.id} game={game} categories={categories ?? []} />
+              <GameRow key={game.id} game={game} categories={categories ?? []} />
             ))}
-          </div>
+            {games?.length === 0 && (
+              <p className="text-sm text-foreground-muted">No games yet — add one above.</p>
+            )}
+          </Card>
         </div>
       ) : (
         <div className="space-y-3">
