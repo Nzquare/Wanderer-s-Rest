@@ -11,12 +11,18 @@ import {
   buildSalesByProductReport,
   buildGamesPlayedReport,
   buildPromotionUsageReport,
+  buildShiftReconciliationReport,
+  buildVoidRefundReport,
+  buildMemberCrmReport,
   parseDateRange,
   type SummaryReport,
   type SalesByCategoryReport,
   type SalesByProductReport,
   type GamesPlayedReport,
   type PromotionUsageReport,
+  type ShiftReconciliationReport,
+  type VoidRefundReport,
+  type MemberCrmReport,
 } from "@/server/reports/build";
 
 /**
@@ -174,6 +180,89 @@ function buildPromotionUsageSheet(workbook: ExcelJS.Workbook, rows: PromotionUsa
   }
 }
 
+function buildShiftReconciliationSheet(workbook: ExcelJS.Workbook, rows: ShiftReconciliationReport) {
+  const sheet = workbook.addWorksheet("Shift Reconciliation");
+  sheet.columns = [
+    { header: "Opened", key: "openedAt", width: 20 },
+    { header: "Closed", key: "closedAt", width: 20 },
+    { header: "Opened by", key: "openedByName", width: 18 },
+    { header: "Closed by", key: "closedByName", width: 18 },
+    { header: "Status", key: "status", width: 10 },
+    { header: "Starting cash (฿)", key: "startingCash", width: 16 },
+    { header: "Expected (฿)", key: "expectedCash", width: 14 },
+    { header: "Actual (฿)", key: "actualCashCounted", width: 14 },
+    { header: "Difference (฿)", key: "cashDifference", width: 14 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      openedAt: new Date(row.openedAt).toLocaleString(),
+      closedAt: row.closedAt ? new Date(row.closedAt).toLocaleString() : "",
+      openedByName: row.openedByName,
+      closedByName: row.closedByName ?? "",
+      status: row.status,
+      startingCash: row.startingCash.toFixed(2),
+      expectedCash: row.expectedCash != null ? row.expectedCash.toFixed(2) : "",
+      actualCashCounted: row.actualCashCounted != null ? row.actualCashCounted.toFixed(2) : "",
+      cashDifference: row.cashDifference != null ? row.cashDifference.toFixed(2) : "",
+    });
+  }
+}
+
+function buildVoidRefundSheet(workbook: ExcelJS.Workbook, rows: VoidRefundReport) {
+  const sheet = workbook.addWorksheet("Void & Refund");
+  sheet.columns = [
+    { header: "Date", key: "createdAt", width: 20 },
+    { header: "Type", key: "type", width: 12 },
+    { header: "Table", key: "tableCode", width: 10 },
+    { header: "Member", key: "memberName", width: 20 },
+    { header: "Staff", key: "staffName", width: 16 },
+    { header: "Amount (฿)", key: "amount", width: 14 },
+    { header: "Reason", key: "reason", width: 40 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      createdAt: new Date(row.createdAt).toLocaleString(),
+      type: row.type,
+      tableCode: row.tableCode,
+      memberName: row.memberName ?? "",
+      staffName: row.staffName,
+      amount: row.amount != null ? row.amount.toFixed(2) : "",
+      reason: row.reason,
+    });
+  }
+}
+
+function buildMemberCrmSheet(workbook: ExcelJS.Workbook, rows: MemberCrmReport) {
+  const sheet = workbook.addWorksheet("Member CRM");
+  sheet.columns = [
+    { header: "Adventurer", key: "adventurerName", width: 24 },
+    { header: "Rank", key: "rankName", width: 16 },
+    { header: "Lifetime EXP", key: "lifetimeExp", width: 14 },
+    { header: "Lifetime spending (฿)", key: "lifetimeSpending", width: 18 },
+    { header: "Visits", key: "visits", width: 10 },
+    { header: "Joined", key: "joinDate", width: 14 },
+    { header: "Last visit", key: "lastVisit", width: 14 },
+    { header: "Status", key: "status", width: 10 },
+    { header: "New in period", key: "newInPeriod", width: 14 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      adventurerName: row.adventurerName,
+      rankName: row.rankName,
+      lifetimeExp: row.lifetimeExp,
+      lifetimeSpending: row.lifetimeSpending.toFixed(2),
+      visits: row.visits,
+      joinDate: new Date(row.joinDate).toLocaleDateString(),
+      lastVisit: row.lastVisit ? new Date(row.lastVisit).toLocaleDateString() : "",
+      status: row.status,
+      newInPeriod: row.newInPeriod ? "Yes" : "No",
+    });
+  }
+}
+
 export async function GET(req: NextRequest) {
   const staff = await getCurrentStaff();
   if (!can(staff, Permission.VIEW_REPORTS)) {
@@ -188,6 +277,9 @@ export async function GET(req: NextRequest) {
     "salesByProduct",
     "gamesPlayed",
     "promotionUsage",
+    "shiftReconciliation",
+    "voidRefund",
+    "memberCrm",
   ] as const;
   const rawType = searchParams.get("type");
   const type = (VALID_TYPES as readonly string[]).includes(rawType ?? "")
@@ -219,6 +311,15 @@ export async function GET(req: NextRequest) {
       break;
     case "promotionUsage":
       buildPromotionUsageSheet(workbook, await buildPromotionUsageReport(prisma, range));
+      break;
+    case "shiftReconciliation":
+      buildShiftReconciliationSheet(workbook, await buildShiftReconciliationReport(prisma, range));
+      break;
+    case "voidRefund":
+      buildVoidRefundSheet(workbook, await buildVoidRefundReport(prisma, range));
+      break;
+    case "memberCrm":
+      buildMemberCrmSheet(workbook, await buildMemberCrmReport(prisma, range));
       break;
     default:
       buildSummarySheet(workbook, await buildSummaryReport(prisma, range));

@@ -338,3 +338,123 @@ export async function buildPromotionUsageReport(prisma: PrismaClient, range: Dat
 }
 
 export type PromotionUsageReport = Awaited<ReturnType<typeof buildPromotionUsageReport>>;
+
+/**
+ * Shift / Cash Reconciliation — expected vs actual cash counted per shift,
+ * an accounting-control view that's otherwise only visible one shift at a
+ * time on the Shift page. Filtered by openedAt, since that's what "this
+ * shift belongs to the selected period" means.
+ */
+export async function buildShiftReconciliationReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const shifts = await prisma.shift.findMany({
+    where: { openedAt: { gte: from, lte: to } },
+    include: {
+      openedBy: { select: { name: true } },
+      closedBy: { select: { name: true } },
+    },
+    orderBy: { openedAt: "desc" },
+  });
+
+  return shifts.map((s) => ({
+    id: s.id,
+    openedAt: s.openedAt,
+    closedAt: s.closedAt,
+    openedByName: s.openedBy.name,
+    closedByName: s.closedBy?.name ?? null,
+    status: s.status,
+    startingCash: toNum(s.startingCash),
+    expectedCash: s.expectedCash != null ? toNum(s.expectedCash) : null,
+    actualCashCounted: s.actualCashCounted != null ? toNum(s.actualCashCounted) : null,
+    cashDifference: s.cashDifference != null ? toNum(s.cashDifference) : null,
+  }));
+}
+
+export type ShiftReconciliationReport = Awaited<ReturnType<typeof buildShiftReconciliationReport>>;
+
+/**
+ * Void & Refund Detail — every void/refund in range, one row each, pulled
+ * from the AuditLog (the only place that records precisely *when* the
+ * action happened — a refunded session's own timestamps still reflect the
+ * original checkout, not the refund). A void never charged anything (it
+ * only ever runs before payment — see sessions.voidSession's doc comment),
+ * so its amount is reported as null rather than a fabricated number; a
+ * refund's amount is the session's own recorded totalAmount from payment
+ * time (§45: never recomputed).
+ */
+export async function buildVoidRefundReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const entries = await prisma.auditLog.findMany({
+    where: {
+      action: { in: ["VOID_TRANSACTION", "REFUND_TRANSACTION"] },
+      createdAt: { gte: from, lte: to },
+    },
+    include: { staff: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const sessionIds = entries
+    .map((e) => e.entityId)
+    .filter((id): id is string => !!id);
+  const sessions = sessionIds.length
+    ? await prisma.tableSession.findMany({
+        where: { id: { in: sessionIds } },
+        select: {
+          id: true,
+          totalAmount: true,
+          table: { select: { code: true } },
+          member: { select: { adventurerName: true } },
+        },
+      })
+    : [];
+
+  return entries.map((e) => {
+    const session = sessions.find((s) => s.id === e.entityId);
+    const type: "VOIDED" | "REFUNDED" =
+      e.action === "VOID_TRANSACTION" ? "VOIDED" : "REFUNDED";
+    return {
+      id: e.id,
+      createdAt: e.createdAt,
+      type,
+      tableCode: session?.table.code ?? "—",
+      memberName: session?.member?.adventurerName ?? null,
+      staffName: e.staff?.name ?? "Unknown",
+      amount: type === "REFUNDED" ? toNum(session?.totalAmount ?? 0) : null,
+      reason: e.reason ?? "—",
+    };
+  });
+}
+
+export type VoidRefundReport = Awaited<ReturnType<typeof buildVoidRefundReport>>;
+
+/**
+ * Member / CRM directory — every member, sorted by lifetime spending
+ * (highest first, so "top spenders" is just the top of the list), with a
+ * flag for whether they joined within the selected period ("new" vs
+ * "returning"). Unlike the other reports here this isn't scoped to
+ * activity *within* the range — lifetimeSpending/lifetimeExp are running
+ * totals on the Member row itself, not period aggregates — the range only
+ * decides the newInPeriod flag.
+ */
+export async function buildMemberCrmReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const members = await prisma.member.findMany({
+    include: { rank: { select: { nameEn: true } } },
+    orderBy: { lifetimeSpending: "desc" },
+  });
+
+  return members.map((m) => ({
+    id: m.id,
+    adventurerName: m.adventurerName,
+    rankName: m.rank?.nameEn ?? "—",
+    lifetimeExp: m.lifetimeExp,
+    lifetimeSpending: toNum(m.lifetimeSpending),
+    visits: m.visits,
+    status: m.status,
+    joinDate: m.joinDate,
+    lastVisit: m.lastVisit,
+    newInPeriod: m.joinDate >= from && m.joinDate <= to,
+  }));
+}
+
+export type MemberCrmReport = Awaited<ReturnType<typeof buildMemberCrmReport>>;

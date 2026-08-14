@@ -8,6 +8,9 @@ import {
   buildSalesByProductReport,
   buildGamesPlayedReport,
   buildPromotionUsageReport,
+  buildShiftReconciliationReport,
+  buildVoidRefundReport,
+  buildMemberCrmReport,
   parseDateRange,
 } from "@/server/reports/build";
 
@@ -54,6 +57,24 @@ export const reportsRouter = router({
     .input(dateRange)
     .query(({ ctx, input }) => {
       return buildPromotionUsageReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  shiftReconciliation: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildShiftReconciliationReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  voidRefund: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildVoidRefundReport(ctx.prisma, parseDateRange(input.from, input.to));
+    }),
+
+  memberCrm: viewReports()
+    .input(dateRange)
+    .query(({ ctx, input }) => {
+      return buildMemberCrmReport(ctx.prisma, parseDateRange(input.from, input.to));
     }),
 
   auditLog: viewReports()

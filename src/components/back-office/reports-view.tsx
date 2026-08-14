@@ -43,7 +43,10 @@ type ExportType =
   | "salesByCategory"
   | "salesByProduct"
   | "gamesPlayed"
-  | "promotionUsage";
+  | "promotionUsage"
+  | "shiftReconciliation"
+  | "voidRefund"
+  | "memberCrm";
 
 function ExcelDownloadLink({ type, from, to }: { type: ExportType; from: string; to: string }) {
   return (
@@ -349,6 +352,207 @@ function PromotionUsageTable({ from, to }: { from: string; to: string }) {
   );
 }
 
+function ShiftReconciliationTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.shiftReconciliation.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Shift / Cash Reconciliation ({data.length})</p>
+        <ExcelDownloadLink type="shiftReconciliation" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No shifts opened in range.</p>
+      ) : (
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Opened</th>
+              <th className="px-3 py-2 font-medium">Closed</th>
+              <th className="px-3 py-2 font-medium">Opened by</th>
+              <th className="px-3 py-2 font-medium">Closed by</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 text-right font-medium">Starting cash</th>
+              <th className="px-3 py-2 text-right font-medium">Expected</th>
+              <th className="px-3 py-2 text-right font-medium">Actual</th>
+              <th className="px-3 py-2 text-right font-medium">Difference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {new Date(row.openedAt).toLocaleString()}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {row.closedAt ? new Date(row.closedAt).toLocaleString() : "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground">{row.openedByName}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">
+                  {row.closedByName ?? "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      row.status === "OPEN"
+                        ? "bg-status-success/15 text-status-success"
+                        : "bg-status-neutral/15 text-status-neutral"
+                    }`}
+                  >
+                    {row.status}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  ฿{row.startingCash.toFixed(0)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.expectedCash != null ? `฿${row.expectedCash.toFixed(0)}` : "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.actualCashCounted != null ? `฿${row.actualCashCounted.toFixed(0)}` : "—"}
+                </td>
+                <td
+                  className={`whitespace-nowrap px-3 py-2 text-right font-medium ${
+                    row.cashDifference == null
+                      ? "text-foreground-muted"
+                      : row.cashDifference === 0
+                        ? "text-status-success"
+                        : "text-status-danger"
+                  }`}
+                >
+                  {row.cashDifference != null
+                    ? `${row.cashDifference > 0 ? "+" : ""}฿${row.cashDifference.toFixed(0)}`
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function VoidRefundTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.voidRefund.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Void &amp; Refund Detail ({data.length})</p>
+        <ExcelDownloadLink type="voidRefund" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No voids or refunds in range.</p>
+      ) : (
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Date</th>
+              <th className="px-3 py-2 font-medium">Type</th>
+              <th className="px-3 py-2 font-medium">Table</th>
+              <th className="px-3 py-2 font-medium">Member</th>
+              <th className="px-3 py-2 font-medium">Staff</th>
+              <th className="px-3 py-2 text-right font-medium">Amount</th>
+              <th className="px-3 py-2 font-medium">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {new Date(row.createdAt).toLocaleString()}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[row.type] ?? ""}`}>
+                    {row.type}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground">{row.tableCode}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">
+                  {row.memberName ?? "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{row.staffName}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground">
+                  {row.amount != null ? `฿${row.amount.toFixed(0)}` : "—"}
+                </td>
+                <td className="px-3 py-2 text-foreground-muted">{row.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+function MemberCrmTable({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = trpc.reports.memberCrm.useQuery({ from, to });
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">
+          Member / CRM ({data.length}) — sorted by lifetime spending
+        </p>
+        <ExcelDownloadLink type="memberCrm" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No members yet.</p>
+      ) : (
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Adventurer</th>
+              <th className="px-3 py-2 font-medium">Rank</th>
+              <th className="px-3 py-2 text-right font-medium">Lifetime EXP</th>
+              <th className="px-3 py-2 text-right font-medium">Lifetime spending</th>
+              <th className="px-3 py-2 text-right font-medium">Visits</th>
+              <th className="px-3 py-2 font-medium">Joined</th>
+              <th className="px-3 py-2 font-medium">Last visit</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <td className="whitespace-nowrap px-3 py-2 text-foreground">
+                  {row.adventurerName}
+                  {row.newInPeriod && (
+                    <span className="ml-2 rounded-full bg-teal-500/15 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300">
+                      New
+                    </span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{row.rankName}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.lifetimeExp}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground">
+                  ฿{row.lifetimeSpending.toFixed(0)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+                  {row.visits}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {new Date(row.joinDate).toLocaleDateString()}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+                  {row.lastVisit ? new Date(row.lastVisit).toLocaleDateString() : "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{row.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 function AuditLogTable() {
   const { data: auditLog } = trpc.reports.auditLog.useQuery();
 
@@ -397,6 +601,9 @@ const REPORT_TABS = [
   { key: "salesByProduct", label: "Sales by Product" },
   { key: "gamesPlayed", label: "Games Played" },
   { key: "promotionUsage", label: "Promotions" },
+  { key: "shiftReconciliation", label: "Shift Reconciliation" },
+  { key: "voidRefund", label: "Void & Refund" },
+  { key: "memberCrm", label: "Member / CRM" },
   { key: "audit", label: "Audit Log" },
 ] as const;
 type ReportTab = (typeof REPORT_TABS)[number]["key"];
@@ -549,6 +756,12 @@ export function ReportsView() {
       {tab === "gamesPlayed" && <GamesPlayedTable from={from} to={to} />}
 
       {tab === "promotionUsage" && <PromotionUsageTable from={from} to={to} />}
+
+      {tab === "shiftReconciliation" && <ShiftReconciliationTable from={from} to={to} />}
+
+      {tab === "voidRefund" && <VoidRefundTable from={from} to={to} />}
+
+      {tab === "memberCrm" && <MemberCrmTable from={from} to={to} />}
 
       {tab === "audit" && <AuditLogTable />}
     </div>
