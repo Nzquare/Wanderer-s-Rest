@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db";
 import { settingsSchemas, type SettingsKey } from "./schema";
 import type { z } from "zod";
+import type { Prisma } from "@/generated/prisma/client";
 
 type SchemaOf<K extends SettingsKey> = z.infer<(typeof settingsSchemas)[K]>;
 
@@ -9,11 +10,21 @@ type SchemaOf<K extends SettingsKey> = z.infer<(typeof settingsSchemas)[K]>;
  * field not (yet) overridden in the database. This is the ONLY sanctioned
  * way to read a configurable business value — domain logic must never
  * import a default number directly.
+ *
+ * Pass the interactive-transaction client (`tx`) when calling this from
+ * inside a `prisma.$transaction(async (tx) => ...)` block — using the
+ * default global `prisma` there makes this query grab a *second* pooled
+ * connection while the transaction is still holding its own, which under
+ * any pool contention can stall long enough to blow the transaction's
+ * timeout (seen as "batch query cannot be executed on an expired
+ * transaction"). Defaults to the global client for the common case of
+ * calling this outside a transaction.
  */
 export async function getSettings<K extends SettingsKey>(
   key: K,
+  client: Pick<Prisma.TransactionClient, "setting"> = prisma,
 ): Promise<SchemaOf<K>> {
-  const row = await prisma.setting.findUnique({ where: { key } });
+  const row = await client.setting.findUnique({ where: { key } });
   const schema = settingsSchemas[key];
   return schema.parse(row?.value ?? {}) as SchemaOf<K>;
 }

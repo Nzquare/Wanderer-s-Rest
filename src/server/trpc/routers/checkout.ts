@@ -16,6 +16,7 @@ import { evaluateNewlyUnlocked, type AchievementDef } from "@/server/domain/achi
 import { getSettings } from "@/server/settings/service";
 import { logAudit } from "@/server/audit";
 import { toPlayerRecord, toPricingConfig } from "./sessions";
+import { prisma as defaultPrisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
 
 const checkoutInclude = {
@@ -100,6 +101,11 @@ function groupItemsByCategory(
 
 async function computeBreakdown(
   session: Awaited<ReturnType<typeof loadSessionForCheckout>>,
+  // Pass `tx` when calling this from inside a $transaction block (see
+  // recordPayment) — getSettings needs to run on the same connection the
+  // transaction is already holding, not grab a second one from the pool
+  // (§getSettings).
+  client: Prisma.TransactionClient = defaultPrisma,
 ) {
   const tableFee = computeTableFee({
     pricingType: toPricingConfig(session.pricingType),
@@ -117,7 +123,7 @@ async function computeBreakdown(
   const foodDrinkSubtotal = foodDrinkItems.reduce((s, i) => s + i.lineTotal, 0);
   const itemsByCategory = groupItemsByCategory(session.orders);
 
-  const checkoutSettings = await getSettings("checkout");
+  const checkoutSettings = await getSettings("checkout", client);
   const bill = computeBill({
     tableFeeTotal: tableFee.total,
     foodDrinkSubtotal,
@@ -581,7 +587,7 @@ export const checkoutRouter = router({
         }
 
         const { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill } =
-          await computeBreakdown(session);
+          await computeBreakdown(session, tx);
         const paidTotal = input.payments.reduce((s, p) => s + p.amount, 0);
         if (Math.abs(paidTotal - bill.total) > 0.5) {
           throw new TRPCError({
@@ -590,18 +596,20 @@ export const checkoutRouter = router({
           });
         }
 
-        for (const p of input.payments) {
-          await tx.payment.create({
-            data: {
-              sessionId: session.id,
-              shiftId: openShift.id,
-              amount: p.amount,
-              method: p.method,
-              reference: p.reference,
-              staffId: ctx.staff.id,
-            },
-          });
-        }
+        // One round trip for every payment row instead of N sequential
+        // ones — each interactive transaction only gets a few seconds
+        // (§getSettings) before Postgres/Prisma calls it expired, so every
+        // avoidable round trip here matters.
+        await tx.payment.createMany({
+          data: input.payments.map((p) => ({
+            sessionId: session.id,
+            shiftId: openShift.id,
+            amount: p.amount,
+            method: p.method,
+            reference: p.reference,
+            staffId: ctx.staff.id,
+          })),
+        });
 
         // ── Member EXP / progression (§53) ──────────────────────────────
         let expSummary: {
@@ -615,7 +623,7 @@ export const checkoutRouter = router({
         let unlockedAchievements: { nameEn: string }[] = [];
 
         if (session.member) {
-          const membershipSettings = await getSettings("membership");
+          const membershipSettings = await getSettings("membership", tx);
           const eligible = eligibleExpSpending(bill);
           const expAwarded = expFromSpending(eligible, membershipSettings.bahtPerExp);
           const ranks = await tx.rank.findMany({ orderBy: { order: "asc" } });
@@ -678,20 +686,27 @@ export const checkoutRouter = router({
               ...gameStats,
             },
           );
-          for (const achievement of newlyUnlocked) {
-            const ma = await tx.memberAchievement.create({
-              data: {
-                memberId: session.member.id,
-                achievementId: achievement.id,
-                sessionId: session.id,
-              },
-            });
-            if ((achievement as unknown as { hasReward: boolean }).hasReward) {
-              await tx.benefitRedemption.create({
-                data: { memberAchievementId: ma.id },
+          // Each achievement's memberAchievement -> benefitRedemption pair
+          // has to stay sequential (the redemption needs the row it just
+          // created), but different achievements unlocking on the same
+          // bill don't depend on each other — run those in parallel
+          // rather than one at a time.
+          await Promise.all(
+            newlyUnlocked.map(async (achievement) => {
+              const ma = await tx.memberAchievement.create({
+                data: {
+                  memberId: session.member!.id,
+                  achievementId: achievement.id,
+                  sessionId: session.id,
+                },
               });
-            }
-          }
+              if ((achievement as unknown as { hasReward: boolean }).hasReward) {
+                await tx.benefitRedemption.create({
+                  data: { memberAchievementId: ma.id },
+                });
+              }
+            }),
+          );
           unlockedAchievements = newlyUnlocked.map((a) => ({
             nameEn: (a as unknown as { nameEn: string }).nameEn,
           }));

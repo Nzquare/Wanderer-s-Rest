@@ -898,7 +898,7 @@ export const sessionsRouter = router({
 
           const [ranks, membershipSettings] = await Promise.all([
             tx.rank.findMany({ orderBy: { order: "asc" } }),
-            getSettings("membership"),
+            getSettings("membership", tx),
           ]);
           const after = computeProgression(newLifetimeExp, membershipSettings.expPerLevel, ranks);
 

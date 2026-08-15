@@ -57,6 +57,11 @@ interface PaymentRow {
   key: string;
   method: PaymentMethod;
   amount: string;
+  /** CASH only — what the customer actually handed over, purely for the
+   * change-due calculator below. Never sent to recordPayment; `amount`
+   * (locked to the remaining balance for a single cash payment, same as
+   * PROMPTPAY) is what's recorded as paid. */
+  cashReceived: string;
 }
 
 export function CheckoutClient({
@@ -94,7 +99,7 @@ export function CheckoutClient({
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [payments, setPayments] = useState<PaymentRow[]>([
-    { key: "p1", method: "CASH", amount: "" },
+    { key: "p1", method: "CASH", amount: "", cashReceived: "" },
   ]);
   const [result, setResult] = useState<CheckoutResult | null>(null);
   // Which hidden print area is "armed" for the next window.print() —
@@ -206,12 +211,17 @@ export function CheckoutClient({
   );
 
   const isSplitPayment = payments.length > 1;
+  // A single CASH or PROMPTPAY payment always covers the whole bill —
+  // locking it to the remaining balance means there's nothing for the
+  // cashier to type or get wrong. The moment it's part of a split, the
+  // lock comes off since each row then covers however much of the bill
+  // the cashier decides it should (see the input fallback below).
   const effectiveAmounts: number[] = [];
   {
     let runningTotal = 0;
     for (const p of payments) {
       const amount =
-        p.method === "PROMPTPAY" && !isSplitPayment
+        (p.method === "PROMPTPAY" || p.method === "CASH") && !isSplitPayment
           ? Math.max(0, Math.round((preview.bill.total - runningTotal) * 100) / 100)
           : Number(p.amount) || 0;
       effectiveAmounts.push(amount);
@@ -544,8 +554,14 @@ export function CheckoutClient({
 
       <Card className="space-y-3">
         <p className="text-sm font-medium text-foreground-muted">Payment</p>
-        {payments.map((p, i) => (
-          <div key={p.key} className="flex items-center gap-2">
+        {payments.map((p, i) => {
+          const isCash = p.method === "CASH";
+          const isLocked = (p.method === "PROMPTPAY" || isCash) && !isSplitPayment;
+          const received = Number(p.cashReceived) || 0;
+          const change = received - effectiveAmounts[i];
+          return (
+          <div key={p.key} className="space-y-1">
+          <div className="flex items-center gap-2">
             <select
               value={p.method}
               onChange={(e) =>
@@ -564,7 +580,7 @@ export function CheckoutClient({
               <option value="CARD">Card</option>
               <option value="OTHER">Other</option>
             </select>
-            {p.method === "PROMPTPAY" && !isSplitPayment ? (
+            {isLocked ? (
               <div className="flex h-11 flex-1 items-center rounded-lg border border-border bg-background px-2 text-sm text-foreground-muted">
                 ฿{effectiveAmounts[i].toFixed(2)} — locked to remaining balance
               </div>
@@ -600,7 +616,12 @@ export function CheckoutClient({
                 onClick={() =>
                   setPayments((rows) => [
                     ...rows,
-                    { key: `p${rows.length + 1}-${Date.now()}`, method: "CASH", amount: "" },
+                    {
+                      key: `p${rows.length + 1}-${Date.now()}`,
+                      method: "CASH",
+                      amount: "",
+                      cashReceived: "",
+                    },
                   ])
                 }
                 className="text-sm text-teal-600"
@@ -609,7 +630,38 @@ export function CheckoutClient({
               </button>
             )}
           </div>
-        ))}
+          {isCash && (
+            <div className="flex items-center gap-2 pl-1">
+              <label className="text-xs text-foreground-muted">Cash received</label>
+              <input
+                type="number"
+                value={p.cashReceived}
+                onChange={(e) =>
+                  setPayments((rows) =>
+                    rows.map((r) =>
+                      r.key === p.key ? { ...r, cashReceived: e.target.value } : r,
+                    ),
+                  )
+                }
+                placeholder={`e.g. ${Math.ceil(effectiveAmounts[i] / 100) * 100}`}
+                className="h-9 w-28 rounded-lg border border-border bg-background px-2 text-sm"
+              />
+              {p.cashReceived && (
+                <span
+                  className={
+                    change >= 0 ? "text-xs font-medium text-status-success" : "text-xs text-status-warning"
+                  }
+                >
+                  {change >= 0
+                    ? `Change: ฿${change.toFixed(2)}`
+                    : `Short by ฿${Math.abs(change).toFixed(2)}`}
+                </span>
+              )}
+            </div>
+          )}
+          </div>
+          );
+        })}
         {(() => {
           const promptPayIndex = payments.findIndex((p) => p.method === "PROMPTPAY");
           if (promptPayIndex === -1) return null;

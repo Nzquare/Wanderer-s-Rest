@@ -214,8 +214,10 @@ export const membersRouter = router({
         if (!member) throw new TRPCError({ code: "NOT_FOUND" });
 
         const newLifetimeExp = Math.max(0, member.lifetimeExp + input.amount);
-        const ranks = await tx.rank.findMany({ orderBy: { order: "asc" } });
-        const membershipSettings = await getSettings("membership");
+        const [ranks, membershipSettings] = await Promise.all([
+          tx.rank.findMany({ orderBy: { order: "asc" } }),
+          getSettings("membership", tx),
+        ]);
         const progression =
           ranks.length > 0
             ? computeProgression(newLifetimeExp, membershipSettings.expPerLevel, ranks)
