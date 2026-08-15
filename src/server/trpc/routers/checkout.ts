@@ -33,7 +33,9 @@ const checkoutInclude = {
       },
     },
   },
-  appliedDiscounts: { include: { appliedBy: { select: { name: true } } } },
+  appliedDiscounts: {
+    include: { appliedBy: { select: { name: true } }, promotion: { select: { type: true } } },
+  },
 } satisfies Prisma.TableSessionInclude;
 
 async function loadSessionForCheckout(
@@ -257,6 +259,11 @@ export const checkoutRouter = router({
           label: d.label,
           amount: toNum(d.amount),
           appliedByName: d.appliedBy.name,
+          // FREE_ITEM's "amount" is the item's own price, offsetting a line
+          // that's already in the order at full price — showing "-฿80"
+          // next to something labeled "free" reads as a deduction rather
+          // than what it actually is, so the bill shows "Free" instead.
+          isFreeItem: d.promotion?.type === "FREE_ITEM",
         })),
         bill,
         memberPreview,
@@ -789,6 +796,7 @@ export const checkoutRouter = router({
           discounts: session.appliedDiscounts.map((d) => ({
             label: d.label,
             amount: toNum(d.amount),
+            isFreeItem: d.promotion?.type === "FREE_ITEM",
           })),
           bill,
           payments: input.payments,

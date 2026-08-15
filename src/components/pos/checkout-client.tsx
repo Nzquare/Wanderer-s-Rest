@@ -280,7 +280,7 @@ export function CheckoutClient({
           <div key={d.id} className="flex justify-between text-sm text-status-danger">
             <span>{d.label}</span>
             <div className="flex items-center gap-2">
-              <span>-฿{d.amount.toFixed(0)}</span>
+              <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
               <button
                 onClick={() => removeDiscount.mutate({ discountId: d.id })}
                 className="text-xs underline"
@@ -346,7 +346,7 @@ export function CheckoutClient({
             {preview.appliedDiscounts.map((d) => (
               <div key={d.id} className="flex justify-between">
                 <span>{d.label}</span>
-                <span>-฿{d.amount.toFixed(0)}</span>
+                <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
               </div>
             ))}
             {preview.bill.serviceChargeAmount > 0 && (

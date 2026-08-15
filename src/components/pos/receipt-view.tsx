@@ -27,7 +27,9 @@ interface ReceiptSnapshot {
     subtotal: number;
     items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   }[];
-  discounts: { label: string; amount: number }[];
+  // isFreeItem is absent on receipts printed before this field existed —
+  // falls back to falsy, same as any other pre-existing snapshot field.
+  discounts: { label: string; amount: number; isFreeItem?: boolean }[];
   bill: {
     subtotalTableFee: number;
     subtotalFoodDrink: number;
@@ -186,7 +188,7 @@ export function ReceiptView({
           {snapshot.discounts.map((d, i) => (
             <div key={i} className="flex justify-between text-status-danger">
               <span>{d.label}</span>
-              <span>-฿{d.amount.toFixed(0)}</span>
+              <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
             </div>
           ))}
           {snapshot.bill.serviceChargeAmount > 0 && (
