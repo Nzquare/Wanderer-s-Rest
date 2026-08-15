@@ -770,6 +770,23 @@ export const sessionsRouter = router({
           });
         }
 
+        // Voiding cancels the table with no charge — any reward the member
+        // "spent" via an applied promotion (§Benefits) was never actually
+        // redeemed, so give it back rather than leaving it stuck USED with
+        // nothing to show for it. Unlike refundSession's post-payment
+        // reversal (deliberately hands-off on benefits — the bill really
+        // was paid), a voided bill never happened at all.
+        const redeemedHere = await tx.appliedDiscount.findMany({
+          where: { sessionId: session.id, benefitRedemptionId: { not: null } },
+          select: { benefitRedemptionId: true },
+        });
+        if (redeemedHere.length > 0) {
+          await tx.benefitRedemption.updateMany({
+            where: { id: { in: redeemedHere.map((d) => d.benefitRedemptionId!) } },
+            data: { status: "AVAILABLE", usedAt: null, usedById: null, relatedSessionId: null },
+          });
+        }
+
         const now = new Date();
         for (const p of session.players) {
           if (p.status === "STOPPED") continue;
