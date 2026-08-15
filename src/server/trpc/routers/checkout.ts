@@ -637,15 +637,21 @@ export const checkoutRouter = router({
     .input(
       z.object({
         sessionId: z.string(),
-        payments: z
-          .array(
-            z.object({
-              method: z.enum(["CASH", "PROMPTPAY", "CARD", "OTHER"]),
-              amount: z.number().positive(),
-              reference: z.string().optional(),
-            }),
-          )
-          .min(1),
+        // No .min(1) — a bill fully wiped out by a 100%-off promotion/
+        // discount has a ฿0 total and nothing left to actually pay, so
+        // checkout-client.tsx sends an empty array for it (every payment
+        // row's amount is clamped to the remaining balance, which is
+        // ฿0, then filtered out as not worth recording). The paidTotal
+        // vs bill.total check below still enforces correctness for any
+        // non-zero bill — an empty array only ever passes it when the
+        // total genuinely is ฿0.
+        payments: z.array(
+          z.object({
+            method: z.enum(["CASH", "PROMPTPAY", "CARD", "OTHER"]),
+            amount: z.number().positive(),
+            reference: z.string().optional(),
+          }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
