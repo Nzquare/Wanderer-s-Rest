@@ -89,86 +89,6 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="space-y-2">
-          <p className="font-medium text-foreground">
-            Achievements ({profile.achievements.length}
-            {catalog ? ` / ${catalog.filter((c) => c.active).length}` : ""})
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {(() => {
-              const unlockedByAchievementId = new Map(
-                profile.achievements.map((a) => [a.achievement.id, a]),
-              );
-              const all = catalog?.filter((c) => c.active) ?? [];
-              // Unlocked first, then the rest — so what the adventurer has
-              // actually earned reads before what's still ahead of them.
-              const ordered = [
-                ...all.filter((c) => unlockedByAchievementId.has(c.id)),
-                ...all.filter((c) => !unlockedByAchievementId.has(c.id)),
-              ];
-              return ordered.map((achievement) => {
-                const unlocked = unlockedByAchievementId.get(achievement.id);
-                if (unlocked) {
-                  return (
-                    <div key={achievement.id} className="rounded-lg bg-background p-2 text-sm">
-                      <p className="font-medium text-foreground">
-                        {achievement.icon ?? "🏆"} {achievement.nameEn}
-                      </p>
-                      <p className="text-xs text-foreground-muted">
-                        {new Date(unlocked.unlockedAt).toLocaleDateString()}
-                        {unlocked.benefit && unlocked.benefit.status === "AVAILABLE" && " · Benefit available"}
-                      </p>
-                    </div>
-                  );
-                }
-                // Not yet unlocked. Hidden/secret achievements (§32) don't
-                // reveal what they are until earned — a locked "???" card
-                // instead of the real name/description.
-                if (achievement.hidden) {
-                  return (
-                    <div
-                      key={achievement.id}
-                      className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
-                    >
-                      <p className="font-medium text-foreground-muted">🔒 ???</p>
-                      <p className="text-xs text-foreground-muted">Secret — not yet unlocked</p>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={achievement.id}
-                    className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
-                  >
-                    <p className="font-medium text-foreground-muted">
-                      {achievement.icon ?? "🏆"} {achievement.nameEn}
-                    </p>
-                    <p className="text-xs text-foreground-muted">Not yet unlocked</p>
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        </Card>
-
-        <Card className="space-y-2">
-          <p className="font-medium text-foreground">Recent EXP history</p>
-          {profile.expHistory.length === 0 && (
-            <p className="text-sm text-foreground-muted">No EXP recorded yet.</p>
-          )}
-          {profile.expHistory.map((h) => (
-            <div key={h.id} className="flex justify-between text-sm">
-              <span className="text-foreground-muted">
-                {new Date(h.createdAt).toLocaleDateString()} · {h.reason}
-              </span>
-              <span className={h.amount >= 0 ? "text-status-success" : "text-status-danger"}>
-                {h.amount >= 0 ? "+" : ""}
-                {h.amount}
-              </span>
-            </div>
-          ))}
-        </Card>
-
         <Card className="space-y-3">
           <p className="font-medium text-foreground">Profile</p>
           <label className="block text-xs text-foreground-muted">
@@ -370,6 +290,86 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
               Award
             </Button>
           </div>
+        </Card>
+
+        <Card className="space-y-2">
+          <p className="font-medium text-foreground">
+            Achievements ({profile.achievements.length}
+            {catalog ? ` / ${catalog.filter((c) => c.active).length}` : ""})
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {(() => {
+              const unlockedByAchievementId = new Map(
+                profile.achievements.map((a) => [a.achievement.id, a]),
+              );
+              const all = catalog?.filter((c) => c.active) ?? [];
+              // Unlocked first, then the rest — so what the adventurer has
+              // actually earned reads before what's still ahead of them.
+              const ordered = [
+                ...all.filter((c) => unlockedByAchievementId.has(c.id)),
+                ...all.filter((c) => !unlockedByAchievementId.has(c.id)),
+              ];
+              return ordered.map((achievement) => {
+                const unlocked = unlockedByAchievementId.get(achievement.id);
+                if (unlocked) {
+                  return (
+                    <div key={achievement.id} className="rounded-lg bg-background p-2 text-sm">
+                      <p className="font-medium text-foreground">
+                        {achievement.icon ?? "🏆"} {achievement.nameEn}
+                      </p>
+                      <p className="text-xs text-foreground-muted">
+                        {new Date(unlocked.unlockedAt).toLocaleDateString()}
+                        {unlocked.benefit && unlocked.benefit.status === "AVAILABLE" && " · Benefit available"}
+                      </p>
+                    </div>
+                  );
+                }
+                // Not yet unlocked. Hidden/secret achievements (§32) don't
+                // reveal what they are until earned — a locked "???" card
+                // instead of the real name/description.
+                if (achievement.hidden) {
+                  return (
+                    <div
+                      key={achievement.id}
+                      className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
+                    >
+                      <p className="font-medium text-foreground-muted">🔒 ???</p>
+                      <p className="text-xs text-foreground-muted">Secret — not yet unlocked</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    key={achievement.id}
+                    className="rounded-lg border border-dashed border-border bg-background/50 p-2 text-sm opacity-60"
+                  >
+                    <p className="font-medium text-foreground-muted">
+                      {achievement.icon ?? "🏆"} {achievement.nameEn}
+                    </p>
+                    <p className="text-xs text-foreground-muted">Not yet unlocked</p>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </Card>
+
+        <Card className="space-y-2">
+          <p className="font-medium text-foreground">Recent EXP history</p>
+          {profile.expHistory.length === 0 && (
+            <p className="text-sm text-foreground-muted">No EXP recorded yet.</p>
+          )}
+          {profile.expHistory.map((h) => (
+            <div key={h.id} className="flex justify-between text-sm">
+              <span className="text-foreground-muted">
+                {new Date(h.createdAt).toLocaleDateString()} · {h.reason}
+              </span>
+              <span className={h.amount >= 0 ? "text-status-success" : "text-status-danger"}>
+                {h.amount >= 0 ? "+" : ""}
+                {h.amount}
+              </span>
+            </div>
+          ))}
         </Card>
       </div>
     </div>
