@@ -40,6 +40,18 @@ const benefitTypeEnum = z.enum([
   "CUSTOM",
 ]);
 
+// One shape covers every benefit type — which fields actually get used
+// depends on benefitType (§30/§Achievement Benefits):
+//   FIXED_DISCOUNT / PERCENT_DISCOUNT / FREE_TABLE_TIME -> value (฿, %, or minutes)
+//   FREE_ITEM / FREE_DRINK                              -> menuItemId + a display snapshot
+//   SPECIAL_PRICE / PRIVILEGE / CUSTOM                  -> description (free text, e.g. "member pricing at the till" — staff apply it manually since there's no structured field for it)
+const benefitConfigSchema = z.object({
+  value: z.number().optional(),
+  menuItemId: z.string().optional(),
+  menuItemName: z.string().optional(),
+  description: z.string().optional(),
+});
+
 const manage = () => permissionProcedure(Permission.MANAGE_SETTINGS);
 
 export const achievementsRouter = router({
@@ -71,7 +83,7 @@ export const achievementsRouter = router({
         triggerValue: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
         hasReward: z.boolean().default(false),
         benefitType: benefitTypeEnum.optional(),
-        benefitConfig: z.object({ value: z.number().optional() }).optional(),
+        benefitConfig: benefitConfigSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -101,7 +113,7 @@ export const achievementsRouter = router({
         triggerValue: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
         hasReward: z.boolean().optional(),
         benefitType: benefitTypeEnum.optional(),
-        benefitConfig: z.object({ value: z.number().optional() }).optional(),
+        benefitConfig: benefitConfigSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
