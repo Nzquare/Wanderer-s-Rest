@@ -154,22 +154,22 @@ async function main() {
     }
   }
 
-  // ── Adventurer classes (§29) ─────────────────────────────────────────
-  const classes: Array<[string, string]> = [
-    ["นักสู้", "Fighter"],
-    ["นักปราชญ์", "Scholar"],
-    ["ผู้ทำนาย", "Oracle"],
-    ["นักดนตรี", "Bard"],
-    ["นักพนัน", "Gambler"],
-    ["ลูกเสือ", "Scout"],
-    ["นักสำรวจ", "Explorer"],
+  // ── Adventurer classes (§29, §Class emoji) ────────────────────────────
+  const classes: Array<[string, string, string]> = [
+    ["นักสู้", "Fighter", "⚔️"],
+    ["นักปราชญ์", "Scholar", "📚"],
+    ["ผู้ทำนาย", "Oracle", "🔮"],
+    ["นักดนตรี", "Bard", "🎵"],
+    ["นักพนัน", "Gambler", "🎲"],
+    ["ลูกเสือ", "Scout", "🧭"],
+    ["นักสำรวจ", "Explorer", "🗺️"],
   ];
-  for (const [nameTh, nameEn] of classes) {
+  for (const [nameTh, nameEn, icon] of classes) {
     const existing = await prisma.adventurerClass.findFirst({
       where: { nameEn },
     });
     if (!existing) {
-      await prisma.adventurerClass.create({ data: { nameTh, nameEn } });
+      await prisma.adventurerClass.create({ data: { nameTh, nameEn, icon } });
     }
   }
 

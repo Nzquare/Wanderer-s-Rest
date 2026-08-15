@@ -43,7 +43,9 @@ export function MemberPortal() {
               </p>
               <h1 className="mt-1 text-2xl font-bold">{profile.adventurerName}</h1>
               <p className="mt-1 text-white/70">
-                {profile.classNameEn ?? "No class"}
+                {profile.classNameEn
+                  ? `${profile.classIcon ?? ""} ${profile.classNameEn}`.trim()
+                  : "No class"}
                 {profile.progression && ` · ${profile.progression.rankIcon ?? "🎖️"} ${profile.progression.rankName}`}
               </p>
               {profile.progression && (

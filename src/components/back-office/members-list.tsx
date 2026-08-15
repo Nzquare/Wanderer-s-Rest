@@ -91,7 +91,8 @@ export function MembersList() {
               <div>
                 <p className="font-medium text-foreground">{m.adventurerName}</p>
                 <p className="text-xs text-foreground-muted">
-                  {m.rank?.nameEn ?? "Unranked"} · {m.class?.nameEn ?? "No class"}
+                  {m.rank?.nameEn ?? "Unranked"} ·{" "}
+                  {m.class ? `${m.class.icon ?? ""} ${m.class.nameEn}`.trim() : "No class"}
                 </p>
               </div>
               <span className="text-sm font-semibold text-teal-600">

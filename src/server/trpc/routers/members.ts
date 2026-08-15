@@ -72,7 +72,7 @@ export const membersRouter = router({
           phone: true,
           lifetimeExp: true,
           rank: { select: { nameEn: true } },
-          class: { select: { nameEn: true } },
+          class: { select: { nameEn: true, icon: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -127,13 +127,6 @@ export const membersRouter = router({
         take: 100,
       });
     }),
-
-  listClasses: staffProcedure.query(({ ctx }) => {
-    return ctx.prisma.adventurerClass.findMany({
-      where: { active: true },
-      orderBy: { nameEn: "asc" },
-    });
-  }),
 
   listRanks: staffProcedure.query(({ ctx }) => {
     return ctx.prisma.rank.findMany({ orderBy: { order: "asc" } });
@@ -460,6 +453,7 @@ export const membersRouter = router({
       return {
         adventurerName: member.adventurerName,
         classNameEn: member.class?.nameEn ?? null,
+        classIcon: member.class?.icon ?? null,
         joinDate: member.joinDate,
         visits: member.visits,
         progression: progression

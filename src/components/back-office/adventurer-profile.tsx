@@ -9,7 +9,7 @@ import { describeBenefit } from "@/lib/benefits";
 export function AdventurerProfile({ memberId }: { memberId: string }) {
   const utils = trpc.useUtils();
   const { data: profile, isLoading } = trpc.members.getProfile.useQuery({ memberId });
-  const { data: classes } = trpc.members.listClasses.useQuery();
+  const { data: classes } = trpc.classes.list.useQuery();
   const { data: ranks } = trpc.ranks.list.useQuery();
   const { data: manualAchievements } = trpc.achievements.listManualAwardable.useQuery();
   const { data: catalog } = trpc.achievements.list.useQuery();
@@ -81,7 +81,8 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
         </p>
         <h1 className="mt-1 text-3xl font-bold">{profile.adventurerName}</h1>
         <p className="mt-1 text-white/70">
-          {profile.class?.nameEn ?? "No class"} · {progress?.rankName ?? "Unranked"}
+          {profile.class ? `${profile.class.icon ?? ""} ${profile.class.nameEn}`.trim() : "No class"} ·{" "}
+          {progress?.rankName ?? "Unranked"}
         </p>
         {progress && (
           <div className="mt-4">
@@ -260,7 +261,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
               <option value="">No class</option>
               {classes?.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.nameEn}
+                  {c.icon ?? ""} {c.nameEn}
                 </option>
               ))}
             </select>
