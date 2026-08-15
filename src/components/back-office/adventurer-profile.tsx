@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { describeBenefit } from "@/lib/benefits";
 
 export function AdventurerProfile({ memberId }: { memberId: string }) {
+  const router = useRouter();
   const utils = trpc.useUtils();
   const { data: profile, isLoading } = trpc.members.getProfile.useQuery({ memberId });
   const { data: classes } = trpc.classes.list.useQuery();
@@ -26,6 +28,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
   const [awardNote, setAwardNote] = useState("");
   const [grantPromotionId, setGrantPromotionId] = useState("");
   const [grantLabel, setGrantLabel] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const invalidate = () => utils.members.getProfile.invalidate({ memberId });
   const updateProfile = trpc.members.updateProfile.useMutation({ onSuccess: invalidate });
@@ -57,6 +60,9 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
       setGrantLabel("");
       invalidate();
     },
+  });
+  const deleteMember = trpc.members.remove.useMutation({
+    onSuccess: () => router.back(),
   });
 
   if (isLoading || !profile) {
@@ -292,6 +298,41 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
               className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm"
             />
           </label>
+
+          <div className="border-t border-border pt-3">
+            {confirmingDelete ? (
+              <div className="space-y-2">
+                <p className="text-xs text-status-danger">
+                  Delete {profile.adventurerName} for good? Only works if they have no recorded
+                  history (visits, EXP, achievements, reservations) — mark them Inactive or Banned
+                  above instead if they do.
+                </p>
+                {deleteMember.error && (
+                  <p className="text-xs text-status-danger">{deleteMember.error.message}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    size="md"
+                    variant="danger"
+                    disabled={deleteMember.isPending}
+                    onClick={() => deleteMember.mutate({ memberId })}
+                  >
+                    {deleteMember.isPending ? "Deleting…" : "Confirm delete"}
+                  </Button>
+                  <Button size="md" variant="outline" onClick={() => setConfirmingDelete(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                className="text-xs text-status-danger underline"
+              >
+                Delete member
+              </button>
+            )}
+          </div>
         </Card>
 
         <Card className="space-y-2">

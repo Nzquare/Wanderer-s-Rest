@@ -238,6 +238,57 @@ export const membersRouter = router({
       };
     }),
 
+  /**
+   * True delete — only for a member with no recorded history at all
+   * (never checked out a bill, no EXP/achievements/games/reservations).
+   * Same §45-adjacent pattern as everything else in this app with
+   * history attached to it: once there's something real on the record,
+   * it stays forever and the member gets marked Inactive/Banned instead
+   * (the existing Status field on their profile) rather than deleted.
+   */
+  remove: permissionProcedure(Permission.MANAGE_MEMBERS)
+    .input(z.object({ memberId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.prisma.member.findUnique({
+        where: { id: input.memberId },
+        include: {
+          _count: {
+            select: {
+              sessions: true,
+              expHistory: true,
+              memberAchievements: true,
+              benefitRedemptions: true,
+              gameSessions: true,
+              reservations: true,
+            },
+          },
+        },
+      });
+      if (!member) throw new TRPCError({ code: "NOT_FOUND" });
+      const historyCount =
+        member._count.sessions +
+        member._count.expHistory +
+        member._count.memberAchievements +
+        member._count.benefitRedemptions +
+        member._count.gameSessions +
+        member._count.reservations;
+      if (historyCount > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${member.adventurerName}" already has recorded history (visits, EXP, achievements, or reservations) and can't be deleted — set their Status to Inactive or Banned instead.`,
+        });
+      }
+      await ctx.prisma.member.delete({ where: { id: input.memberId } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "MEMBER_DELETED",
+        entityType: "Member",
+        entityId: input.memberId,
+        previousValue: { adventurerName: member.adventurerName, memberCode: member.memberCode },
+      });
+      return { ok: true };
+    }),
+
   updateProfile: permissionProcedure(Permission.MANAGE_MEMBERS)
     .input(
       z.object({
