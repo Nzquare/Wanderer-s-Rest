@@ -84,12 +84,42 @@ type Rank = {
 };
 
 /**
+ * `levelsRequired` is a per-rank *span* (how many levels this tier
+ * covers before the next one takes over — resolveRank in
+ * src/server/domain/exp.ts walks the ordered list subtracting each
+ * span), so showing it alone on every row reads as "every rank needs
+ * 20" instead of the actual running total a member climbs through: LV
+ * 1–20, 21–40, 41–60, ... Computed once here from the full ordered list
+ * and threaded down so every row shows its real cumulative range.
+ */
+function computeLevelRanges(ranks: Rank[]): Map<string, { start: number; end: number }> {
+  const ranges = new Map<string, { start: number; end: number }>();
+  let start = 1;
+  for (const r of ranks) {
+    const end = start + Math.max(1, r.levelsRequired) - 1;
+    ranges.set(r.id, { start, end });
+    start = end + 1;
+  }
+  return ranges;
+}
+
+/**
  * Full edit form, in a popup rather than inline — same reasoning as
  * PricingTypeDetailsModal: a long ladder with every field expanded on
  * every row is unusable, so the list shows a compact summary and this
  * modal is where the fine-tuning (descriptions, delete) happens.
  */
-function RankDetailsModal({ rank: r, onClose }: { rank: Rank; onClose: () => void }) {
+function RankDetailsModal({
+  rank: r,
+  levelRange,
+  isLast,
+  onClose,
+}: {
+  rank: Rank;
+  levelRange: { start: number; end: number };
+  isLast: boolean;
+  onClose: () => void;
+}) {
   const utils = trpc.useUtils();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const invalidate = () =>
@@ -118,7 +148,9 @@ function RankDetailsModal({ rank: r, onClose }: { rank: Rank; onClose: () => voi
                 className="rounded border border-transparent bg-transparent text-lg font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
               />
               <p className="text-sm text-foreground-muted">
-                {r.levelsRequired} levels · {r.memberCount} member{r.memberCount === 1 ? "" : "s"}
+                LV {levelRange.start}
+                {isLast ? "+" : `–${levelRange.end}`} · {r.memberCount} member
+                {r.memberCount === 1 ? "" : "s"}
               </p>
             </div>
           </div>
@@ -133,7 +165,10 @@ function RankDetailsModal({ rank: r, onClose }: { rank: Rank; onClose: () => voi
             />
           </div>
           <div>
-            <label className="text-xs text-foreground-muted">Levels required</label>
+            <label className="text-xs text-foreground-muted">
+              Levels in this rank ({isLast ? "starts" : "spans"} LV {levelRange.start}
+              {isLast ? "+" : `–${levelRange.end}`})
+            </label>
             <TextInput
               type="number"
               min={1}
@@ -199,12 +234,16 @@ function RankDetailsModal({ rank: r, onClose }: { rank: Rank; onClose: () => voi
 
 function RankRow({
   rank: r,
+  levelRange,
+  isLast,
   handleProps,
   rowProps,
   isDragging,
   isDropTarget,
 }: {
   rank: Rank;
+  levelRange: { start: number; end: number };
+  isLast: boolean;
   handleProps: {
     draggable: boolean;
     onDragStart: (e: React.DragEvent) => void;
@@ -246,7 +285,9 @@ function RankRow({
               <span className="text-xs text-foreground-muted">({r.nameTh})</span>
             </p>
             <p className="text-sm text-foreground-muted">
-              {r.levelsRequired} levels · {r.memberCount} member{r.memberCount === 1 ? "" : "s"}
+              LV {levelRange.start}
+              {isLast ? "+" : `–${levelRange.end}`} · {r.memberCount} member
+              {r.memberCount === 1 ? "" : "s"}
             </p>
           </div>
         </div>
@@ -254,7 +295,9 @@ function RankRow({
           Details
         </Button>
       </Card>
-      {open && <RankDetailsModal rank={r} onClose={() => setOpen(false)} />}
+      {open && (
+        <RankDetailsModal rank={r} levelRange={levelRange} isLast={isLast} onClose={() => setOpen(false)} />
+      )}
     </>
   );
 }
@@ -319,14 +362,17 @@ export function RanksManager() {
     (r) => r.id,
     (orderedIds) => reorder.mutate({ orderedIds }),
   );
+  const levelRanges = computeLevelRanges(ranks ?? []);
 
   return (
     <div className="space-y-4">
       <CreateRankForm />
       <p className="text-xs text-foreground-muted">
         This is the actual rank ladder members climb as they level up — top
-        of the list is the lowest rank, bottom is the highest. Each rank
-        spans however many levels you set (&quot;Levels required&quot;)
+        of the list is the lowest rank, bottom is the highest, and each
+        row shows the running level range it actually covers (LV 1–20,
+        21–40, 41–60, ...), not just its own span. &quot;Levels
+        required&quot; is that span — how many levels this rank covers
         before the next one kicks in; the last rank absorbs every level
         beyond it, so a maxed-out member keeps leveling instead of getting
         stuck. Drag the ⠿ handle to reorder. Open{" "}
@@ -338,10 +384,12 @@ export function RanksManager() {
         in it.
       </p>
       <div className="space-y-2">
-        {ranks?.map((r) => (
+        {ranks?.map((r, i) => (
           <RankRow
             key={r.id}
             rank={r}
+            levelRange={levelRanges.get(r.id) ?? { start: 1, end: r.levelsRequired }}
+            isLast={i === ranks.length - 1}
             handleProps={getHandleProps(r.id)}
             rowProps={getRowProps(r.id)}
             isDragging={draggedId === r.id}
