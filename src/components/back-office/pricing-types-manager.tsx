@@ -6,6 +6,61 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { Modal } from "@/components/ui/modal";
+import { cn } from "@/lib/cn";
+
+/**
+ * Native HTML5 drag-and-drop reordering for a flat list — same hook as
+ * menu-manager.tsx's category/item rail. Grabbing the handle on any row
+ * and dropping it on another moves it there; `onReorder` gets the full
+ * new id order to persist in one call (pricingTypes.reorder takes exactly
+ * that shape).
+ */
+function useDragReorder<T>(items: T[], getId: (item: T) => string, onReorder: (orderedIds: string[]) => void) {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  function getHandleProps(id: string) {
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.effectAllowed = "move";
+        setDraggedId(id);
+      },
+      onDragEnd: () => {
+        setDraggedId(null);
+        setDropTargetId(null);
+      },
+    };
+  }
+
+  function getRowProps(id: string) {
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        if (draggedId && draggedId !== id) setDropTargetId(id);
+      },
+      onDragLeave: () => {
+        setDropTargetId((current) => (current === id ? null : current));
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setDropTargetId(null);
+        if (!draggedId || draggedId === id) return;
+        const ids = items.map(getId);
+        const fromIndex = ids.indexOf(draggedId);
+        const toIndex = ids.indexOf(id);
+        if (fromIndex === -1 || toIndex === -1) return;
+        const reordered = [...ids];
+        reordered.splice(fromIndex, 1);
+        reordered.splice(toIndex, 0, draggedId);
+        setDraggedId(null);
+        onReorder(reordered);
+      },
+    };
+  }
+
+  return { draggedId, dropTargetId, getHandleProps, getRowProps };
+}
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MODEL_LABELS: Record<string, string> = {
@@ -273,7 +328,27 @@ function PricingTypeDetailsModal({
   );
 }
 
-function PricingTypeRow({ pricingType: t }: { pricingType: PricingType }) {
+function PricingTypeRow({
+  pricingType: t,
+  handleProps,
+  rowProps,
+  isDragging,
+  isDropTarget,
+}: {
+  pricingType: PricingType;
+  handleProps: {
+    draggable: boolean;
+    onDragStart: (e: React.DragEvent) => void;
+    onDragEnd: () => void;
+  };
+  rowProps: {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: () => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  isDragging: boolean;
+  isDropTarget: boolean;
+}) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const update = trpc.pricingTypes.update.useMutation({
@@ -283,14 +358,32 @@ function PricingTypeRow({ pricingType: t }: { pricingType: PricingType }) {
 
   return (
     <>
-      <Card className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium text-foreground">
-            {t.name} <span className="text-xs text-foreground-muted">({t.code})</span>
-          </p>
-          <p className="text-sm text-foreground-muted">
-            {MODEL_LABELS[t.model]} · {summaryLine(t)}
-          </p>
+      <Card
+        onDragOver={rowProps.onDragOver}
+        onDragLeave={rowProps.onDragLeave}
+        onDrop={rowProps.onDrop}
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-2 transition-colors",
+          isDragging && "opacity-40",
+          isDropTarget && "border-dashed border-teal-500",
+        )}
+      >
+        <div className="flex items-start gap-2">
+          <span
+            {...handleProps}
+            title="Drag to reorder"
+            className="mt-0.5 cursor-grab select-none text-foreground-muted active:cursor-grabbing"
+          >
+            ⠿
+          </span>
+          <div>
+            <p className="font-medium text-foreground">
+              {t.name} <span className="text-xs text-foreground-muted">({t.code})</span>
+            </p>
+            <p className="text-sm text-foreground-muted">
+              {MODEL_LABELS[t.model]} · {summaryLine(t)}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <ToggleButton
@@ -374,7 +467,17 @@ function CreatePricingTypeForm() {
 }
 
 export function PricingTypesManager() {
+  const utils = trpc.useUtils();
   const { data: pricingTypes } = trpc.pricingTypes.listAll.useQuery();
+  const reorder = trpc.pricingTypes.reorder.useMutation({
+    onSuccess: () =>
+      Promise.all([utils.pricingTypes.listAll.invalidate(), utils.pricingTypes.list.invalidate()]),
+  });
+  const { draggedId, dropTargetId, getHandleProps, getRowProps } = useDragReorder(
+    pricingTypes ?? [],
+    (t) => t.id,
+    (orderedIds) => reorder.mutate({ orderedIds }),
+  );
 
   return (
     <div className="space-y-4">
@@ -383,11 +486,19 @@ export function PricingTypesManager() {
         Set up with a code/name/model/rate above, then open{" "}
         <span className="font-medium text-foreground">Details</span> on a pricing type below to
         fine-tune its daily cap, grace period, day/time window, and per-person vs per-table billing.
-        These show up in the &quot;Open Table&quot; and Reservation pricing pickers as soon as they&apos;re Active.
+        Drag the ⠿ handle to reorder — that&apos;s the order shown in the &quot;Open Table&quot; and
+        Reservation pricing pickers, and only Active ones show up there at all.
       </p>
       <div className="space-y-2">
         {pricingTypes?.map((t) => (
-          <PricingTypeRow key={t.id} pricingType={t} />
+          <PricingTypeRow
+            key={t.id}
+            pricingType={t}
+            handleProps={getHandleProps(t.id)}
+            rowProps={getRowProps(t.id)}
+            isDragging={draggedId === t.id}
+            isDropTarget={dropTargetId === t.id}
+          />
         ))}
         {pricingTypes?.length === 0 && (
           <p className="text-sm text-foreground-muted">No pricing types yet — add one above.</p>

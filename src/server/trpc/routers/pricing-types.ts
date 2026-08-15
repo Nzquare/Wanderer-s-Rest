@@ -185,6 +185,37 @@ export const pricingTypesRouter = router({
     }),
 
   /**
+   * Drag-and-drop reorder for the pricing types list: the client sends
+   * every id in its new top-to-bottom order, and this just renumbers
+   * sortOrder to match (0, 1, 2, ...) — same shape as
+   * menu.reorderCategories. Order here is also the order the "Open Table"
+   * and reservation pricing pickers show, so reordering here reorders
+   * those too.
+   */
+  reorder: manage()
+    .input(z.object({ orderedIds: z.array(z.string()).min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const types = await ctx.prisma.pricingType.findMany({
+        where: { id: { in: input.orderedIds } },
+      });
+      const byId = new Map(types.map((t) => [t.id, t]));
+      const updates = input.orderedIds
+        .map((id, index) => ({ existing: byId.get(id), sortOrder: index }))
+        .filter(
+          (row): row is { existing: NonNullable<typeof row.existing>; sortOrder: number } =>
+            !!row.existing && row.existing.sortOrder !== row.sortOrder,
+        )
+        .map((row) =>
+          ctx.prisma.pricingType.update({
+            where: { id: row.existing.id },
+            data: { sortOrder: row.sortOrder },
+          }),
+        );
+      await ctx.prisma.$transaction(updates);
+      return { ok: true };
+    }),
+
+  /**
    * True delete — only for a pricing type that's never actually been used
    * by a session or reservation. One that has stays forever via that
    * history (§45) and gets deactivated instead, same pattern as
