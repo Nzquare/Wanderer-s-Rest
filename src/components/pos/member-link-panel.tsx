@@ -5,35 +5,37 @@ import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Search-and-link (or quick-register-and-link) a member to a table
+ * session — shared between the table page and Checkout so a customer can
+ * be linked either while they're playing or right up until payment
+ * (§Cashier member linking). Invalidation is the caller's job via
+ * `onChanged` rather than hardcoded here, since the two call sites read
+ * the linked member through different queries (getTableDetail vs
+ * checkout.getPreview).
+ */
 export function MemberLinkPanel({
   sessionId,
-  tableId,
   member,
+  onChanged,
 }: {
   sessionId: string;
-  tableId: string;
   member: { id: string; adventurerName: string } | null;
+  onChanged: () => unknown;
 }) {
   const [query, setQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
-  const utils = trpc.useUtils();
 
   const search = trpc.members.search.useQuery(
     { query },
     { enabled: query.trim().length > 0 },
   );
 
-  const invalidate = () =>
-    Promise.all([
-      utils.sessions.getTableDetail.invalidate({ tableId }),
-      utils.sessions.listTables.invalidate(),
-    ]);
-
-  const link = trpc.sessions.linkMember.useMutation({ onSuccess: invalidate });
+  const link = trpc.sessions.linkMember.useMutation({ onSuccess: onChanged });
   const unlink = trpc.sessions.unlinkMember.useMutation({
-    onSuccess: invalidate,
+    onSuccess: onChanged,
   });
   const quickCreate = trpc.members.quickCreate.useMutation({
     onSuccess: async (created) => {

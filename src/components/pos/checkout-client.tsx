@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { ReceiptView } from "./receipt-view";
+import { MemberLinkPanel } from "./member-link-panel";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
 import { formatMinutesShort } from "./live-timer";
@@ -368,6 +369,25 @@ export function CheckoutClient({
           <p className="pt-2 text-center text-xs">This is not a receipt — pay at the counter.</p>
         </div>
       </div>
+
+      <Card className="space-y-2">
+        <p className="text-sm font-medium text-foreground-muted">Member</p>
+        <MemberLinkPanel
+          sessionId={sessionId}
+          member={
+            preview.memberPreview
+              ? { id: preview.memberPreview.id, adventurerName: preview.memberPreview.adventurerName }
+              : null
+          }
+          onChanged={() =>
+            Promise.all([
+              utils.checkout.getPreview.invalidate({ sessionId }),
+              utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+              utils.sessions.listTables.invalidate(),
+            ])
+          }
+        />
+      </Card>
 
       {preview.memberPreview && (
         <Card className="text-sm">

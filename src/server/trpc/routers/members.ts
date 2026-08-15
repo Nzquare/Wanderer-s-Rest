@@ -9,9 +9,12 @@ import { getSettings } from "@/server/settings/service";
 import { logAudit } from "@/server/audit";
 
 /**
- * Minimal member lookup/creation for POS-side linking (§25). Full profile
- * management, EXP history, and achievements live in Back Office (later
- * pass) — this only covers "find or quickly register a member at the till."
+ * Minimal member lookup/creation for POS-side linking (§25), plus a
+ * lightweight read-only directory (`browse`) for the Cashier POS
+ * "Members" tab. Full profile management (`updateProfile`), EXP/rank
+ * adjustments, and the fuller `listAll` directory stay permission-gated
+ * below — this top section is deliberately open to every staff member,
+ * same as "find or quickly register a member at the till" always was.
  */
 export const membersRouter = router({
   search: staffProcedure
@@ -37,6 +40,43 @@ export const membersRouter = router({
         phone: m.phone,
         lifetimeExp: m.lifetimeExp,
       }));
+    }),
+
+  /**
+   * Browse/search for the Cashier POS "Members" tab — unlike listAll
+   * below, this is staffProcedure (any staff, not just MANAGE_MEMBERS)
+   * and deliberately returns a narrower row: no staffNotes or lineUserId,
+   * just enough to recognize someone and see their standing at a glance.
+   */
+  browse: staffProcedure
+    .input(z.object({ query: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const q = input?.query?.trim();
+      return ctx.prisma.member.findMany({
+        where: {
+          status: { not: "BANNED" },
+          ...(q
+            ? {
+                OR: [
+                  { adventurerName: { contains: q, mode: "insensitive" as const } },
+                  { phone: { contains: q } },
+                  { memberCode: { contains: q, mode: "insensitive" as const } },
+                ],
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          memberCode: true,
+          adventurerName: true,
+          phone: true,
+          lifetimeExp: true,
+          rank: { select: { nameEn: true } },
+          class: { select: { nameEn: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
     }),
 
   quickCreate: staffProcedure

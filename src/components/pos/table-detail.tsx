@@ -572,11 +572,10 @@ export function TableDetail({
           const gameLogSection = <GameLogPanel sessionId={session.id} />;
 
           const memberSection = (
-            <MemberLinkPanel
-              sessionId={session.id}
-              tableId={tableId}
-              member={session.member}
-            />
+            <Card className="space-y-2">
+              <p className="text-sm font-medium text-foreground-muted">Member</p>
+              <MemberLinkPanel sessionId={session.id} member={session.member} onChanged={invalidate} />
+            </Card>
           );
 
           const notesSection = (
@@ -628,10 +627,10 @@ export function TableDetail({
                   <div className="space-y-4">
                     {billCard}
                     {startPlayingPanel}
+                    {memberSection}
                     {voidPanel}
                     {playersSection}
                     {gameLogSection}
-                    {memberSection}
                     {notesSection}
                   </div>
                   <div className="space-y-4">
@@ -649,12 +648,12 @@ export function TableDetail({
               <div className="space-y-4">
                 {billCard}
                 {startPlayingPanel}
+                {memberSection}
                 {voidPanel}
                 {playersSection}
                 {ordersSection}
                 {addOrderSection}
                 {gameLogSection}
-                {memberSection}
                 {notesSection}
               </div>
               {splitBillModal}
