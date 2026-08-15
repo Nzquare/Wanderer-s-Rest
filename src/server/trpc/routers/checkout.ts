@@ -385,7 +385,9 @@ export const checkoutRouter = router({
       });
       const now = new Date();
       return promotions
-        .filter((p) => !appliedPromotionIds.has(p.id))
+        // Stackable (§Stackable promotions) stays eligible for another
+        // tap even after already being applied once.
+        .filter((p) => p.stackable || !appliedPromotionIds.has(p.id))
         .map(toPromotionConfig)
         .filter(
           (p) =>
@@ -427,7 +429,11 @@ export const checkoutRouter = router({
         include: { rewardMenuItem: { select: { basePrice: true, nameEn: true } } },
       });
       if (!promotion) throw new TRPCError({ code: "NOT_FOUND" });
-      if (session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
+      // Stackable (Back Office → Promotions) means exactly this — apply
+      // the same promotion more than once to one bill, e.g. a second
+      // "Free Potion" on top of one already redeemed. Everything else
+      // stays capped at once per bill.
+      if (!promotion.stackable && session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 
@@ -550,6 +556,7 @@ export const checkoutRouter = router({
         type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
         value: toNum(p.value),
         rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
+        stackable: p.stackable,
       }));
     }),
 
@@ -609,7 +616,9 @@ export const checkoutRouter = router({
       if (!promotion || !promotion.active) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Not a valid active promotion." });
       }
-      if (session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
+      // See applyPromotion's own comment — Stackable is what lets the
+      // same promotion apply more than once to one bill.
+      if (!promotion.stackable && session.appliedDiscounts.some((d) => d.promotionId === promotion.id)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 

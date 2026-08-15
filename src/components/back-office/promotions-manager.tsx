@@ -245,12 +245,14 @@ function PromotionDetailsModal({
             offLabel="Everyone"
             onClick={() => update.mutate({ id: promotion.id, memberOnly: !promotion.memberOnly })}
           />
-          <ToggleButton
-            on={promotion.stackable}
-            onLabel="Stackable"
-            offLabel="Exclusive"
-            onClick={() => update.mutate({ id: promotion.id, stackable: !promotion.stackable })}
-          />
+          <span title="Stackable: can be applied more than once to the same bill (e.g. a second Free Item on top of one already given). Exclusive: once per bill.">
+            <ToggleButton
+              on={promotion.stackable}
+              onLabel="Stackable"
+              offLabel="Exclusive"
+              onClick={() => update.mutate({ id: promotion.id, stackable: !promotion.stackable })}
+            />
+          </span>
         </div>
 
         <div className="flex items-center justify-between border-t border-border pt-3">

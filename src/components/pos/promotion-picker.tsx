@@ -59,10 +59,15 @@ export function PromotionPicker({
       .filter((id): id is string => !!id),
   );
   const eligiblePromotionIds = new Set((eligiblePromotions ?? []).map((p) => p.id));
-  // Every active promotion except ones already applied to this bill; each
-  // row is either one-tap-eligible or needs an override reason, decided
-  // per-row below via eligiblePromotionIds.
-  const promotionChoices = (allPromotions ?? []).filter((p) => !appliedPromotionIds.has(p.id));
+  // Every active promotion except ones already applied to this bill —
+  // unless it's Stackable (Back Office → Promotions), which stays
+  // choosable for another tap even after already being applied (e.g. a
+  // second "Free Potion" on top of one already redeemed). Each row is
+  // either one-tap-eligible or needs an override reason, decided per-row
+  // below via eligiblePromotionIds.
+  const promotionChoices = (allPromotions ?? []).filter(
+    (p) => p.stackable || !appliedPromotionIds.has(p.id),
+  );
 
   return (
     <>
