@@ -120,46 +120,77 @@ export function MemberPortal() {
         )}
         {profile && (
           <div className="space-y-4">
-            <div className="rounded-2xl bg-gradient-to-br from-brand-900 to-brand-700 p-6">
-              <p className="text-xs uppercase tracking-[0.3em] text-teal-400">
-                Adventurer Profile
-              </p>
-              <div className="mt-1 flex items-center gap-3">
-                {/* The class emoji as a proper decoration — a big badge
-                    next to the name, not just tucked into the subtitle
-                    text below (§Class emoji decoration). */}
-                {profile.classIcon && (
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/10 text-3xl">
-                    {profile.classIcon}
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-brand-900 via-brand-800 to-brand-900 p-6 shadow-2xl shadow-black/40">
+              {/* Decorative glow blobs — pure CSS, no assets. */}
+              <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-teal-400/20 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-fuchsia-500/10 blur-3xl" />
+
+              <div className="relative">
+                <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-[0.3em] text-teal-300">
+                  <span className="h-px w-6 bg-teal-400/40" />
+                  Adventurer Profile
+                  <span className="h-px w-6 bg-teal-400/40" />
+                </div>
+
+                <div className="mt-4 flex items-center gap-4">
+                  {/* The class emoji as a proper decoration — a glowing
+                      badge with the level overlapping its corner, like a
+                      game HUD avatar (§Class emoji decoration). */}
+                  <div className="relative shrink-0">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-teal-400/40 bg-white/10 text-3xl shadow-[0_0_20px_rgba(45,212,191,0.35)]">
+                      {profile.classIcon || "🧑"}
+                    </div>
+                    {profile.progression && (
+                      <span className="absolute -bottom-1 -right-1 rounded-full border-2 border-brand-900 bg-teal-400 px-1.5 py-0.5 text-[10px] font-bold text-brand-950">
+                        LV {profile.progression.totalLevel}
+                      </span>
+                    )}
                   </div>
-                )}
-                <h1 className="text-2xl font-bold">{profile.adventurerName}</h1>
-              </div>
-              <p className="mt-1 text-white/70">
-                {profile.classNameEn
-                  ? `${profile.classIcon ?? ""} ${profile.classNameEn}`.trim()
-                  : "No class"}
-                {profile.progression && ` · ${profile.progression.rankIcon ?? "🎖️"} ${profile.progression.rankName}`}
-              </p>
-              {profile.progression && (
-                <div className="mt-4">
-                  <div className="flex justify-between text-sm text-white/80">
-                    <span>LV {profile.progression.totalLevel}</span>
-                    <span>
-                      {profile.progression.expIntoLevel} / {profile.progression.expForNextLevel} EXP
-                    </span>
-                  </div>
-                  <div className="mt-1 h-3 w-full overflow-hidden rounded-full bg-white/20">
-                    <div
-                      className="h-full rounded-full bg-teal-400"
-                      style={{
-                        width: `${Math.round((profile.progression.expIntoLevel / profile.progression.expForNextLevel) * 100)}%`,
-                      }}
-                    />
+                  <div className="min-w-0">
+                    <h1 className="truncate text-2xl font-bold text-white">
+                      {profile.adventurerName}
+                    </h1>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {profile.classNameEn && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-xs text-white/80">
+                          {profile.classIcon} {profile.classNameEn}
+                        </span>
+                      )}
+                      {profile.progression && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-xs text-white/80">
+                          {profile.progression.rankIcon ?? "🎖️"} {profile.progression.rankName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              )}
-              <p className="mt-4 text-sm text-white/70">{profile.visits} visits so far</p>
+
+                {profile.progression && (
+                  <div className="mt-5">
+                    <div className="flex items-baseline justify-between text-xs text-white/60">
+                      <span className="font-medium text-white/80">
+                        Level {profile.progression.totalLevel} progress
+                      </span>
+                      <span>
+                        {profile.progression.expIntoLevel} / {profile.progression.expForNextLevel} EXP
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-white/10 ring-1 ring-inset ring-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-teal-400 to-cyan-300 shadow-[0_0_8px_rgba(45,212,191,0.6)] transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round((profile.progression.expIntoLevel / profile.progression.expForNextLevel) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-5 flex items-center gap-1.5 border-t border-white/10 pt-4 text-sm text-white/60">
+                  <span>👣</span>
+                  <span>{profile.visits} visits so far</span>
+                </div>
+              </div>
             </div>
 
             <BenefitsCard benefits={profile.benefits} />
