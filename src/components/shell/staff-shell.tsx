@@ -3,9 +3,16 @@ import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
 import { canAccessBackOffice, canAccessCashier } from "@/server/rbac/can";
 
+const NAV_ITEMS = [
+  { href: "/staff", label: "Tables" },
+  { href: "/staff/quick-sale", label: "Quick Sale" },
+];
+
 // Staff Mobile is the "extremely simple" operational tool (§15). One row of
 // big icons, nothing else — a Tavern Keeper should never need to think
-// about navigation here.
+// about navigation here. Quick Sale (§Quick Sale) earns the one extra tab
+// since walk-in/delivery tables aren't reachable from the Tables floor
+// plan at all.
 export function StaffShell({
   staff,
   children,
@@ -34,6 +41,17 @@ export function StaffShell({
           </form>
         </div>
       </header>
+      <nav className="flex gap-1 border-b border-border bg-surface px-2 py-2">
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="flex-1 rounded-lg px-2 py-2 text-center text-sm font-medium text-foreground-muted hover:bg-black/5"
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
       <main className="flex-1 p-3">{children}</main>
     </div>
   );

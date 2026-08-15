@@ -6,6 +6,7 @@ import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
 
 const NAV_ITEMS = [
   { href: "/cashier", label: "Tables" },
+  { href: "/cashier/quick-sale", label: "Quick Sale" },
   { href: "/cashier/reservations", label: "Reservations" },
   { href: "/cashier/shift", label: "Shift" },
 ];

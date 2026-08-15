@@ -129,6 +129,22 @@ enum TableStatus {
   UNAVAILABLE
 }
 
+/**
+ * STANDARD is a real, physical table on the floor plan — the only kind
+ * Back Office's table manager and the main Tables grid ever show. The other
+ * three are "Quick Sale" tables (§Quick Sale) — created on the fly, never
+ * printed a QR for, and hidden from the floor plan grid so they don't
+ * clutter it: WALK_IN/DELIVERY start from nothing (counter sale, delivery
+ * order), SPLIT is spun off an existing STANDARD table when a group wants
+ * separate checks (see RestaurantTable.originTableId).
+ */
+enum TableKind {
+  STANDARD
+  WALK_IN
+  DELIVERY
+  SPLIT
+}
+
 model RestaurantTable {
   id        String      @id @default(cuid())
   code      String      @unique
@@ -141,11 +157,19 @@ model RestaurantTable {
   notes     String?
   status    TableStatus @default(AVAILABLE)
   sortOrder Int         @default(0)
+  kind      TableKind   @default(STANDARD)
+  // Only set for kind=SPLIT — the STANDARD table this Quick Sale table was
+  // split off of, purely informational (§Quick Sale "Split from Table X").
+  originTableId String?
+  originTable   RestaurantTable?  @relation("TableSplitOrigin", fields: [originTableId], references: [id])
+  splitTables   RestaurantTable[] @relation("TableSplitOrigin")
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   sessions     TableSession[]
   reservations Reservation[]
+
+  @@index([kind])
 }
 
 enum PricingModel {

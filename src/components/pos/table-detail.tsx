@@ -14,6 +14,7 @@ import { MemberLinkPanel } from "./member-link-panel";
 import { OrderPanel } from "./order-panel";
 import { OrderList } from "./order-list";
 import { GameLogPanel } from "./game-log-panel";
+import { SplitBillModal } from "./split-bill-modal";
 import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -206,6 +207,7 @@ export function TableDetail({
   // left column — expanded by default since most tables are 1-2 players
   // and staff usually want the pause/stop controls visible at a glance.
   const [playersOpen, setPlayersOpen] = useState(true);
+  const [splitOpen, setSplitOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidStaffId, setVoidStaffId] = useState("");
@@ -380,6 +382,11 @@ export function TableDetail({
                       Checkout →
                     </Button>
                   )}
+                {(session.status === "OPEN" || session.status === "PAUSED") && (
+                  <Button variant="outline" onClick={() => setSplitOpen(true)}>
+                    Split bill
+                  </Button>
+                )}
                 <Button variant="danger" onClick={() => setVoidOpen((v) => !v)}>
                   Void Table
                 </Button>
@@ -564,36 +571,64 @@ export function TableDetail({
             </div>
           );
 
+          const splitBillModal = (
+            <SplitBillModal
+              open={splitOpen}
+              onClose={() => setSplitOpen(false)}
+              sessionId={session.id}
+              basePath={basePath}
+              players={session.players.map((p) => ({
+                id: p.id,
+                label: p.label,
+                status: p.status,
+              }))}
+              items={session.orders.flatMap((o) =>
+                o.items.map((i) => ({
+                  id: i.id,
+                  nameSnapshotEn: i.nameSnapshotEn,
+                  quantity: i.quantity,
+                  unitPriceSnapshot: i.unitPriceSnapshot,
+                })),
+              )}
+            />
+          );
+
           if (twoColumn) {
             return (
-              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-                <div className="space-y-4">
-                  {billCard}
-                  {voidPanel}
-                  {playersSection}
-                  {gameLogSection}
-                  {memberSection}
-                  {notesSection}
+              <>
+                <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+                  <div className="space-y-4">
+                    {billCard}
+                    {voidPanel}
+                    {playersSection}
+                    {gameLogSection}
+                    {memberSection}
+                    {notesSection}
+                  </div>
+                  <div className="space-y-4">
+                    {ordersSection}
+                    {addOrderSection}
+                  </div>
                 </div>
-                <div className="space-y-4">
-                  {ordersSection}
-                  {addOrderSection}
-                </div>
-              </div>
+                {splitBillModal}
+              </>
             );
           }
 
           return (
-            <div className="space-y-4">
-              {billCard}
-              {voidPanel}
-              {playersSection}
-              {ordersSection}
-              {addOrderSection}
-              {gameLogSection}
-              {memberSection}
-              {notesSection}
-            </div>
+            <>
+              <div className="space-y-4">
+                {billCard}
+                {voidPanel}
+                {playersSection}
+                {ordersSection}
+                {addOrderSection}
+                {gameLogSection}
+                {memberSection}
+                {notesSection}
+              </div>
+              {splitBillModal}
+            </>
           );
         })()
       )}

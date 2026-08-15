@@ -753,20 +753,32 @@ export const checkoutRouter = router({
           },
         });
 
+        // A physical table needs cleaning before its next guest, so it goes
+        // CLEANING and stays in the floor-plan grid. A Quick Sale table
+        // (walk-in/delivery/split — §Quick Sale) has no physical seat to
+        // clean and is never reused under the same row — retire it
+        // (CLOSED + inactive) so it drops off the Quick Sale list on its
+        // own instead of needing a separate "close" action.
         await tx.restaurantTable.update({
           where: { id: session.tableId },
-          data: { status: "CLEANING" },
+          data:
+            session.table.kind === "STANDARD"
+              ? { status: "CLEANING" }
+              : { status: "CLOSED", active: false },
         });
 
         return { receiptNumber, bill, expSummary, unlockedAchievements, snapshot };
       });
     }),
 
+  // Only ever meaningful for a physical (STANDARD) table coming back from
+  // CLEANING — a Quick Sale table is retired (inactive) at checkout above
+  // and never cycles back to AVAILABLE, so this is a no-op for those.
   markTableAvailable: permissionProcedure(Permission.MANAGE_TABLES)
     .input(z.object({ tableId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.restaurantTable.update({
-        where: { id: input.tableId },
+      await ctx.prisma.restaurantTable.updateMany({
+        where: { id: input.tableId, kind: "STANDARD" },
         data: { status: "AVAILABLE" },
       });
       return { ok: true };

@@ -13,6 +13,7 @@ import { getSettings } from "@/server/settings/service";
 import type { Prisma } from "@/generated/prisma/client";
 import { logAudit } from "@/server/audit";
 import { verifyStaffSecret } from "@/server/auth/password";
+import { OPEN_ORDER_STATUSES } from "./orders";
 
 const ACTIVE_SESSION_STATUSES = [
   "OPEN",
@@ -89,114 +90,146 @@ async function loadLiveSession(
   });
 }
 
-export const sessionsRouter = router({
-  listTables: staffProcedure.query(async ({ ctx }) => {
-    const tables = await ctx.prisma.restaurantTable.findMany({
-      where: { active: true },
-      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
-      include: {
-        sessions: {
-          where: { status: { in: [...ACTIVE_SESSION_STATUSES] } },
-          include: {
-            players: true,
-            pricingType: true,
-            member: { select: { id: true, adventurerName: true } },
-            orders: {
-              where: { status: "SUBMITTED" },
-              include: { items: true },
-            },
+/**
+ * Shared shape for both the floor-plan grid (listTables) and the Quick
+ * Sale list (listQuickSaleTables) — same session summary fields, just a
+ * different `where` on kind so a Quick Sale table never doubles up on the
+ * real floor plan.
+ */
+async function listTablesByKind(
+  prisma: Prisma.TransactionClient,
+  where: Prisma.RestaurantTableWhereInput,
+) {
+  const tables = await prisma.restaurantTable.findMany({
+    where,
+    orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+    include: {
+      sessions: {
+        where: { status: { in: [...ACTIVE_SESSION_STATUSES] } },
+        include: {
+          players: true,
+          pricingType: true,
+          member: { select: { id: true, adventurerName: true } },
+          orders: {
+            where: { status: "SUBMITTED" },
+            include: { items: true },
           },
-          take: 1,
         },
+        take: 1,
       },
-    });
+    },
+  });
 
-    return tables.map((table) => {
-      const session = table.sessions[0] ?? null;
-      let liveTotal = 0;
-      let activePlayers = 0;
-      let mainTimer = null as null | {
-        startTime: Date;
-        pausedAt: Date | null;
-        accumulatedPausedMs: number;
-        endTime: Date | null;
-        status: "ACTIVE" | "PAUSED" | "STOPPED";
-      };
-      let tableFee = 0;
-      let foodDrinkSubtotal = 0;
-      let allDay = false;
-      if (session) {
-        const fee = computeTableFee({
-          pricingType: toPricingConfig(session.pricingType),
-          players: session.players.map(toPlayerRecord),
-        });
-        tableFee = fee.total;
-        // Once every fee line has hit the daily cap the bill is pinned flat
-        // for the rest of the day just like FIXED/PACKAGE pricing — show
-        // "All day" instead of a duration that no longer means anything.
-        allDay =
-          session.pricingType?.model !== "HOURLY" ||
-          (fee.lines.length > 0 && fee.lines.every((l) => l.cappedAtDailyCap));
-        foodDrinkSubtotal = session.orders.reduce(
-          (sum, order) =>
-            sum +
-            order.items.reduce(
-              (s, item) => s + toNum(item.unitPriceSnapshot) * item.quantity,
-              0,
-            ),
-          0,
-        );
-        liveTotal = fee.total + foodDrinkSubtotal;
-        activePlayers = session.players.filter(
-          (p) => p.status !== "STOPPED",
-        ).length;
-        // The "main table timer" the dashboard card shows is whichever
-        // player has been running longest — representative of the whole
-        // table since everyone starts together (§6).
-        const sorted = [...session.players].sort(
-          (a, b) => a.startTime.getTime() - b.startTime.getTime(),
-        );
-        const representative =
-          sorted.find((p) => p.status !== "STOPPED") ?? sorted[0] ?? null;
-        if (representative) {
-          mainTimer = {
-            startTime: representative.startTime,
-            pausedAt: representative.pausedAt,
-            accumulatedPausedMs: Number(representative.accumulatedPausedMs),
-            endTime: representative.endTime,
-            status: representative.status,
-          };
-        }
+  return tables.map((table) => {
+    const session = table.sessions[0] ?? null;
+    let liveTotal = 0;
+    let activePlayers = 0;
+    let mainTimer = null as null | {
+      startTime: Date;
+      pausedAt: Date | null;
+      accumulatedPausedMs: number;
+      endTime: Date | null;
+      status: "ACTIVE" | "PAUSED" | "STOPPED";
+    };
+    let tableFee = 0;
+    let foodDrinkSubtotal = 0;
+    let allDay = false;
+    if (session) {
+      const fee = computeTableFee({
+        pricingType: toPricingConfig(session.pricingType),
+        players: session.players.map(toPlayerRecord),
+      });
+      tableFee = fee.total;
+      // Once every fee line has hit the daily cap the bill is pinned flat
+      // for the rest of the day just like FIXED/PACKAGE pricing — show
+      // "All day" instead of a duration that no longer means anything.
+      allDay =
+        session.pricingType?.model !== "HOURLY" ||
+        (fee.lines.length > 0 && fee.lines.every((l) => l.cappedAtDailyCap));
+      foodDrinkSubtotal = session.orders.reduce(
+        (sum, order) =>
+          sum +
+          order.items.reduce(
+            (s, item) => s + toNum(item.unitPriceSnapshot) * item.quantity,
+            0,
+          ),
+        0,
+      );
+      liveTotal = fee.total + foodDrinkSubtotal;
+      activePlayers = session.players.filter(
+        (p) => p.status !== "STOPPED",
+      ).length;
+      // The "main table timer" the dashboard card shows is whichever
+      // player has been running longest — representative of the whole
+      // table since everyone starts together (§6).
+      const sorted = [...session.players].sort(
+        (a, b) => a.startTime.getTime() - b.startTime.getTime(),
+      );
+      const representative =
+        sorted.find((p) => p.status !== "STOPPED") ?? sorted[0] ?? null;
+      if (representative) {
+        mainTimer = {
+          startTime: representative.startTime,
+          pausedAt: representative.pausedAt,
+          accumulatedPausedMs: Number(representative.accumulatedPausedMs),
+          endTime: representative.endTime,
+          status: representative.status,
+        };
       }
-      return {
-        id: table.id,
-        code: table.code,
-        name: table.name,
-        capacity: table.capacity,
-        area: table.area,
-        status: table.status,
-        session: session
-          ? {
-              id: session.id,
-              startTime: session.startTime,
-              playerCount: session.playerCount,
-              activePlayers,
-              member: session.member,
-              currentBill: liveTotal,
-              tableFee,
-              // True for FIXED/PACKAGE pricing (never billed by elapsed
-              // time) and for HOURLY pricing once every line has hit its
-              // daily cap — either way the frontend shows "All day" instead
-              // of a duration/per-player time breakdown that no longer
-              // means anything.
-              allDay,
-              foodDrinkSubtotal,
-              mainTimer,
-            }
-          : null,
-      };
-    });
-  }),
+    }
+    return {
+      id: table.id,
+      code: table.code,
+      name: table.name,
+      capacity: table.capacity,
+      area: table.area,
+      status: table.status,
+      kind: table.kind,
+      originTableId: table.originTableId,
+      session: session
+        ? {
+            id: session.id,
+            startTime: session.startTime,
+            playerCount: session.playerCount,
+            activePlayers,
+            member: session.member,
+            currentBill: liveTotal,
+            tableFee,
+            // True for FIXED/PACKAGE pricing (never billed by elapsed
+            // time) and for HOURLY pricing once every line has hit its
+            // daily cap — either way the frontend shows "All day" instead
+            // of a duration/per-player time breakdown that no longer
+            // means anything.
+            allDay,
+            foodDrinkSubtotal,
+            mainTimer,
+          }
+        : null,
+    };
+  });
+}
+
+export const sessionsRouter = router({
+  listTables: staffProcedure.query(({ ctx }) =>
+    listTablesByKind(ctx.prisma, { active: true, kind: "STANDARD" }),
+  ),
+
+  /**
+   * The Quick Sale tab (§Quick Sale) — walk-in, delivery, and split-off
+   * tables, kept off the physical floor-plan grid above. Closed ones
+   * (checked out / voided) drop off automatically since they're not
+   * `active` anymore — see checkout.recordPayment / sessions.voidSession,
+   * which only ever mark the *physical* table CLEANING/AVAILABLE; Quick
+   * Sale tables never route back into service, so checkout.recordPayment
+   * and voidSession retire their row (CLOSED + inactive) instead — see
+   * those for the branch on table.kind.
+   */
+  listQuickSaleTables: staffProcedure.query(({ ctx }) =>
+    listTablesByKind(ctx.prisma, {
+      active: true,
+      kind: { in: ["WALK_IN", "DELIVERY", "SPLIT"] },
+    }),
+  ),
 
   getTableDetail: staffProcedure
     .input(z.object({ tableId: z.string() }))
@@ -670,9 +703,15 @@ export const sessionsRouter = router({
               : `[VOIDED by ${assignedStaff.name}: ${input.reason}]`,
           },
         });
+        // Same physical-vs-Quick-Sale split as checkout.recordPayment: a
+        // real table needs cleaning before reuse, a Quick Sale table just
+        // retires (§Quick Sale).
         await tx.restaurantTable.update({
           where: { id: session.tableId },
-          data: { status: "CLEANING" },
+          data:
+            session.table.kind === "STANDARD"
+              ? { status: "CLEANING" }
+              : { status: "CLOSED", active: false },
         });
 
         await logAudit(tx, {
@@ -884,6 +923,189 @@ export const sessionsRouter = router({
         }),
       ]);
       return { ok: true };
+    }),
+
+  /**
+   * "Split bill" from a real table's page (§Quick Sale) — a group at one
+   * table wants separate checks. Spins off a brand-new SPLIT Quick Sale
+   * table + session and moves the chosen players and/or order-item
+   * quantities onto it; everything left behind stays on the original
+   * table exactly as it was. The two bills are then completely
+   * independent — separate timers (a moved player's clock keeps running
+   * unbroken, just billed to the new table from here on), separate
+   * orders, separate checkout.
+   *
+   * Splitting only an item's *quantity* (not the whole line) decrements
+   * the original OrderItem and creates a fresh one on a new Order under
+   * the split session, copying its modifier/combo-selection snapshots —
+   * the original keeps its own copy so both halves' receipts stay
+   * accurate on their own (§45).
+   */
+  splitOff: permissionProcedure(Permission.MANAGE_TABLES)
+    .input(
+      z
+        .object({
+          sourceSessionId: z.string(),
+          source: z.enum(["CASHIER", "STAFF"]),
+          playerIds: z.array(z.string()).default([]),
+          itemMoves: z
+            .array(z.object({ orderItemId: z.string(), quantity: z.number().int().min(1) }))
+            .default([]),
+          notes: z.string().max(500).optional(),
+        })
+        .refine((v) => v.playerIds.length > 0 || v.itemMoves.length > 0, {
+          message: "Pick at least one player or item to move to the split.",
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const session = await tx.tableSession.findUnique({
+          where: { id: input.sourceSessionId },
+          include: {
+            table: true,
+            players: true,
+            orders: {
+              where: { status: "SUBMITTED" },
+              include: { items: { include: { modifiers: true, comboSelections: true } } },
+            },
+          },
+        });
+        if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Table not found." });
+        if (!OPEN_ORDER_STATUSES.includes(session.status as (typeof OPEN_ORDER_STATUSES)[number])) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Table isn't open — back to table first before splitting the bill.",
+          });
+        }
+        const openShift = await tx.shift.findFirst({ where: { status: "OPEN" } });
+        if (!openShift) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Open a shift before splitting a bill.",
+          });
+        }
+
+        const playerSet = new Set(input.playerIds);
+        const movedPlayers = session.players.filter((p) => playerSet.has(p.id));
+        if (movedPlayers.length !== input.playerIds.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "One of the selected players isn't on this table.",
+          });
+        }
+
+        const itemsById = new Map(
+          session.orders.flatMap((o) => o.items.map((i) => [i.id, i] as const)),
+        );
+        for (const move of input.itemMoves) {
+          const item = itemsById.get(move.orderItemId);
+          if (!item) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "One of the selected items isn't on this table's open orders.",
+            });
+          }
+          if (move.quantity > item.quantity) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Can't move ${move.quantity}× ${item.nameSnapshotEn} — only ${item.quantity} on the bill.`,
+            });
+          }
+        }
+
+        const splitCount = await tx.restaurantTable.count({
+          where: { originTableId: session.table.id },
+        });
+        const newTable = await tx.restaurantTable.create({
+          data: {
+            code: `${session.table.code}-S${splitCount + 1}`,
+            name: `${session.table.name} (split)`,
+            capacity: Math.max(1, movedPlayers.length),
+            kind: "SPLIT",
+            originTableId: session.table.id,
+            qrEnabled: false,
+            status: "PLAYING",
+          },
+        });
+
+        const newSession = await tx.tableSession.create({
+          data: {
+            tableId: newTable.id,
+            status: "OPEN",
+            startTime: new Date(),
+            playerCount: movedPlayers.length,
+            pricingTypeId: session.pricingTypeId,
+            packageId: session.packageId,
+            notes: input.notes ?? `Split from ${session.table.code}`,
+            createdById: ctx.staff.id,
+          },
+        });
+
+        if (movedPlayers.length > 0) {
+          await tx.sessionPlayer.updateMany({
+            where: { id: { in: movedPlayers.map((p) => p.id) } },
+            data: { sessionId: newSession.id },
+          });
+          await tx.tableSession.update({
+            where: { id: session.id },
+            data: { playerCount: { decrement: movedPlayers.length } },
+          });
+        }
+
+        if (input.itemMoves.length > 0) {
+          const newOrder = await tx.order.create({
+            data: {
+              sessionId: newSession.id,
+              source: input.source,
+              orderedById: ctx.staff.id,
+              notes: `Split from ${session.table.code}`,
+            },
+          });
+          for (const move of input.itemMoves) {
+            const item = itemsById.get(move.orderItemId)!;
+            await tx.orderItem.create({
+              data: {
+                orderId: newOrder.id,
+                menuItemId: item.menuItemId,
+                nameSnapshotTh: item.nameSnapshotTh,
+                nameSnapshotEn: item.nameSnapshotEn,
+                quantity: move.quantity,
+                unitPriceSnapshot: item.unitPriceSnapshot,
+                notes: item.notes,
+                modifiers: {
+                  create: item.modifiers.map((m) => ({
+                    modifierOptionId: m.modifierOptionId,
+                    nameSnapshotTh: m.nameSnapshotTh,
+                    nameSnapshotEn: m.nameSnapshotEn,
+                    priceSnapshot: m.priceSnapshot,
+                  })),
+                },
+                comboSelections: {
+                  create: item.comboSelections.map((cs) => ({
+                    comboSlotId: cs.comboSlotId,
+                    slotNameSnapshotTh: cs.slotNameSnapshotTh,
+                    slotNameSnapshotEn: cs.slotNameSnapshotEn,
+                    selectedMenuItemId: cs.selectedMenuItemId,
+                    nameSnapshotTh: cs.nameSnapshotTh,
+                    nameSnapshotEn: cs.nameSnapshotEn,
+                    extraChargeSnapshot: cs.extraChargeSnapshot,
+                  })),
+                },
+              },
+            });
+            if (move.quantity === item.quantity) {
+              await tx.orderItem.delete({ where: { id: item.id } });
+            } else {
+              await tx.orderItem.update({
+                where: { id: item.id },
+                data: { quantity: { decrement: move.quantity } },
+              });
+            }
+          }
+        }
+
+        return { sessionId: newSession.id, tableId: newTable.id };
+      });
     }),
 });
 

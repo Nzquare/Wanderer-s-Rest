@@ -5,8 +5,13 @@ import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
 
 export const tablesRouter = router({
+  // Quick Sale tables (walk-in/delivery/split — kind !== STANDARD) are
+  // created on the fly from the Cashier/Staff "Quick Sale" tab, not here —
+  // the floor-plan table manager only ever deals with real, physical
+  // tables (§Quick Sale).
   listAll: permissionProcedure(Permission.MANAGE_TABLES).query(({ ctx }) => {
     return ctx.prisma.restaurantTable.findMany({
+      where: { kind: "STANDARD" },
       orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     });
   }),
@@ -47,6 +52,41 @@ export const tablesRouter = router({
       return ctx.prisma.restaurantTable.create({
         data: { ...input, sortOrder: (last?.sortOrder ?? -1) + 1 },
       });
+    }),
+
+  /**
+   * "+ New" on the Quick Sale tab (§Quick Sale) — a walk-in counter sale or
+   * a delivery order, neither tied to a physical table. Creates a bare
+   * AVAILABLE RestaurantTable with no QR (nothing to scan) so it flows
+   * through the exact same OpenTableForm/openTable/checkout path a real
+   * table does; the only difference is `kind`, which keeps it off the
+   * floor-plan grid and Back Office's table manager and puts it on the
+   * Quick Sale list instead. Codes count up per kind, e.g. W1, W2, D1 —
+   * counted across all-time (never reused, tables are never deleted) so
+   * two staff creating one at the same moment can still collide only in
+   * the (harmless) rare case of a duplicate label, never a duplicate code
+   * conflict silently overwriting one row's data.
+   */
+  createQuickSale: permissionProcedure(Permission.MANAGE_TABLES)
+    .input(z.object({ kind: z.enum(["WALK_IN", "DELIVERY"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const prefix = input.kind === "WALK_IN" ? "W" : "D";
+      const label = input.kind === "WALK_IN" ? "Walk-in" : "Delivery";
+      const count = await ctx.prisma.restaurantTable.count({
+        where: { kind: input.kind },
+      });
+      const n = count + 1;
+      const table = await ctx.prisma.restaurantTable.create({
+        data: {
+          code: `${prefix}${n}`,
+          name: `${label} ${n}`,
+          capacity: 8,
+          kind: input.kind,
+          qrEnabled: false,
+          sortOrder: 0,
+        },
+      });
+      return table;
     }),
 
   update: permissionProcedure(Permission.MANAGE_TABLES)
