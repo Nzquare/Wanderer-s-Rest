@@ -4,6 +4,89 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { describeBenefit } from "@/lib/benefits";
 
+type Benefit = {
+  id: string;
+  achievementNameEn: string | null;
+  icon: string | null;
+  label: string | null;
+  promotionType: string | null;
+  promotionValue: number | null;
+  rewardMenuItemName: string | null;
+  status: string;
+  earnedAt: string | Date;
+  usedAt?: string | Date | null;
+};
+
+/**
+ * Benefits split into two tabs (§Benefits history) — "Benefits" is just
+ * what's still claimable, so it doesn't get cluttered with everything
+ * ever redeemed; "History" is where a used/expired one goes instead of
+ * lingering in the claim list forever.
+ */
+function BenefitsCard({ benefits }: { benefits: Benefit[] }) {
+  const [tab, setTab] = useState<"available" | "history">("available");
+  const available = benefits.filter((b) => b.status === "AVAILABLE");
+  const history = benefits.filter((b) => b.status !== "AVAILABLE");
+  const shown = tab === "available" ? available : history;
+
+  if (benefits.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-white/20 bg-white/5 p-5">
+      <div className="flex gap-2">
+        <button
+          onClick={() => setTab("available")}
+          className={`rounded-full px-3 py-1 text-sm font-medium ${
+            tab === "available" ? "bg-teal-500 text-white" : "bg-white/10 text-white/70"
+          }`}
+        >
+          Benefits ({available.length})
+        </button>
+        <button
+          onClick={() => setTab("history")}
+          className={`rounded-full px-3 py-1 text-sm font-medium ${
+            tab === "history" ? "bg-teal-500 text-white" : "bg-white/10 text-white/70"
+          }`}
+        >
+          History ({history.length})
+        </button>
+      </div>
+      <div className="mt-3 space-y-2">
+        {shown.map((b) => (
+          <div
+            key={b.id}
+            className={`rounded-lg p-2 text-sm ${
+              tab === "available" ? "bg-teal-500/20" : "bg-white/5 opacity-60"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-white">
+                {b.icon ?? "🎁"} {describeBenefit(b.promotionType, b.promotionValue, b.rewardMenuItemName)}
+              </p>
+              {tab === "available" ? (
+                <span className="shrink-0 text-xs text-white/70">Show this to staff</span>
+              ) : (
+                <span className="shrink-0 text-xs text-white/70">
+                  {b.status === "USED" ? "Redeemed" : "Expired"}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-white/50">
+              From: {b.achievementNameEn ?? b.label ?? "the tavern"}
+              {tab === "history" && b.usedAt && ` · ${new Date(b.usedAt).toLocaleDateString()}`}
+            </p>
+          </div>
+        ))}
+        {shown.length === 0 && (
+          <p className="text-sm text-white/60">
+            {tab === "available" ? "Nothing to claim right now." : "No redeemed benefits yet."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Fully public "check my profile" page (§Member self-service) — a member
  * types the phone number they registered with, no login. Read-only:
@@ -41,7 +124,17 @@ export function MemberPortal() {
               <p className="text-xs uppercase tracking-[0.3em] text-teal-400">
                 Adventurer Profile
               </p>
-              <h1 className="mt-1 text-2xl font-bold">{profile.adventurerName}</h1>
+              <div className="mt-1 flex items-center gap-3">
+                {/* The class emoji as a proper decoration — a big badge
+                    next to the name, not just tucked into the subtitle
+                    text below (§Class emoji decoration). */}
+                {profile.classIcon && (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/10 text-3xl">
+                    {profile.classIcon}
+                  </div>
+                )}
+                <h1 className="text-2xl font-bold">{profile.adventurerName}</h1>
+              </div>
               <p className="mt-1 text-white/70">
                 {profile.classNameEn
                   ? `${profile.classIcon ?? ""} ${profile.classNameEn}`.trim()
@@ -69,38 +162,7 @@ export function MemberPortal() {
               <p className="mt-4 text-sm text-white/70">{profile.visits} visits so far</p>
             </div>
 
-            {profile.benefits.length > 0 && (
-              <div className="rounded-2xl border border-white/20 bg-white/5 p-5">
-                <p className="font-medium text-white">
-                  Benefits ({profile.benefits.filter((b) => b.status === "AVAILABLE").length} to claim)
-                </p>
-                <div className="mt-3 space-y-2">
-                  {profile.benefits
-                    .slice()
-                    .sort((a, b) => (a.status === "AVAILABLE" ? -1 : b.status === "AVAILABLE" ? 1 : 0))
-                    .map((b) => (
-                      <div
-                        key={b.id}
-                        className={`rounded-lg p-2 text-sm ${
-                          b.status === "AVAILABLE" ? "bg-teal-500/20" : "bg-white/5 opacity-60"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-medium text-white">
-                            {b.icon ?? "🎁"} {describeBenefit(b.promotionType, b.promotionValue, b.rewardMenuItemName)}
-                          </p>
-                          <span className="shrink-0 text-xs text-white/70">
-                            {b.status === "AVAILABLE" ? "Show this to staff" : b.status === "USED" ? "Redeemed" : "Expired"}
-                          </span>
-                        </div>
-                        <p className="text-xs text-white/50">
-                          From: {b.achievementNameEn ?? b.label ?? "the tavern"}
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
+            <BenefitsCard benefits={profile.benefits} />
 
             <div className="rounded-2xl border border-white/20 bg-white/5 p-5">
               <p className="font-medium text-white">

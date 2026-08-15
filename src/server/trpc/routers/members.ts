@@ -492,6 +492,9 @@ export const membersRouter = router({
           rewardMenuItemName: b.promotion.rewardMenuItem?.nameEn ?? null,
           status: b.status,
           earnedAt: b.earnedAt,
+          // Only meaningful once redeemed — the self-service History tab
+          // (§Benefits history) shows when a used one was actually used.
+          usedAt: b.usedAt,
         })),
       };
     }),
