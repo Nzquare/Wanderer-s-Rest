@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { TRPCError } from "@trpc/server";
-import { router, staffProcedure, permissionProcedure } from "../trpc";
+import { router, staffProcedure, permissionProcedure, publicProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
 import { computeProgression } from "@/server/domain/exp";
@@ -362,5 +362,81 @@ export const membersRouter = router({
         });
         return { ok: true, newLifetimeExp: targetLifetimeExp, rankName: target.nameEn };
       });
+    }),
+
+  /**
+   * Fully public "check my profile" lookup (§Member self-service) — a
+   * member types the phone number they registered with, no login, same
+   * trust model as the table-ordering QR pages (customer.ts): unauthenticated,
+   * and deliberately scoped to a narrow, non-sensitive read-only
+   * projection. No staffNotes, no lineUserId, no memberCode, no spending
+   * figures — just what the fantasy-styled profile itself needs to show
+   * (name, class, rank/level/EXP, achievements, visit count). A banned
+   * member's phone number returns "not found" rather than exposing status.
+   */
+  lookupByPhone: publicProcedure
+    .input(z.object({ phone: z.string().min(1).max(30) }))
+    .query(async ({ ctx, input }) => {
+      const phone = input.phone.trim();
+      const member = phone
+        ? await ctx.prisma.member.findUnique({
+            where: { phone },
+            include: {
+              class: true,
+              memberAchievements: {
+                include: { achievement: true },
+                orderBy: { unlockedAt: "desc" },
+              },
+            },
+          })
+        : null;
+      if (!member || member.status === "BANNED") {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No member found with that phone number.",
+        });
+      }
+
+      const [ranks, membershipSettings, catalog] = await Promise.all([
+        ctx.prisma.rank.findMany({ orderBy: { order: "asc" } }),
+        getSettings("membership"),
+        ctx.prisma.achievement.findMany({ where: { active: true } }),
+      ]);
+      const progression =
+        ranks.length > 0
+          ? computeProgression(member.lifetimeExp, membershipSettings.expPerLevel, ranks)
+          : null;
+
+      const unlockedByAchievementId = new Map(
+        member.memberAchievements.map((ma) => [ma.achievementId, ma]),
+      );
+
+      return {
+        adventurerName: member.adventurerName,
+        classNameEn: member.class?.nameEn ?? null,
+        joinDate: member.joinDate,
+        visits: member.visits,
+        progression: progression
+          ? {
+              totalLevel: progression.totalLevel,
+              expIntoLevel: progression.expIntoLevel,
+              expForNextLevel: progression.expForNextLevel,
+              rankName: progression.rank.nameEn,
+              rankIcon: progression.rank.icon,
+            }
+          : null,
+        // Same catalog shape the staff Adventurer Profile shows — unlocked
+        // first, hidden/secret ones stay "???" until earned (§32).
+        achievements: catalog.map((a) => {
+          const unlocked = unlockedByAchievementId.get(a.id);
+          return {
+            id: a.id,
+            nameEn: a.hidden && !unlocked ? null : a.nameEn,
+            icon: a.hidden && !unlocked ? null : a.icon,
+            hidden: a.hidden,
+            unlockedAt: unlocked?.unlockedAt ?? null,
+          };
+        }),
+      };
     }),
 });

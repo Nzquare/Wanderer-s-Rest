@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@/server/db";
 import { CustomerOrderApp } from "@/components/customer/customer-order-app";
 
@@ -24,6 +25,12 @@ export default async function CustomerTablePage({
           <h1 className="mt-1 text-2xl font-semibold">{table.name}</h1>
         </div>
         <CustomerOrderApp qrToken={token} />
+        <p className="mt-6 text-center text-xs text-white/50">
+          Already a member?{" "}
+          <Link href="/member" className="text-teal-400 underline">
+            Check your profile
+          </Link>
+        </p>
       </div>
     </main>
   );
