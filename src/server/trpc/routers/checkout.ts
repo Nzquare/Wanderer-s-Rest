@@ -34,7 +34,10 @@ const checkoutInclude = {
     },
   },
   appliedDiscounts: {
-    include: { appliedBy: { select: { name: true } }, promotion: { select: { type: true } } },
+    include: {
+      appliedBy: { select: { name: true } },
+      promotion: { select: { type: true, rewardMenuItemId: true } },
+    },
   },
 } satisfies Prisma.TableSessionInclude;
 
@@ -51,9 +54,57 @@ async function loadSessionForCheckout(
 }
 
 /**
- * Groups order items by their menu category (Drinks, Snacks, Goods, ...)
- * instead of one blanket "food/drink" bucket — a café selling retail
- * goods alongside food/drink wants those itemized under their own
+ * Flattens every order item into one list with its category attached and
+ * redeemed FREE_ITEM units already zeroed out of its own price (§Free item
+ * redemptions) — rather than charge full price and subtract a matching
+ * discount later, a redeemed unit's price is zeroed right here on the
+ * item's own line, so there's no separate "discount" figure anywhere for
+ * it; the item is just free, same as if it had never been priced at all.
+ * `freeUnitsByMenuItemId` is consumed first-come-first-served across
+ * whichever order-item rows actually carry that menu item, in order.
+ */
+function computeFoodDrinkLines(
+  orders: Array<{
+    items: Array<{
+      id: string;
+      nameSnapshotEn: string;
+      quantity: number;
+      unitPriceSnapshot: unknown;
+      menuItemId: string;
+      menuItem: { category: { id: string; nameEn: string; sortOrder: number } };
+    }>;
+  }>,
+  freeUnitsByMenuItemId: Map<string, number>,
+) {
+  const remainingFree = new Map(freeUnitsByMenuItemId);
+  return orders.flatMap((order) =>
+    order.items.map((i) => {
+      const unitPrice = toNum(i.unitPriceSnapshot);
+      const available = remainingFree.get(i.menuItemId) ?? 0;
+      const freeUnits = Math.min(available, i.quantity);
+      if (freeUnits > 0) remainingFree.set(i.menuItemId, available - freeUnits);
+      return {
+        id: i.id,
+        nameEn: i.nameSnapshotEn,
+        quantity: i.quantity,
+        unitPrice,
+        lineTotal: unitPrice * (i.quantity - freeUnits),
+        // How many of this line's units are redeemed free — the item's
+        // own line simply prices those units at ฿0, nothing to display
+        // as a separate discount.
+        freeUnits,
+        categoryId: i.menuItem.category.id,
+        categoryName: i.menuItem.category.nameEn,
+        categorySortOrder: i.menuItem.category.sortOrder,
+      };
+    }),
+  );
+}
+
+/**
+ * Groups the flattened line items by their menu category (Drinks, Snacks,
+ * Goods, ...) instead of one blanket "food/drink" bucket — a café selling
+ * retail goods alongside food/drink wants those itemized under their own
  * heading, not mislabeled. Uses the live category (same as the Sales by
  * Category report) rather than a stored snapshot: category name/order is
  * a display grouping, not money, so it doesn't need the price/name
@@ -61,17 +112,7 @@ async function loadSessionForCheckout(
  * receipt's JSON snapshot at payment time regardless, so a printed
  * receipt is still frozen even if the category is renamed later.
  */
-function groupItemsByCategory(
-  orders: Array<{
-    items: Array<{
-      id: string;
-      nameSnapshotEn: string;
-      quantity: number;
-      unitPriceSnapshot: unknown;
-      menuItem: { category: { id: string; nameEn: string; sortOrder: number } };
-    }>;
-  }>,
-) {
+function groupItemsByCategory(lines: ReturnType<typeof computeFoodDrinkLines>) {
   const groups = new Map<
     string,
     {
@@ -79,24 +120,26 @@ function groupItemsByCategory(
       categoryName: string;
       sortOrder: number;
       subtotal: number;
-      items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
+      items: { id: string; nameEn: string; quantity: number; lineTotal: number; freeUnits: number }[];
     }
   >();
-  for (const order of orders) {
-    for (const i of order.items) {
-      const cat = i.menuItem.category;
-      const lineTotal = toNum(i.unitPriceSnapshot) * i.quantity;
-      const group = groups.get(cat.id) ?? {
-        categoryId: cat.id,
-        categoryName: cat.nameEn,
-        sortOrder: cat.sortOrder,
-        subtotal: 0,
-        items: [],
-      };
-      group.subtotal += lineTotal;
-      group.items.push({ id: i.id, nameEn: i.nameSnapshotEn, quantity: i.quantity, lineTotal });
-      groups.set(cat.id, group);
-    }
+  for (const i of lines) {
+    const group = groups.get(i.categoryId) ?? {
+      categoryId: i.categoryId,
+      categoryName: i.categoryName,
+      sortOrder: i.categorySortOrder,
+      subtotal: 0,
+      items: [],
+    };
+    group.subtotal += i.lineTotal;
+    group.items.push({
+      id: i.id,
+      nameEn: i.nameEn,
+      quantity: i.quantity,
+      lineTotal: i.lineTotal,
+      freeUnits: i.freeUnits,
+    });
+    groups.set(i.categoryId, group);
   }
   return Array.from(groups.values()).sort((a, b) => a.sortOrder - b.sortOrder);
 }
@@ -113,27 +156,43 @@ async function computeBreakdown(
     pricingType: toPricingConfig(session.pricingType),
     players: session.players.map(toPlayerRecord),
   });
-  const foodDrinkItems = session.orders.flatMap((o) =>
-    o.items.map((i) => ({
-      id: i.id,
-      nameEn: i.nameSnapshotEn,
-      quantity: i.quantity,
-      unitPrice: toNum(i.unitPriceSnapshot),
-      lineTotal: toNum(i.unitPriceSnapshot) * i.quantity,
-    })),
-  );
-  const foodDrinkSubtotal = foodDrinkItems.reduce((s, i) => s + i.lineTotal, 0);
-  const itemsByCategory = groupItemsByCategory(session.orders);
+
+  // One free unit consumed per redeemed FREE_ITEM promotion pointing at
+  // that menu item — counted here, spent against the actual order lines
+  // in computeFoodDrinkLines below.
+  const freeUnitsByMenuItemId = new Map<string, number>();
+  for (const d of session.appliedDiscounts) {
+    if (d.promotion?.type === "FREE_ITEM" && d.promotion.rewardMenuItemId) {
+      const id = d.promotion.rewardMenuItemId;
+      freeUnitsByMenuItemId.set(id, (freeUnitsByMenuItemId.get(id) ?? 0) + 1);
+    }
+  }
+
+  const lines = computeFoodDrinkLines(session.orders, freeUnitsByMenuItemId);
+  const foodDrinkItems = lines.map(({ id, nameEn, quantity, unitPrice, lineTotal, freeUnits }) => ({
+    id,
+    nameEn,
+    quantity,
+    unitPrice,
+    lineTotal,
+    freeUnits,
+  }));
+  const foodDrinkSubtotal = lines.reduce((s, i) => s + i.lineTotal, 0);
+  const itemsByCategory = groupItemsByCategory(lines);
 
   const checkoutSettings = await getSettings("checkout", client);
   const bill = computeBill({
     tableFeeTotal: tableFee.total,
     foodDrinkSubtotal,
-    discounts: session.appliedDiscounts.map((d) => ({
-      promotionId: d.promotionId,
-      label: d.label,
-      amount: toNum(d.amount),
-    })),
+    // Redeemed free items are already reflected above (their line is
+    // zeroed directly) — including them here too would subtract their
+    // value a second time. Only genuine discounts (manual, percentage,
+    // fixed-amount, other promotion types) count toward discountTotal;
+    // FREE_ITEM's AppliedDiscount row still exists (audit trail, benefit
+    // redemption linkage, undo), it's just not part of this sum anymore.
+    discounts: session.appliedDiscounts
+      .filter((d) => d.promotion?.type !== "FREE_ITEM")
+      .map((d) => ({ promotionId: d.promotionId, label: d.label, amount: toNum(d.amount) })),
     taxEnabled: checkoutSettings.taxEnabled,
     taxPercent: checkoutSettings.taxPercent,
     serviceChargeEnabled: checkoutSettings.serviceChargeEnabled,
@@ -286,15 +345,11 @@ export const checkoutRouter = router({
       if (session.paymentStatus === "PAID") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
       }
-      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
-      const existingDiscountTotal = session.appliedDiscounts.reduce(
-        (s, d) => s + toNum(d.amount),
-        0,
-      );
-      const base = Math.max(
-        0,
-        tableFee.total + foodDrinkSubtotal - existingDiscountTotal,
-      );
+      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      // Redeemed free items are already reflected in foodDrinkSubtotal
+      // (their line is zeroed directly) and excluded from bill.discountTotal
+      // — subtracting bill.discountTotal here doesn't double-count them.
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const amount = computeDiscountAmount({ type: input.type, value: input.value }, base);
       const label =
         input.type === "PERCENTAGE"
@@ -332,12 +387,8 @@ export const checkoutRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
-      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
-      const existingDiscountTotal = session.appliedDiscounts.reduce(
-        (s, d) => s + toNum(d.amount),
-        0,
-      );
-      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const appliedPromotionIds = new Set(
         session.appliedDiscounts.map((d) => d.promotionId).filter((id): id is string => !!id),
       );
@@ -414,12 +465,8 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 
-      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
-      const existingDiscountTotal = session.appliedDiscounts.reduce(
-        (s, d) => s + toNum(d.amount),
-        0,
-      );
-      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const orderedMenuItemIds = new Set(
         session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
       );
@@ -451,7 +498,11 @@ export const checkoutRouter = router({
           message: `"${promotion.name}" isn't eligible for this bill right now.`,
         });
       }
-      const amount = computeDiscountAmount(config, base);
+      // FREE_ITEM no longer subtracts from the bill as a discount (see
+      // computeBreakdown) — its `amount` here is purely a record of what
+      // was given away, so it's the item's own price, not clamped against
+      // whatever happens to be left of the bill right now.
+      const amount = config.type === "FREE_ITEM" ? config.value : computeDiscountAmount(config, base);
       const label =
         promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
           ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
@@ -575,12 +626,8 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 
-      const { tableFee, foodDrinkSubtotal } = await computeBreakdown(session);
-      const existingDiscountTotal = session.appliedDiscounts.reduce(
-        (s, d) => s + toNum(d.amount),
-        0,
-      );
-      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - existingDiscountTotal);
+      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const config = toPromotionConfig(promotion);
 
       if (config.type === "FREE_ITEM") {
@@ -595,7 +642,9 @@ export const checkoutRouter = router({
         }
       }
 
-      const amount = computeDiscountAmount(config, base);
+      // See applyPromotion's own comment — FREE_ITEM no longer subtracts
+      // from the bill, so its amount here is just the item's own price.
+      const amount = config.type === "FREE_ITEM" ? config.value : computeDiscountAmount(config, base);
       const baseLabel =
         promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
           ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`

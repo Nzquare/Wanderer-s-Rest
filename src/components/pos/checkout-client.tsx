@@ -26,6 +26,10 @@ type PaymentMethod = "CASH" | "PROMPTPAY" | "CARD" | "OTHER";
  * Order items grouped by their menu category — Drinks, Snacks, Goods,
  * whatever categories exist — each its own subtotal line, instead of one
  * blanket "Food/drink" bucket that would mislabel non-food merchandise.
+ *
+ * A unit redeemed by a Free Item promotion (§Free item redemptions) is
+ * priced at ฿0 right on this line — there's no separate "discount" for it
+ * anywhere, it's just free, so the line itself says so.
  */
 function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; compact?: boolean }) {
   const headingCls = compact ? "flex justify-between" : "flex justify-between text-sm";
@@ -44,8 +48,10 @@ function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; co
             <div key={item.id} className={lineCls}>
               <span>
                 {item.quantity}× {item.nameEn}
+                {item.freeUnits > 0 &&
+                  (item.freeUnits >= item.quantity ? " 🎁 free" : ` (${item.freeUnits} free)`)}
               </span>
-              <span>฿{item.lineTotal.toFixed(0)}</span>
+              <span>{item.lineTotal === 0 ? "Free" : `฿${item.lineTotal.toFixed(0)}`}</span>
             </div>
           ))}
         </div>
@@ -243,20 +249,38 @@ export function CheckoutClient({
             ))}
         </div>
         <ItemsByCategoryLines groups={preview.itemsByCategory} />
-        {preview.appliedDiscounts.map((d) => (
-          <div key={d.id} className="flex justify-between text-sm text-status-danger">
-            <span>{d.label}</span>
-            <div className="flex items-center gap-2">
-              <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
+        {/* Free item redemptions already priced their unit at ฿0 right on
+            the item's own line above — no ฿ figure here, this is purely
+            "what got redeemed" with a way to undo it, not a discount. */}
+        {preview.appliedDiscounts
+          .filter((d) => d.isFreeItem)
+          .map((d) => (
+            <div key={d.id} className="flex justify-between text-xs text-teal-600">
+              <span>🎁 {d.label}</span>
               <button
                 onClick={() => removeDiscount.mutate({ discountId: d.id })}
-                className="text-xs underline"
+                className="underline"
               >
                 remove
               </button>
             </div>
-          </div>
-        ))}
+          ))}
+        {preview.appliedDiscounts
+          .filter((d) => !d.isFreeItem)
+          .map((d) => (
+            <div key={d.id} className="flex justify-between text-sm text-status-danger">
+              <span>{d.label}</span>
+              <div className="flex items-center gap-2">
+                <span>-฿{d.amount.toFixed(0)}</span>
+                <button
+                  onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                  className="text-xs underline"
+                >
+                  remove
+                </button>
+              </div>
+            </div>
+          ))}
         {preview.bill.serviceChargeAmount > 0 && (
           <div className="flex justify-between text-sm">
             <span>Service charge</span>
@@ -310,12 +334,16 @@ export function CheckoutClient({
                 </div>
               ))}
             <ItemsByCategoryLines groups={preview.itemsByCategory} compact />
-            {preview.appliedDiscounts.map((d) => (
-              <div key={d.id} className="flex justify-between">
-                <span>{d.label}</span>
-                <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
-              </div>
-            ))}
+            {/* Free items already show "🎁 free" on their own line above —
+                only genuine discounts get a line here. */}
+            {preview.appliedDiscounts
+              .filter((d) => !d.isFreeItem)
+              .map((d) => (
+                <div key={d.id} className="flex justify-between">
+                  <span>{d.label}</span>
+                  <span>-฿{d.amount.toFixed(0)}</span>
+                </div>
+              ))}
             {preview.bill.serviceChargeAmount > 0 && (
               <div className="flex justify-between">
                 <span>Service charge</span>

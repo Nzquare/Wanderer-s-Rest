@@ -202,20 +202,38 @@ function PromotionsSection({ sessionId }: { sessionId: string }) {
       </div>
       {appliedDiscounts && appliedDiscounts.length > 0 && (
         <div className="space-y-1">
-          {appliedDiscounts.map((d) => (
-            <div key={d.id} className="flex justify-between text-sm text-status-danger">
-              <span>{d.label}</span>
-              <div className="flex items-center gap-2">
-                <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
+          {/* Free item redemptions aren't a discount — no ฿ figure, just
+              what got redeemed and a way to undo it (see checkout-client's
+              matching treatment on the Checkout screen). */}
+          {appliedDiscounts
+            .filter((d) => d.isFreeItem)
+            .map((d) => (
+              <div key={d.id} className="flex justify-between text-xs text-teal-600">
+                <span>🎁 {d.label}</span>
                 <button
                   onClick={() => removeDiscount.mutate({ discountId: d.id })}
-                  className="text-xs underline"
+                  className="underline"
                 >
                   remove
                 </button>
               </div>
-            </div>
-          ))}
+            ))}
+          {appliedDiscounts
+            .filter((d) => !d.isFreeItem)
+            .map((d) => (
+              <div key={d.id} className="flex justify-between text-sm text-status-danger">
+                <span>{d.label}</span>
+                <div className="flex items-center gap-2">
+                  <span>-฿{d.amount.toFixed(0)}</span>
+                  <button
+                    onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                    className="text-xs underline"
+                  >
+                    remove
+                  </button>
+                </div>
+              </div>
+            ))}
         </div>
       )}
     </Card>
