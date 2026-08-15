@@ -317,7 +317,7 @@ export function TableDetail({
                         {showAllDay
                           ? "All day"
                           : `${formatMinutesShort(Math.max(0, ...liveBill.lines.map((l) => l.billableMinutes)))} played`}{" "}
-                        · Playtime ฿{liveBill.total.toFixed(0)} · Food/drink ฿
+                        · Playtime ฿{liveBill.total.toFixed(0)} · Order ฿
                         {foodDrinkSubtotal.toFixed(0)}
                       </p>
                       {isHourly && liveBill.lines.length > 1 && (

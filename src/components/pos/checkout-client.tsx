@@ -17,8 +17,41 @@ import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type CheckoutResult = RouterOutputs["checkout"]["recordPayment"];
+type CategoryGroup = RouterOutputs["checkout"]["getPreview"]["itemsByCategory"][number];
 
 type PaymentMethod = "CASH" | "PROMPTPAY" | "CARD" | "OTHER";
+
+/**
+ * Order items grouped by their menu category — Drinks, Snacks, Goods,
+ * whatever categories exist — each its own subtotal line, instead of one
+ * blanket "Food/drink" bucket that would mislabel non-food merchandise.
+ */
+function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; compact?: boolean }) {
+  const headingCls = compact ? "flex justify-between" : "flex justify-between text-sm";
+  const lineCls = compact
+    ? "flex justify-between pl-2 text-xs"
+    : "flex justify-between pl-3 text-xs text-foreground-muted";
+  return (
+    <>
+      {groups.map((group) => (
+        <div key={group.categoryId} className="space-y-1">
+          <div className={headingCls}>
+            <span>{group.categoryName}</span>
+            <span>฿{group.subtotal.toFixed(0)}</span>
+          </div>
+          {group.items.map((item) => (
+            <div key={item.id} className={lineCls}>
+              <span>
+                {item.quantity}× {item.nameEn}
+              </span>
+              <span>฿{item.lineTotal.toFixed(0)}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
 
 interface PaymentRow {
   key: string;
@@ -231,20 +264,7 @@ export function CheckoutClient({
               </div>
             ))}
         </div>
-        <div className="space-y-1">
-          <div className="flex justify-between text-sm">
-            <span>Food/drink</span>
-            <span>฿{preview.bill.subtotalFoodDrink.toFixed(0)}</span>
-          </div>
-          {preview.foodDrinkItems.map((item) => (
-            <div key={item.id} className="flex justify-between pl-3 text-xs text-foreground-muted">
-              <span>
-                {item.quantity}× {item.nameEn}
-              </span>
-              <span>฿{item.lineTotal.toFixed(0)}</span>
-            </div>
-          ))}
-        </div>
+        <ItemsByCategoryLines groups={preview.itemsByCategory} />
         {preview.appliedDiscounts.map((d) => (
           <div key={d.id} className="flex justify-between text-sm text-status-danger">
             <span>{d.label}</span>
@@ -311,18 +331,7 @@ export function CheckoutClient({
                   <span>฿{line.fee.toFixed(0)}</span>
                 </div>
               ))}
-            <div className="flex justify-between">
-              <span>Food/drink</span>
-              <span>฿{preview.bill.subtotalFoodDrink.toFixed(0)}</span>
-            </div>
-            {preview.foodDrinkItems.map((item) => (
-              <div key={item.id} className="flex justify-between pl-2 text-xs">
-                <span>
-                  {item.quantity}× {item.nameEn}
-                </span>
-                <span>฿{item.lineTotal.toFixed(0)}</span>
-              </div>
-            ))}
+            <ItemsByCategoryLines groups={preview.itemsByCategory} compact />
             {preview.appliedDiscounts.map((d) => (
               <div key={d.id} className="flex justify-between">
                 <span>{d.label}</span>

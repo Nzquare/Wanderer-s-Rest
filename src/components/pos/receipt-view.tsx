@@ -17,6 +17,16 @@ interface ReceiptSnapshot {
   pricingModel?: string;
   foodDrinkItems?: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   foodDrinkSubtotal: number;
+  // Receipts printed before this field existed only have the flat
+  // foodDrinkItems list above, lumped under one "Food/drink" heading —
+  // fall back to that rendering when itemsByCategory is missing so old
+  // receipts still render (§45: never re-derive a stored snapshot).
+  itemsByCategory?: {
+    categoryId: string;
+    categoryName: string;
+    subtotal: number;
+    items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
+  }[];
   discounts: { label: string; amount: number }[];
   bill: {
     subtotalTableFee: number;
@@ -140,18 +150,39 @@ export function ReceiptView({
                 <span>฿{line.fee.toFixed(0)}</span>
               </div>
             ))}
-          <div className="flex justify-between">
-            <span>Food/drink</span>
-            <span>฿{snapshot.bill.subtotalFoodDrink.toFixed(0)}</span>
-          </div>
-          {snapshot.foodDrinkItems?.map((item) => (
-            <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-              <span>
-                {item.quantity}× {item.nameEn}
-              </span>
-              <span>฿{item.lineTotal.toFixed(0)}</span>
-            </div>
-          ))}
+          {snapshot.itemsByCategory ? (
+            snapshot.itemsByCategory.map((group) => (
+              <div key={group.categoryId} className="space-y-1">
+                <div className="flex justify-between">
+                  <span>{group.categoryName}</span>
+                  <span>฿{group.subtotal.toFixed(0)}</span>
+                </div>
+                {group.items.map((item) => (
+                  <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                    <span>
+                      {item.quantity}× {item.nameEn}
+                    </span>
+                    <span>฿{item.lineTotal.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="flex justify-between">
+                <span>Food/drink</span>
+                <span>฿{snapshot.bill.subtotalFoodDrink.toFixed(0)}</span>
+              </div>
+              {snapshot.foodDrinkItems?.map((item) => (
+                <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                  <span>
+                    {item.quantity}× {item.nameEn}
+                  </span>
+                  <span>฿{item.lineTotal.toFixed(0)}</span>
+                </div>
+              ))}
+            </>
+          )}
           {snapshot.discounts.map((d, i) => (
             <div key={i} className="flex justify-between text-status-danger">
               <span>{d.label}</span>

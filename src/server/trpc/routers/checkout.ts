@@ -26,7 +26,11 @@ const checkoutInclude = {
   member: true,
   orders: {
     where: { status: "SUBMITTED" as const },
-    include: { items: { include: { modifiers: true } } },
+    include: {
+      items: {
+        include: { modifiers: true, menuItem: { include: { category: true } } },
+      },
+    },
   },
   appliedDiscounts: { include: { appliedBy: { select: { name: true } } } },
 } satisfies Prisma.TableSessionInclude;
@@ -41,6 +45,57 @@ async function loadSessionForCheckout(
   });
   if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found." });
   return session;
+}
+
+/**
+ * Groups order items by their menu category (Drinks, Snacks, Goods, ...)
+ * instead of one blanket "food/drink" bucket — a café selling retail
+ * goods alongside food/drink wants those itemized under their own
+ * heading, not mislabeled. Uses the live category (same as the Sales by
+ * Category report) rather than a stored snapshot: category name/order is
+ * a display grouping, not money, so it doesn't need the price/name
+ * snapshot treatment — and this whole grouped shape gets written into the
+ * receipt's JSON snapshot at payment time regardless, so a printed
+ * receipt is still frozen even if the category is renamed later.
+ */
+function groupItemsByCategory(
+  orders: Array<{
+    items: Array<{
+      id: string;
+      nameSnapshotEn: string;
+      quantity: number;
+      unitPriceSnapshot: unknown;
+      menuItem: { category: { id: string; nameEn: string; sortOrder: number } };
+    }>;
+  }>,
+) {
+  const groups = new Map<
+    string,
+    {
+      categoryId: string;
+      categoryName: string;
+      sortOrder: number;
+      subtotal: number;
+      items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
+    }
+  >();
+  for (const order of orders) {
+    for (const i of order.items) {
+      const cat = i.menuItem.category;
+      const lineTotal = toNum(i.unitPriceSnapshot) * i.quantity;
+      const group = groups.get(cat.id) ?? {
+        categoryId: cat.id,
+        categoryName: cat.nameEn,
+        sortOrder: cat.sortOrder,
+        subtotal: 0,
+        items: [],
+      };
+      group.subtotal += lineTotal;
+      group.items.push({ id: i.id, nameEn: i.nameSnapshotEn, quantity: i.quantity, lineTotal });
+      groups.set(cat.id, group);
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 async function computeBreakdown(
@@ -60,6 +115,7 @@ async function computeBreakdown(
     })),
   );
   const foodDrinkSubtotal = foodDrinkItems.reduce((s, i) => s + i.lineTotal, 0);
+  const itemsByCategory = groupItemsByCategory(session.orders);
 
   const checkoutSettings = await getSettings("checkout");
   const bill = computeBill({
@@ -76,7 +132,7 @@ async function computeBreakdown(
     serviceChargePercent: checkoutSettings.serviceChargePercent,
   });
 
-  return { tableFee, foodDrinkItems, foodDrinkSubtotal, bill, checkoutSettings };
+  return { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill, checkoutSettings };
 }
 
 function toPromotionConfig(p: {
@@ -146,7 +202,7 @@ export const checkoutRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
-      const { tableFee, foodDrinkItems, bill } = await computeBreakdown(session);
+      const { tableFee, foodDrinkItems, itemsByCategory, bill } = await computeBreakdown(session);
 
       const membershipSettings = await getSettings("membership");
       let memberPreview = null;
@@ -188,6 +244,7 @@ export const checkoutRouter = router({
         // breakdown that wouldn't apply for those (§7).
         pricingModel: session.pricingType?.model ?? "HOURLY",
         foodDrinkItems,
+        itemsByCategory,
         appliedDiscounts: session.appliedDiscounts.map((d) => ({
           id: d.id,
           promotionId: d.promotionId,
@@ -523,7 +580,8 @@ export const checkoutRouter = router({
           });
         }
 
-        const { tableFee, foodDrinkItems, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+        const { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill } =
+          await computeBreakdown(session);
         const paidTotal = input.payments.reduce((s, p) => s + p.amount, 0);
         if (Math.abs(paidTotal - bill.total) > 0.5) {
           throw new TRPCError({
@@ -651,6 +709,7 @@ export const checkoutRouter = router({
           pricingModel: session.pricingType?.model ?? "HOURLY",
           foodDrinkItems,
           foodDrinkSubtotal,
+          itemsByCategory,
           discounts: session.appliedDiscounts.map((d) => ({
             label: d.label,
             amount: toNum(d.amount),
