@@ -122,6 +122,11 @@ export function CheckoutClient({
       Promise.all([
         utils.checkout.getPreview.invalidate({ sessionId }),
         utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+        // PromotionPicker below reads its own listAppliedDiscounts query to
+        // decide what's already on the bill — without invalidating it too,
+        // a promotion removed here still looked "applied" to the picker and
+        // never came back as choosable.
+        utils.checkout.listAppliedDiscounts.invalidate({ sessionId }),
       ]),
   });
   const recordPayment = trpc.checkout.recordPayment.useMutation({

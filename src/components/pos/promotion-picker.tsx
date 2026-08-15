@@ -102,7 +102,11 @@ export function PromotionPicker({
                         : p.type === "FIXED_AMOUNT"
                           ? `฿${p.value} off`
                           : `free: ${p.rewardMenuItemName ?? "item"}`}
-                      {eligible && eligibleInfo && (
+                      {/* FREE_ITEM already reads "free: Potion" above — a
+                          "save ฿80" suffix on top of that frames it as a
+                          discount, which it isn't, it's just free. Only
+                          PERCENTAGE/FIXED_AMOUNT get the savings preview. */}
+                      {eligible && eligibleInfo && p.type !== "FREE_ITEM" && (
                         <span className="text-teal-600">
                           {" "}
                           · save ฿{eligibleInfo.previewAmount.toFixed(0)}
