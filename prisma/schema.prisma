@@ -49,7 +49,8 @@ model Staff {
   approvedDiscountOverrides   AppliedDiscount[]   @relation("DiscountOverrideApprovedBy")
   expAdjustments               ExpHistory[]
   awardedAchievements         MemberAchievement[]
-  redeemedBenefits             BenefitRedemption[]
+  redeemedBenefits             BenefitRedemption[] @relation("BenefitUsedBy")
+  grantedBenefits               BenefitRedemption[] @relation("BenefitGrantedBy")
   recordedGames                 GameSession[]
   createdReservations         Reservation[]
   openedShifts                 Shift[]             @relation("ShiftOpenedBy")
@@ -619,6 +620,9 @@ model Promotion {
   // Achievements that grant this promotion as their reward (§Benefits) —
   // see Achievement.promotionId.
   grantedByAchievements Achievement[]
+  // Direct member grants of this promotion as a benefit (§Direct benefit
+  // grants) — a birthday reward or similar, with no achievement involved.
+  benefitRedemptions    BenefitRedemption[]
 }
 
 model AppliedDiscount {
@@ -706,6 +710,7 @@ model Member {
   sessions           TableSession[]
   expHistory         ExpHistory[]
   memberAchievements MemberAchievement[]
+  benefitRedemptions BenefitRedemption[]
   gameSessions       GameSession[]
   reservations       Reservation[]
 
@@ -834,19 +839,51 @@ enum BenefitStatus {
 }
 
 model BenefitRedemption {
-  id                  String            @id @default(cuid())
-  memberAchievementId String            @unique
-  memberAchievement   MemberAchievement @relation(fields: [memberAchievementId], references: [id])
-  status              BenefitStatus     @default(AVAILABLE)
-  earnedAt            DateTime          @default(now())
-  usedAt              DateTime?
-  expiresAt           DateTime?
-  usedById            String?
-  usedBy              Staff?            @relation(fields: [usedById], references: [id])
-  relatedSessionId    String?
-  relatedSession      TableSession?     @relation("BenefitRelatedSession", fields: [relatedSessionId], references: [id])
+  id String @id @default(cuid())
+
+  // Every benefit belongs to exactly one member no matter how it was
+  // granted — kept directly on this row (not just reachable through
+  // memberAchievement) so a direct grant with no achievement at all
+  // (§Direct benefit grants — e.g. a birthday reward) has somewhere to
+  // put it, and checkout/profile lookups don't need an achievement join
+  // either way.
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id])
+
+  // Set when this benefit was earned by unlocking an achievement;
+  // null for a direct grant (benefits.grant). Still unique — an
+  // achievement unlock still produces at most one redemption.
+  memberAchievementId String?            @unique
+  memberAchievement   MemberAchievement? @relation(fields: [memberAchievementId], references: [id])
+
+  // The promotion this benefit redeems. For an achievement-earned benefit
+  // this is a copy of memberAchievement.achievement.promotionId, taken at
+  // creation time — denormalized here so a direct grant (no achievement)
+  // has the same field to read, and every lookup can go through this row
+  // alone regardless of source.
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+
+  // Free-text context for a direct grant (e.g. "Birthday 2026") — null
+  // for an achievement-earned one, where the achievement's own name
+  // already says why.
+  label       String?
+  grantedById String?
+  grantedBy   Staff?  @relation("BenefitGrantedBy", fields: [grantedById], references: [id])
+
+  status           BenefitStatus @default(AVAILABLE)
+  earnedAt         DateTime      @default(now())
+  usedAt           DateTime?
+  expiresAt        DateTime?
+  usedById         String?
+  usedBy           Staff?        @relation("BenefitUsedBy", fields: [usedById], references: [id])
+  relatedSessionId String?
+  relatedSession   TableSession? @relation("BenefitRelatedSession", fields: [relatedSessionId], references: [id])
 
   appliedDiscount AppliedDiscount?
+
+  @@index([memberId])
+  @@index([promotionId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

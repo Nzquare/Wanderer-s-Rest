@@ -181,9 +181,13 @@ export const achievementsRouter = router({
         },
       });
 
-      if (achievement.hasReward) {
+      if (achievement.hasReward && achievement.promotionId) {
         await ctx.prisma.benefitRedemption.create({
-          data: { memberAchievementId: memberAchievement.id },
+          data: {
+            memberId: input.memberId,
+            memberAchievementId: memberAchievement.id,
+            promotionId: achievement.promotionId,
+          },
         });
       }
 

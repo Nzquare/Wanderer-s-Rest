@@ -91,7 +91,9 @@ export function MemberPortal() {
                             {b.status === "AVAILABLE" ? "Show this to staff" : b.status === "USED" ? "Redeemed" : "Expired"}
                           </span>
                         </div>
-                        <p className="text-xs text-white/50">From: {b.achievementNameEn}</p>
+                        <p className="text-xs text-white/50">
+                          From: {b.achievementNameEn ?? b.label ?? "the tavern"}
+                        </p>
                       </div>
                     ))}
                 </div>

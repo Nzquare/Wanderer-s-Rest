@@ -155,6 +155,17 @@ export const membersRouter = router({
             },
             orderBy: { unlockedAt: "desc" },
           },
+          // The full Benefits list, achievement-earned and directly granted
+          // alike (§Direct benefit grants) — memberAchievements[].benefit
+          // above stays too, just for the per-achievement "Benefit
+          // available" note on the Achievements card.
+          benefitRedemptions: {
+            include: {
+              promotion: { include: { rewardMenuItem: true } },
+              memberAchievement: { include: { achievement: true } },
+            },
+            orderBy: { earnedAt: "desc" },
+          },
           expHistory: { orderBy: { createdAt: "desc" }, take: 20 },
           gameSessions: { include: { game: true }, orderBy: { playedAt: "desc" }, take: 20 },
         },
@@ -205,6 +216,18 @@ export const membersRouter = router({
               : null,
           },
           benefit: ma.benefit,
+        })),
+        // Every benefit this member currently has — achievement-earned and
+        // directly granted (§Direct benefit grants) treated the same way,
+        // since a member doesn't care which path produced it.
+        benefits: member.benefitRedemptions.map((b) => ({
+          id: b.id,
+          status: b.status,
+          earnedAt: b.earnedAt,
+          label: b.label,
+          achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
+          icon: b.memberAchievement?.achievement.icon ?? null,
+          promotion: { ...b.promotion, value: toNum(b.promotion.value) },
         })),
         expHistory: member.expHistory.map((h) => ({
           id: h.id,
@@ -401,6 +424,15 @@ export const membersRouter = router({
                 },
                 orderBy: { unlockedAt: "desc" },
               },
+              // Achievement-earned and directly granted (§Direct benefit
+              // grants — e.g. a birthday reward) benefits alike.
+              benefitRedemptions: {
+                include: {
+                  promotion: { include: { rewardMenuItem: true } },
+                  memberAchievement: { include: { achievement: true } },
+                },
+                orderBy: { earnedAt: "desc" },
+              },
             },
           })
         : null;
@@ -451,23 +483,22 @@ export const membersRouter = router({
             unlockedAt: unlocked?.unlockedAt ?? null,
           };
         }),
-        // Rewards from achievements that grant one (§Achievement Benefits)
-        // — shown separately from the achievement badge itself, since
-        // what a member actually cares about here is "what can I claim,"
-        // not the trigger that earned it.
-        benefits: member.memberAchievements
-          .filter((ma) => ma.benefit)
-          .map((ma) => ({
-            id: ma.benefit!.id,
-            achievementNameEn: ma.achievement.nameEn,
-            icon: ma.achievement.icon,
-            promotionName: ma.achievement.promotion?.name ?? null,
-            promotionType: ma.achievement.promotion?.type ?? null,
-            promotionValue: ma.achievement.promotion ? toNum(ma.achievement.promotion.value) : null,
-            rewardMenuItemName: ma.achievement.promotion?.rewardMenuItem?.nameEn ?? null,
-            status: ma.benefit!.status,
-            earnedAt: ma.benefit!.earnedAt,
-          })),
+        // Every benefit this member has, achievement-earned or directly
+        // granted (§Direct benefit grants) alike — shown separately from
+        // the achievement badge itself, since what a member actually cares
+        // about here is "what can I claim," not the trigger that earned it.
+        benefits: member.benefitRedemptions.map((b) => ({
+          id: b.id,
+          achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
+          icon: b.memberAchievement?.achievement.icon ?? null,
+          label: b.label,
+          promotionName: b.promotion.name,
+          promotionType: b.promotion.type,
+          promotionValue: toNum(b.promotion.value),
+          rewardMenuItemName: b.promotion.rewardMenuItem?.nameEn ?? null,
+          status: b.status,
+          earnedAt: b.earnedAt,
+        })),
       };
     }),
 });

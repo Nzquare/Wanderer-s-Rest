@@ -344,27 +344,20 @@ export const checkoutRouter = router({
       const orderedMenuItemIds = new Set(
         session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
       );
-      // The linked member's own earned rewards (§Benefits) — an achievement
-      // unlock leaves an AVAILABLE BenefitRedemption pointing at whichever
-      // Promotion the achievement grants. Those apply regardless of the
+      // The linked member's own earned rewards (§Benefits) — whether from
+      // unlocking an achievement or a direct grant (§Direct benefit grants,
+      // e.g. a birthday reward), an AVAILABLE BenefitRedemption points
+      // straight at the Promotion it grants. Those apply regardless of the
       // promotion's own date/day/spend window — "I earned this" is its own
       // eligibility, not "it happens to be Tuesday."
       const earnedPromotionIds = session.member
         ? new Set(
             (
               await ctx.prisma.benefitRedemption.findMany({
-                where: {
-                  status: "AVAILABLE",
-                  memberAchievement: {
-                    memberId: session.member.id,
-                    achievement: { promotionId: { not: null } },
-                  },
-                },
-                select: {
-                  memberAchievement: { select: { achievement: { select: { promotionId: true } } } },
-                },
+                where: { status: "AVAILABLE", memberId: session.member.id },
+                select: { promotionId: true },
               })
-            ).map((r) => r.memberAchievement.achievement.promotionId!),
+            ).map((r) => r.promotionId),
           )
         : new Set<string>();
 
@@ -438,13 +431,7 @@ export const checkoutRouter = router({
       // expensive way to find nothing.
       const earnedRedemption = session.member
         ? await ctx.prisma.benefitRedemption.findFirst({
-            where: {
-              status: "AVAILABLE",
-              memberAchievement: {
-                memberId: session.member.id,
-                achievement: { promotionId: promotion.id },
-              },
-            },
+            where: { status: "AVAILABLE", memberId: session.member.id, promotionId: promotion.id },
           })
         : null;
       // Re-check eligibility server-side rather than trusting the client's
@@ -768,9 +755,14 @@ export const checkoutRouter = router({
                   sessionId: session.id,
                 },
               });
-              if ((achievement as unknown as { hasReward: boolean }).hasReward) {
+              const promotionId = (achievement as unknown as { promotionId: string | null })
+                .promotionId;
+              // hasReward with no promotion actually picked shouldn't happen
+              // (the achievement editor requires one), but guard it anyway
+              // rather than create a redemption pointing at nothing.
+              if ((achievement as unknown as { hasReward: boolean }).hasReward && promotionId) {
                 await tx.benefitRedemption.create({
-                  data: { memberAchievementId: ma.id },
+                  data: { memberId: session.member!.id, memberAchievementId: ma.id, promotionId },
                 });
               }
             }),

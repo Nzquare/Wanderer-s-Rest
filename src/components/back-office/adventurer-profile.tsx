@@ -13,6 +13,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
   const { data: ranks } = trpc.ranks.list.useQuery();
   const { data: manualAchievements } = trpc.achievements.listManualAwardable.useQuery();
   const { data: catalog } = trpc.achievements.list.useQuery();
+  const { data: grantablePromotions } = trpc.promotions.listActive.useQuery();
 
   const [expAmount, setExpAmount] = useState("");
   const [expReason, setExpReason] = useState<"BONUS" | "EVENT" | "ADMIN_ADJUSTMENT" | "CORRECTION">(
@@ -23,6 +24,8 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
   const [rankNote, setRankNote] = useState("");
   const [awardAchievementId, setAwardAchievementId] = useState("");
   const [awardNote, setAwardNote] = useState("");
+  const [grantPromotionId, setGrantPromotionId] = useState("");
+  const [grantLabel, setGrantLabel] = useState("");
 
   const invalidate = () => utils.members.getProfile.invalidate({ memberId });
   const updateProfile = trpc.members.updateProfile.useMutation({ onSuccess: invalidate });
@@ -48,6 +51,13 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
     },
   });
   const redeemBenefit = trpc.benefits.redeem.useMutation({ onSuccess: invalidate });
+  const grantBenefit = trpc.benefits.grant.useMutation({
+    onSuccess: () => {
+      setGrantPromotionId("");
+      setGrantLabel("");
+      invalidate();
+    },
+  });
 
   if (isLoading || !profile) {
     return <p className="text-sm text-foreground-muted">Loading adventurer profile…</p>;
@@ -55,11 +65,12 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
 
   const progress = profile.progression;
   const pct = progress ? Math.round((progress.expIntoLevel / progress.expForNextLevel) * 100) : 0;
-  // What this member has actually earned to redeem, separate from the
-  // achievement badge itself — every achievement.hasReward unlock left a
-  // BenefitRedemption row (checkout.ts / achievements.award).
-  const benefits = profile.achievements.filter((a) => a.benefit);
-  const availableBenefits = benefits.filter((b) => b.benefit!.status === "AVAILABLE");
+  // What this member has actually earned to redeem — achievement-earned
+  // and directly granted (§Direct benefit grants, e.g. a birthday reward)
+  // alike, since every BenefitRedemption row looks the same to redeem
+  // regardless of source.
+  const benefits = profile.benefits;
+  const availableBenefits = benefits.filter((b) => b.status === "AVAILABLE");
 
   return (
     <div className="space-y-6">
@@ -96,61 +107,114 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
       </div>
 
       {/* Full-width, above the grid — staff should never miss that a
-          member walking up to the till has something to claim. */}
-      {benefits.length > 0 && (
-        <Card className="space-y-2">
-          <p className="font-medium text-foreground">
-            Benefits {availableBenefits.length > 0 && `(${availableBenefits.length} to claim)`}
-          </p>
+          member walking up to the till has something to claim. Always
+          shown (not just when benefits exist) so Grant benefit below is
+          reachable for a member who has none yet. */}
+      <Card className="space-y-2">
+        <p className="font-medium text-foreground">
+          Benefits {availableBenefits.length > 0 && `(${availableBenefits.length} to claim)`}
+        </p>
+        {benefits.length === 0 && (
+          <p className="text-sm text-foreground-muted">None yet.</p>
+        )}
+        {benefits.length > 0 && (
           <div className="space-y-2">
             {benefits
               .slice()
-              .sort((a, b) =>
-                a.benefit!.status === "AVAILABLE" && b.benefit!.status !== "AVAILABLE" ? -1 : 0,
-              )
-              .map((a) => (
+              .sort((a, b) => (a.status === "AVAILABLE" && b.status !== "AVAILABLE" ? -1 : 0))
+              .map((b) => (
                 <div
-                  key={a.id}
+                  key={b.id}
                   className={`flex flex-wrap items-center justify-between gap-2 rounded-lg p-2 text-sm ${
-                    a.benefit!.status === "AVAILABLE" ? "bg-teal-500/10" : "bg-background opacity-60"
+                    b.status === "AVAILABLE" ? "bg-teal-500/10" : "bg-background opacity-60"
                   }`}
                 >
                   <div>
                     <p className="font-medium text-foreground">
-                      {a.achievement.icon ?? "🎁"}{" "}
+                      {b.icon ?? "🎁"}{" "}
                       {describeBenefit(
-                        a.achievement.promotion?.type,
-                        a.achievement.promotion?.value,
-                        a.achievement.promotion?.rewardMenuItem?.nameEn,
+                        b.promotion.type,
+                        b.promotion.value,
+                        b.promotion.rewardMenuItem?.nameEn,
                       )}
                     </p>
                     <p className="text-xs text-foreground-muted">
-                      From: {a.achievement.nameEn}
-                      {a.benefit!.status === "AVAILABLE" &&
+                      From: {b.achievementNameEn ?? b.label ?? "manual grant"}
+                      {b.status === "AVAILABLE" &&
                         " · also redeemable at Checkout → Add promotion"}
                     </p>
                   </div>
-                  {a.benefit!.status === "AVAILABLE" ? (
+                  {b.status === "AVAILABLE" ? (
                     <Button
                       size="md"
                       disabled={redeemBenefit.isPending}
-                      onClick={() => redeemBenefit.mutate({ id: a.benefit!.id })}
+                      onClick={() => redeemBenefit.mutate({ id: b.id })}
                     >
                       Mark redeemed
                     </Button>
                   ) : (
                     <span className="text-xs font-medium text-foreground-muted">
-                      {a.benefit!.status === "USED" ? "Redeemed" : "Expired"}
+                      {b.status === "USED" ? "Redeemed" : "Expired"}
                     </span>
                   )}
                 </div>
               ))}
           </div>
-          {redeemBenefit.error && (
-            <p className="text-xs text-status-danger">{redeemBenefit.error.message}</p>
+        )}
+        {redeemBenefit.error && (
+          <p className="text-xs text-status-danger">{redeemBenefit.error.message}</p>
+        )}
+
+        {/* Grant a benefit directly, no achievement involved (§Direct
+            benefit grants) — a birthday reward or any other goodwill
+            gesture that isn't earned through the achievement system. */}
+        <div className="border-t border-border pt-2">
+          <p className="text-sm font-medium text-foreground-muted">Grant benefit</p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <select
+              value={grantPromotionId}
+              onChange={(e) => setGrantPromotionId(e.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
+            >
+              <option value="">Choose a promotion…</option>
+              {grantablePromotions?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} —{" "}
+                  {describeBenefit(p.type, p.value, p.rewardMenuItemName)}
+                </option>
+              ))}
+            </select>
+            <input
+              value={grantLabel}
+              onChange={(e) => setGrantLabel(e.target.value)}
+              placeholder="Reason (e.g. Birthday 2026)"
+              className="h-10 flex-1 min-w-32 rounded-lg border border-border bg-background px-2 text-sm"
+            />
+            <Button
+              size="md"
+              variant="outline"
+              disabled={!grantPromotionId || grantBenefit.isPending}
+              onClick={() =>
+                grantBenefit.mutate({
+                  memberId,
+                  promotionId: grantPromotionId,
+                  label: grantLabel || undefined,
+                })
+              }
+            >
+              {grantBenefit.isPending ? "Granting…" : "Grant"}
+            </Button>
+          </div>
+          {grantablePromotions?.length === 0 && (
+            <p className="mt-1 text-xs text-foreground-muted">
+              No active promotions yet — add one in Back Office → Promotions first.
+            </p>
           )}
-        </Card>
-      )}
+          {grantBenefit.error && (
+            <p className="mt-1 text-xs text-status-danger">{grantBenefit.error.message}</p>
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-3">
