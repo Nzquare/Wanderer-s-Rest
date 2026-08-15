@@ -492,6 +492,11 @@ export function CheckoutClient({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>
+                      {eligibleInfo?.earnedViaBenefit && (
+                        <span className="mr-1 rounded-full bg-teal-500/15 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300">
+                          🎁 Your reward
+                        </span>
+                      )}
                       {p.name} —{" "}
                       {p.type === "PERCENTAGE"
                         ? `${p.value}% off`

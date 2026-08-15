@@ -149,7 +149,10 @@ export const membersRouter = router({
           class: true,
           rank: true,
           memberAchievements: {
-            include: { achievement: true, benefit: true },
+            include: {
+              achievement: { include: { promotion: { include: { rewardMenuItem: true } } } },
+              benefit: true,
+            },
             orderBy: { unlockedAt: "desc" },
           },
           expHistory: { orderBy: { createdAt: "desc" }, take: 20 },
@@ -192,7 +195,15 @@ export const membersRouter = router({
           id: ma.id,
           unlockedAt: ma.unlockedAt,
           note: ma.note,
-          achievement: ma.achievement,
+          achievement: {
+            ...ma.achievement,
+            // Decimal doesn't survive the wire as a number without this
+            // (§45-adjacent: same toNum() convention used everywhere else
+            // a Decimal crosses into a tRPC response).
+            promotion: ma.achievement.promotion
+              ? { ...ma.achievement.promotion, value: toNum(ma.achievement.promotion.value) }
+              : null,
+          },
           benefit: ma.benefit,
         })),
         expHistory: member.expHistory.map((h) => ({
@@ -384,7 +395,10 @@ export const membersRouter = router({
             include: {
               class: true,
               memberAchievements: {
-                include: { achievement: true, benefit: true },
+                include: {
+                  achievement: { include: { promotion: { include: { rewardMenuItem: true } } } },
+                  benefit: true,
+                },
                 orderBy: { unlockedAt: "desc" },
               },
             },
@@ -447,8 +461,10 @@ export const membersRouter = router({
             id: ma.benefit!.id,
             achievementNameEn: ma.achievement.nameEn,
             icon: ma.achievement.icon,
-            benefitType: ma.achievement.benefitType,
-            benefitConfig: ma.achievement.benefitConfig,
+            promotionName: ma.achievement.promotion?.name ?? null,
+            promotionType: ma.achievement.promotion?.type ?? null,
+            promotionValue: ma.achievement.promotion ? toNum(ma.achievement.promotion.value) : null,
+            rewardMenuItemName: ma.achievement.promotion?.rewardMenuItem?.nameEn ?? null,
             status: ma.benefit!.status,
             earnedAt: ma.benefit!.earnedAt,
           })),

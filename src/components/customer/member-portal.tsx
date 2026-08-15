@@ -85,7 +85,7 @@ export function MemberPortal() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-medium text-white">
-                            {b.icon ?? "🎁"} {describeBenefit(b.benefitType, b.benefitConfig)}
+                            {b.icon ?? "🎁"} {describeBenefit(b.promotionType, b.promotionValue, b.rewardMenuItemName)}
                           </p>
                           <span className="shrink-0 text-xs text-white/70">
                             {b.status === "AVAILABLE" ? "Show this to staff" : b.status === "USED" ? "Redeemed" : "Expired"}

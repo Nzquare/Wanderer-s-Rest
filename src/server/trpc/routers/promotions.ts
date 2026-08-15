@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@/generated/prisma/client";
-import { router, permissionProcedure } from "../trpc";
+import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum, toNumOrNull } from "@/lib/decimal";
 import { logAudit } from "@/server/audit";
@@ -100,6 +100,27 @@ function serialize(p: {
 }
 
 export const promotionsRouter = router({
+  /**
+   * Active-only, for the Achievement editor's "which promotion does this
+   * grant" picker (§Benefits) — any staff who can reach that editor can
+   * read this, same open-list-vs-gated-CRUD split as pricingTypes.list/
+   * ranks.list.
+   */
+  listActive: staffProcedure.query(async ({ ctx }) => {
+    const promotions = await ctx.prisma.promotion.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      include: { rewardMenuItem: { select: { nameEn: true } } },
+    });
+    return promotions.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      value: toNum(p.value),
+      rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
+    }));
+  }),
+
   listAll: manage().query(async ({ ctx }) => {
     const promotions = await ctx.prisma.promotion.findMany({
       orderBy: { createdAt: "desc" },

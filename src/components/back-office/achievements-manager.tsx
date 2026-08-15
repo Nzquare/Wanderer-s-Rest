@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { describeBenefit } from "@/lib/benefits";
 
 const CATEGORIES = [
   "VISITS",
@@ -83,44 +84,6 @@ function triggersForCategory(category: Category): typeof AUTO_TRIGGERS[number][]
   return allowed ? AUTO_TRIGGERS.filter((t) => allowed.includes(t.value)) : [...AUTO_TRIGGERS];
 }
 
-const BENEFIT_TYPES = [
-  { value: "FIXED_DISCOUNT", label: "฿ discount", field: "value" },
-  { value: "PERCENT_DISCOUNT", label: "% discount", field: "value" },
-  { value: "FREE_ITEM", label: "Free item / goods", field: "menuItem" },
-  { value: "FREE_DRINK", label: "Free food or drink", field: "menuItem" },
-  { value: "FREE_TABLE_TIME", label: "Free playtime (minutes)", field: "value" },
-  { value: "SPECIAL_PRICE", label: "Special price (note for staff)", field: "description" },
-  { value: "PRIVILEGE", label: "Privilege / perk", field: "description" },
-  { value: "CUSTOM", label: "Custom", field: "description" },
-] as const;
-type BenefitType = (typeof BENEFIT_TYPES)[number]["value"];
-
-function MenuItemPicker({ value, onChange }: { value: string; onChange: (menuItemId: string, label: string) => void }) {
-  const { data: categories } = trpc.menu.listForOrdering.useQuery();
-  return (
-    <select
-      value={value}
-      onChange={(e) => {
-        const id = e.target.value;
-        const item = categories?.flatMap((c) => c.items).find((i) => i.id === id);
-        onChange(id, item?.nameEn ?? "");
-      }}
-      className="h-10 w-56 rounded-lg border border-border bg-surface px-2 text-sm"
-    >
-      <option value="">Choose an item…</option>
-      {categories?.map((cat) => (
-        <optgroup key={cat.id} label={cat.nameEn}>
-          {cat.items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.nameEn} — ฿{item.basePrice}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  );
-}
-
 function GamePicker({ value, onChange }: { value: string; onChange: (gameId: string, label: string) => void }) {
   const [query, setQuery] = useState("");
   const { data: results } = trpc.games.listForRecording.useQuery(
@@ -173,14 +136,8 @@ interface FormState {
   triggerGameId: string;
   triggerGameLabel: string;
   hasReward: boolean;
-  benefitType: BenefitType;
-  /** Used by ฿/%/minutes benefit types. */
-  benefitValue: string;
-  /** Used by FREE_ITEM / FREE_DRINK. */
-  benefitMenuItemId: string;
-  benefitMenuItemLabel: string;
-  /** Used by SPECIAL_PRICE / PRIVILEGE / CUSTOM. */
-  benefitDescription: string;
+  /** Which Promotion (Back Office → Promotions) this achievement grants. */
+  promotionId: string;
   hidden: boolean;
 }
 
@@ -196,11 +153,7 @@ const BLANK_FORM: FormState = {
   triggerGameId: "",
   triggerGameLabel: "",
   hasReward: false,
-  benefitType: "FIXED_DISCOUNT",
-  benefitValue: "",
-  benefitMenuItemId: "",
-  benefitMenuItemLabel: "",
-  benefitDescription: "",
+  promotionId: "",
   hidden: false,
 };
 
@@ -367,120 +320,57 @@ function AchievementFields({
 
       {form.hasReward && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg bg-background p-2">
-          <div className="w-48">
-            <label className="text-xs text-foreground-muted">Benefit type</label>
-            <select
-              value={form.benefitType}
-              onChange={(e) => setForm((f) => ({ ...f, benefitType: e.target.value as BenefitType }))}
-              className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
-            >
-              {BENEFIT_TYPES.map((b) => (
-                <option key={b.value} value={b.value}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {(() => {
-            const field = BENEFIT_TYPES.find((b) => b.value === form.benefitType)?.field ?? "value";
-            if (field === "menuItem") {
-              return (
-                <div>
-                  <label className="text-xs text-foreground-muted">Item</label>
-                  <MenuItemPicker
-                    value={form.benefitMenuItemId}
-                    onChange={(menuItemId, label) =>
-                      setForm((f) => ({ ...f, benefitMenuItemId: menuItemId, benefitMenuItemLabel: label }))
-                    }
-                  />
-                </div>
-              );
-            }
-            if (field === "description") {
-              return (
-                <div className="w-64">
-                  <label className="text-xs text-foreground-muted">
-                    Note for staff (what to do at the till)
-                  </label>
-                  <input
-                    value={form.benefitDescription}
-                    onChange={(e) => setForm((f) => ({ ...f, benefitDescription: e.target.value }))}
-                    placeholder="e.g. apply the D&D members' rate"
-                    className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
-                  />
-                </div>
-              );
-            }
-            return (
-              <div className="w-32">
-                <label className="text-xs text-foreground-muted">
-                  {form.benefitType === "PERCENT_DISCOUNT"
-                    ? "Percent off (%)"
-                    : form.benefitType === "FREE_TABLE_TIME"
-                      ? "Minutes"
-                      : "Amount (฿)"}
-                </label>
-                <input
-                  type="number"
-                  value={form.benefitValue}
-                  onChange={(e) => setForm((f) => ({ ...f, benefitValue: e.target.value }))}
-                  className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
-                />
-              </div>
-            );
-          })()}
+          <PromotionPicker
+            value={form.promotionId}
+            onChange={(promotionId) => setForm((f) => ({ ...f, promotionId }))}
+          />
         </div>
       )}
     </>
   );
 }
 
-/** Builds the benefitConfig JSON that matches whichever field buildPayload's
- * benefit type actually uses — see benefitConfigSchema in achievements.ts
- * for what each field means per type. */
-function buildBenefitConfig(form: FormState): Record<string, string | number> {
-  const field = BENEFIT_TYPES.find((b) => b.value === form.benefitType)?.field ?? "value";
-  if (field === "menuItem") {
-    return { menuItemId: form.benefitMenuItemId, menuItemName: form.benefitMenuItemLabel };
-  }
-  if (field === "description") {
-    return { description: form.benefitDescription };
-  }
-  return { value: Number(form.benefitValue) || 0 };
-}
-
-/** Reverse of buildBenefitConfig — pulls an existing achievement's
- * benefitType/benefitConfig back into the form's flat fields so opening
- * Edit doesn't reset it to a blank ฿ discount every time. */
-function hydrateBenefit(
-  benefitType: string | null,
-  benefitConfig: unknown,
-): Pick<FormState, "benefitType" | "benefitValue" | "benefitMenuItemId" | "benefitMenuItemLabel" | "benefitDescription"> {
-  const cfg = (benefitConfig ?? {}) as Record<string, unknown>;
-  return {
-    benefitType: (benefitType as BenefitType) ?? "FIXED_DISCOUNT",
-    benefitValue: cfg.value != null ? String(cfg.value) : "",
-    benefitMenuItemId: typeof cfg.menuItemId === "string" ? cfg.menuItemId : "",
-    benefitMenuItemLabel: typeof cfg.menuItemName === "string" ? cfg.menuItemName : "",
-    benefitDescription: typeof cfg.description === "string" ? cfg.description : "",
-  };
+/**
+ * Picks which existing Promotion (Back Office → Promotions) this
+ * achievement grants — reused rather than configured inline (§Benefits),
+ * so redeeming it is just applying that promotion at checkout.
+ */
+function PromotionPicker({ value, onChange }: { value: string; onChange: (promotionId: string) => void }) {
+  const { data: promotions } = trpc.promotions.listActive.useQuery();
+  return (
+    <div className="w-64">
+      <label className="text-xs text-foreground-muted">Promotion to grant</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+      >
+        <option value="">Choose a promotion…</option>
+        {promotions?.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} — {describeBenefit(p.type, p.value, p.rewardMenuItemName)}
+          </option>
+        ))}
+      </select>
+      {promotions?.length === 0 && (
+        <p className="mt-1 text-xs text-foreground-muted">
+          No promotions yet — add one in Back Office → Promotions first.
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Short "· has benefit — ..." suffix for the collapsed card, so the list
  * shows what kind of reward each achievement grants without opening Edit. */
-function benefitSummary(benefitType: string | null, benefitConfig: unknown): string {
-  if (!benefitType) return "has benefit";
-  const cfg = (benefitConfig ?? {}) as Record<string, unknown>;
-  const label = BENEFIT_TYPES.find((b) => b.value === benefitType)?.label ?? benefitType;
-  if (benefitType === "FREE_ITEM" || benefitType === "FREE_DRINK") {
-    return `${label}: ${cfg.menuItemName || "no item chosen"}`;
-  }
-  if (benefitType === "SPECIAL_PRICE" || benefitType === "PRIVILEGE" || benefitType === "CUSTOM") {
-    return cfg.description ? `${label}: ${cfg.description}` : label;
-  }
-  if (benefitType === "PERCENT_DISCOUNT") return `${cfg.value ?? 0}% off`;
-  if (benefitType === "FREE_TABLE_TIME") return `${cfg.value ?? 0} min free playtime`;
-  return `฿${cfg.value ?? 0} off`;
+function benefitSummary(promotion: {
+  name: string;
+  type: string;
+  value: number;
+  rewardMenuItem: { nameEn: string } | null;
+} | null): string {
+  if (!promotion) return "has benefit — no promotion chosen";
+  return `${promotion.name}: ${describeBenefit(promotion.type, promotion.value, promotion.rewardMenuItem?.nameEn)}`;
 }
 
 function buildPayload(form: FormState) {
@@ -505,8 +395,7 @@ function buildPayload(form: FormState) {
     triggerType: form.type === "AUTOMATIC" ? form.triggerType : undefined,
     triggerValue,
     hasReward: form.hasReward,
-    benefitType: form.hasReward ? form.benefitType : undefined,
-    benefitConfig: form.hasReward ? buildBenefitConfig(form) : undefined,
+    promotionId: form.hasReward ? form.promotionId || undefined : undefined,
   };
 }
 
@@ -551,8 +440,13 @@ function AchievementCard({
     triggerType: string | null;
     triggerValue: unknown;
     hasReward: boolean;
-    benefitType: string | null;
-    benefitConfig: unknown;
+    promotion: {
+      id: string;
+      name: string;
+      type: string;
+      value: number;
+      rewardMenuItem: { nameEn: string } | null;
+    } | null;
     active: boolean;
     hidden: boolean;
   };
@@ -600,7 +494,7 @@ function AchievementCard({
       triggerGameId: field === "gameIdAndCount" ? String(tv.gameId ?? "") : "",
       triggerGameLabel: "",
       hasReward: achievement.hasReward,
-      ...hydrateBenefit(achievement.benefitType, achievement.benefitConfig),
+      promotionId: achievement.promotion?.id ?? "",
       hidden: achievement.hidden,
     };
   });
@@ -636,9 +530,7 @@ function AchievementCard({
         </p>
         <p className="text-xs text-foreground-muted">
           {achievement.category}
-          {achievement.hasReward
-            ? ` · ${benefitSummary(achievement.benefitType, achievement.benefitConfig)}`
-            : ""}
+          {achievement.hasReward ? ` · ${benefitSummary(achievement.promotion)}` : ""}
           {achievement.hidden ? " · secret" : ""}
         </p>
         <div className="mt-1 flex flex-wrap gap-3 text-xs">

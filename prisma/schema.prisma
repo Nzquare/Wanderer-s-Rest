@@ -616,6 +616,9 @@ model Promotion {
   updatedAt              DateTime     @updatedAt
 
   appliedDiscounts AppliedDiscount[]
+  // Achievements that grant this promotion as their reward (§Benefits) —
+  // see Achievement.promotionId.
+  grantedByAchievements Achievement[]
 }
 
 model AppliedDiscount {
@@ -770,17 +773,6 @@ enum AchievementTriggerType {
   CUSTOM
 }
 
-enum BenefitType {
-  FREE_ITEM
-  FIXED_DISCOUNT
-  PERCENT_DISCOUNT
-  FREE_TABLE_TIME
-  SPECIAL_PRICE
-  FREE_DRINK
-  PRIVILEGE
-  CUSTOM
-}
-
 model Achievement {
   id            String                  @id @default(cuid())
   code          String                  @unique
@@ -798,13 +790,21 @@ model Achievement {
   endDate       DateTime?
   triggerType   AchievementTriggerType?
   triggerValue  Json?
+  // Whichever reward this achievement grants is a real Promotion (§19) —
+  // reused rather than a separate catalog, so redeeming it is just
+  // applying a promotion at checkout (checkout.ts's listEligiblePromotions/
+  // applyPromotion already special-case a member's own earned ones) and
+  // configuring it is the existing Back Office → Promotions page,
+  // nothing achievement-specific to maintain twice.
   hasReward     Boolean                 @default(false)
-  benefitType   BenefitType?
-  benefitConfig Json?
+  promotionId   String?
+  promotion     Promotion?              @relation(fields: [promotionId], references: [id])
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt
 
   memberAchievements MemberAchievement[]
+
+  @@index([promotionId])
 }
 
 model MemberAchievement {

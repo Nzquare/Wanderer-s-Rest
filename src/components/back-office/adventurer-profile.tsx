@@ -118,9 +118,17 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
                   <div>
                     <p className="font-medium text-foreground">
                       {a.achievement.icon ?? "🎁"}{" "}
-                      {describeBenefit(a.achievement.benefitType, a.achievement.benefitConfig)}
+                      {describeBenefit(
+                        a.achievement.promotion?.type,
+                        a.achievement.promotion?.value,
+                        a.achievement.promotion?.rewardMenuItem?.nameEn,
+                      )}
                     </p>
-                    <p className="text-xs text-foreground-muted">From: {a.achievement.nameEn}</p>
+                    <p className="text-xs text-foreground-muted">
+                      From: {a.achievement.nameEn}
+                      {a.benefit!.status === "AVAILABLE" &&
+                        " · also redeemable at Checkout → Add promotion"}
+                    </p>
                   </div>
                   {a.benefit!.status === "AVAILABLE" ? (
                     <Button

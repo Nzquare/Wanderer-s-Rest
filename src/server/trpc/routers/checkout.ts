@@ -337,6 +337,29 @@ export const checkoutRouter = router({
       const orderedMenuItemIds = new Set(
         session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
       );
+      // The linked member's own earned rewards (§Benefits) — an achievement
+      // unlock leaves an AVAILABLE BenefitRedemption pointing at whichever
+      // Promotion the achievement grants. Those apply regardless of the
+      // promotion's own date/day/spend window — "I earned this" is its own
+      // eligibility, not "it happens to be Tuesday."
+      const earnedPromotionIds = session.member
+        ? new Set(
+            (
+              await ctx.prisma.benefitRedemption.findMany({
+                where: {
+                  status: "AVAILABLE",
+                  memberAchievement: {
+                    memberId: session.member.id,
+                    achievement: { promotionId: { not: null } },
+                  },
+                },
+                select: {
+                  memberAchievement: { select: { achievement: { select: { promotionId: true } } } },
+                },
+              })
+            ).map((r) => r.memberAchievement.achievement.promotionId!),
+          )
+        : new Set<string>();
 
       const promotions = await ctx.prisma.promotion.findMany({
         where: { active: true },
@@ -346,13 +369,15 @@ export const checkoutRouter = router({
       return promotions
         .filter((p) => !appliedPromotionIds.has(p.id))
         .map(toPromotionConfig)
-        .filter((p) =>
-          isPromotionEligible(p, {
-            now,
-            hasMember: !!session.member,
-            currentSpend: base,
-            orderedMenuItemIds,
-          }),
+        .filter(
+          (p) =>
+            earnedPromotionIds.has(p.id) ||
+            isPromotionEligible(p, {
+              now,
+              hasMember: !!session.member,
+              currentSpend: base,
+              orderedMenuItemIds,
+            }),
         )
         .map((p) => {
           const source = promotions.find((raw) => raw.id === p.id);
@@ -365,6 +390,10 @@ export const checkoutRouter = router({
             memberOnly: p.memberOnly,
             rewardMenuItemName: source?.rewardMenuItem?.nameEn ?? null,
             previewAmount: computeDiscountAmount(p, base),
+            // Flags this row as the member's own earned reward rather than
+            // a normally-eligible promotion — checkout-client.tsx tags it
+            // "🎁 Your reward" so it doesn't read as an ordinary discount.
+            earnedViaBenefit: earnedPromotionIds.has(p.id),
           };
         });
     }),
@@ -395,10 +424,27 @@ export const checkoutRouter = router({
         session.orders.flatMap((o) => o.items.map((i) => i.menuItemId)),
       );
       const config = toPromotionConfig(promotion);
+      // A member's own earned reward (§Benefits) bypasses the normal
+      // eligibility check entirely — same reasoning as
+      // listEligiblePromotions above. Only look this up if a member is
+      // actually linked; findFirst on a null memberId would just be an
+      // expensive way to find nothing.
+      const earnedRedemption = session.member
+        ? await ctx.prisma.benefitRedemption.findFirst({
+            where: {
+              status: "AVAILABLE",
+              memberAchievement: {
+                memberId: session.member.id,
+                achievement: { promotionId: promotion.id },
+              },
+            },
+          })
+        : null;
       // Re-check eligibility server-side rather than trusting the client's
       // stale preview — a promotion's window or minimum spend may have
       // moved between the preview query and this click.
       if (
+        !earnedRedemption &&
         !isPromotionEligible(config, {
           now: new Date(),
           hasMember: !!session.member,
@@ -424,8 +470,23 @@ export const checkoutRouter = router({
           label,
           amount,
           appliedById: ctx.staff.id,
+          // Links this discount back to the specific reward it redeemed
+          // (§Benefits) — the Adventurer Profile's Benefits section reads
+          // this to show "Redeemed" instead of leaving it AVAILABLE forever.
+          benefitRedemptionId: earnedRedemption?.id,
         },
       });
+      if (earnedRedemption) {
+        await ctx.prisma.benefitRedemption.update({
+          where: { id: earnedRedemption.id },
+          data: {
+            status: "USED",
+            usedAt: new Date(),
+            usedById: ctx.staff.id,
+            relatedSessionId: session.id,
+          },
+        });
+      }
       await logAudit(ctx.prisma, {
         staffId: ctx.staff.id,
         action: "PROMOTION_APPLIED",

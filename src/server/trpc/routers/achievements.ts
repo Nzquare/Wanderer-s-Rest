@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
+import { toNum } from "@/lib/decimal";
 
 const categoryEnum = z.enum([
   "VISITS",
@@ -29,34 +30,21 @@ const triggerTypeEnum = z.enum([
   "LIFETIME_SPEND",
   "CUSTOM",
 ]);
-const benefitTypeEnum = z.enum([
-  "FREE_ITEM",
-  "FIXED_DISCOUNT",
-  "PERCENT_DISCOUNT",
-  "FREE_TABLE_TIME",
-  "SPECIAL_PRICE",
-  "FREE_DRINK",
-  "PRIVILEGE",
-  "CUSTOM",
-]);
-
-// One shape covers every benefit type — which fields actually get used
-// depends on benefitType (§30/§Achievement Benefits):
-//   FIXED_DISCOUNT / PERCENT_DISCOUNT / FREE_TABLE_TIME -> value (฿, %, or minutes)
-//   FREE_ITEM / FREE_DRINK                              -> menuItemId + a display snapshot
-//   SPECIAL_PRICE / PRIVILEGE / CUSTOM                  -> description (free text, e.g. "member pricing at the till" — staff apply it manually since there's no structured field for it)
-const benefitConfigSchema = z.object({
-  value: z.number().optional(),
-  menuItemId: z.string().optional(),
-  menuItemName: z.string().optional(),
-  description: z.string().optional(),
-});
-
 const manage = () => permissionProcedure(Permission.MANAGE_SETTINGS);
 
 export const achievementsRouter = router({
-  list: staffProcedure.query(({ ctx }) => {
-    return ctx.prisma.achievement.findMany({ orderBy: { createdAt: "asc" } });
+  list: staffProcedure.query(async ({ ctx }) => {
+    const achievements = await ctx.prisma.achievement.findMany({
+      orderBy: { createdAt: "asc" },
+      include: { promotion: { include: { rewardMenuItem: { select: { nameEn: true } } } } },
+    });
+    // Decimal doesn't survive the wire as a number without this — same
+    // toNum() convention used everywhere else a Decimal crosses into a
+    // tRPC response.
+    return achievements.map((a) => ({
+      ...a,
+      promotion: a.promotion ? { ...a.promotion, value: toNum(a.promotion.value) } : null,
+    }));
   }),
 
   listManualAwardable: permissionProcedure(Permission.AWARD_ACHIEVEMENTS).query(({ ctx }) => {
@@ -82,8 +70,9 @@ export const achievementsRouter = router({
         triggerType: triggerTypeEnum.optional(),
         triggerValue: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
         hasReward: z.boolean().default(false),
-        benefitType: benefitTypeEnum.optional(),
-        benefitConfig: benefitConfigSchema.optional(),
+        // A real Promotion (Back Office → Promotions), reused rather than
+        // configured inline — see Achievement.promotionId in schema.prisma.
+        promotionId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -112,8 +101,7 @@ export const achievementsRouter = router({
         triggerType: triggerTypeEnum.optional(),
         triggerValue: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
         hasReward: z.boolean().optional(),
-        benefitType: benefitTypeEnum.optional(),
-        benefitConfig: benefitConfigSchema.optional(),
+        promotionId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
