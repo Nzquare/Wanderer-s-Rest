@@ -47,6 +47,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
       invalidate();
     },
   });
+  const redeemBenefit = trpc.benefits.redeem.useMutation({ onSuccess: invalidate });
 
   if (isLoading || !profile) {
     return <p className="text-sm text-foreground-muted">Loading adventurer profile…</p>;
@@ -121,16 +122,25 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
                     </p>
                     <p className="text-xs text-foreground-muted">From: {a.achievement.nameEn}</p>
                   </div>
-                  <span className="text-xs font-medium text-foreground-muted">
-                    {a.benefit!.status === "AVAILABLE"
-                      ? "Available"
-                      : a.benefit!.status === "USED"
-                        ? "Redeemed"
-                        : "Expired"}
-                  </span>
+                  {a.benefit!.status === "AVAILABLE" ? (
+                    <Button
+                      size="md"
+                      disabled={redeemBenefit.isPending}
+                      onClick={() => redeemBenefit.mutate({ id: a.benefit!.id })}
+                    >
+                      Mark redeemed
+                    </Button>
+                  ) : (
+                    <span className="text-xs font-medium text-foreground-muted">
+                      {a.benefit!.status === "USED" ? "Redeemed" : "Expired"}
+                    </span>
+                  )}
                 </div>
               ))}
           </div>
+          {redeemBenefit.error && (
+            <p className="text-xs text-status-danger">{redeemBenefit.error.message}</p>
+          )}
         </Card>
       )}
 

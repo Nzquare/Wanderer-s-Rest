@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/back-office/members", label: "Members" },
   { href: "/back-office/ranks", label: "Ranks" },
   { href: "/back-office/achievements", label: "Achievements" },
+  { href: "/back-office/benefits", label: "Benefits" },
   { href: "/back-office/reservations", label: "Reservations" },
   { href: "/back-office/promotions", label: "Promotions" },
   { href: "/back-office/staff", label: "Staff & Roles" },
