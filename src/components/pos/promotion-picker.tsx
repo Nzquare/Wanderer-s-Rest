@@ -68,6 +68,99 @@ export function PromotionPicker({
   const promotionChoices = (allPromotions ?? []).filter(
     (p) => p.stackable || !appliedPromotionIds.has(p.id),
   );
+  // A member's own earned-and-unredeemed rewards get their own section,
+  // above ordinary promotions — otherwise a "Free Potion" reward just
+  // sorts alphabetically among everyday promotions, which reads like
+  // staff has to go hunting for it (§separate rewards from promotions).
+  // A member's own earned-and-unredeemed rewards get their own section,
+  // above ordinary promotions — otherwise a "Free Potion" reward just
+  // sorts alphabetically among everyday promotions, which reads like
+  // staff has to go hunting for it (§separate rewards from promotions).
+  const rewardChoices = promotionChoices.filter((p) => p.earnedViaBenefit);
+  const normalChoices = promotionChoices.filter((p) => !p.earnedViaBenefit);
+
+  const renderRow = (p: NonNullable<typeof allPromotions>[number]) => {
+    const eligible = eligiblePromotionIds.has(p.id);
+    const eligibleInfo = eligiblePromotions?.find((e) => e.id === p.id);
+    const overriding = overridingPromoId === p.id;
+    return (
+      <div key={p.id} className="space-y-2 rounded-lg bg-background px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span>
+            {p.earnedViaBenefit && (
+              <span className="mr-1 rounded-full bg-teal-500/15 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300">
+                🎁 Your reward
+              </span>
+            )}
+            {p.name} —{" "}
+            {p.type === "PERCENTAGE"
+              ? `${p.value}% off`
+              : p.type === "FIXED_AMOUNT"
+                ? `฿${p.value} off`
+                : `free: ${p.rewardMenuItemName ?? "item"}`}
+            {/* FREE_ITEM already reads "free: Potion" above — a
+                "save ฿80" suffix on top of that frames it as a
+                discount, which it isn't, it's just free. Only
+                PERCENTAGE/FIXED_AMOUNT get the savings preview. */}
+            {eligible && eligibleInfo && p.type !== "FREE_ITEM" && (
+              <span className="text-teal-600">
+                {" "}
+                · save ฿{eligibleInfo.previewAmount.toFixed(0)}
+              </span>
+            )}
+            {!eligible && (
+              <span className="text-xs text-foreground-muted"> · not eligible right now</span>
+            )}
+          </span>
+          {eligible ? (
+            <Button
+              size="md"
+              variant="outline"
+              disabled={applyPromotion.isPending}
+              onClick={() => applyPromotion.mutate({ sessionId, promotionId: p.id })}
+            >
+              Apply
+            </Button>
+          ) : (
+            <Button
+              size="md"
+              variant="outline"
+              onClick={() => {
+                setOverridingPromoId(overriding ? null : p.id);
+                setOverrideReason("");
+              }}
+            >
+              {overriding ? "Cancel" : "Override"}
+            </Button>
+          )}
+        </div>
+        {overriding && (
+          <div className="flex flex-wrap items-end gap-2">
+            <input
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Reason (e.g. manager approved outside normal window)"
+              className="h-10 flex-1 min-w-40 rounded-lg border border-border bg-surface px-2 text-sm"
+            />
+            <Button
+              size="md"
+              variant="danger"
+              disabled={!overrideReason.trim() || applyPromotionOverride.isPending}
+              onClick={() =>
+                applyPromotionOverride.mutate({
+                  sessionId,
+                  promotionId: p.id,
+                  reason: overrideReason.trim(),
+                })
+              }
+            >
+              Confirm override
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -82,94 +175,30 @@ export function PromotionPicker({
               Close
             </button>
           </div>
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto">
             {promotionChoices.length === 0 && (
               <p className="text-sm text-foreground-muted">
                 No promotions left to apply — every active one is already on this bill.
               </p>
             )}
-            {promotionChoices.map((p) => {
-              const eligible = eligiblePromotionIds.has(p.id);
-              const eligibleInfo = eligiblePromotions?.find((e) => e.id === p.id);
-              const overriding = overridingPromoId === p.id;
-              return (
-                <div key={p.id} className="space-y-2 rounded-lg bg-background px-3 py-2 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>
-                      {eligibleInfo?.earnedViaBenefit && (
-                        <span className="mr-1 rounded-full bg-teal-500/15 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300">
-                          🎁 Your reward
-                        </span>
-                      )}
-                      {p.name} —{" "}
-                      {p.type === "PERCENTAGE"
-                        ? `${p.value}% off`
-                        : p.type === "FIXED_AMOUNT"
-                          ? `฿${p.value} off`
-                          : `free: ${p.rewardMenuItemName ?? "item"}`}
-                      {/* FREE_ITEM already reads "free: Potion" above — a
-                          "save ฿80" suffix on top of that frames it as a
-                          discount, which it isn't, it's just free. Only
-                          PERCENTAGE/FIXED_AMOUNT get the savings preview. */}
-                      {eligible && eligibleInfo && p.type !== "FREE_ITEM" && (
-                        <span className="text-teal-600">
-                          {" "}
-                          · save ฿{eligibleInfo.previewAmount.toFixed(0)}
-                        </span>
-                      )}
-                      {!eligible && (
-                        <span className="text-xs text-foreground-muted"> · not eligible right now</span>
-                      )}
-                    </span>
-                    {eligible ? (
-                      <Button
-                        size="md"
-                        variant="outline"
-                        disabled={applyPromotion.isPending}
-                        onClick={() => applyPromotion.mutate({ sessionId, promotionId: p.id })}
-                      >
-                        Apply
-                      </Button>
-                    ) : (
-                      <Button
-                        size="md"
-                        variant="outline"
-                        onClick={() => {
-                          setOverridingPromoId(overriding ? null : p.id);
-                          setOverrideReason("");
-                        }}
-                      >
-                        {overriding ? "Cancel" : "Override"}
-                      </Button>
-                    )}
-                  </div>
-                  {overriding && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <input
-                        value={overrideReason}
-                        onChange={(e) => setOverrideReason(e.target.value)}
-                        placeholder="Reason (e.g. manager approved outside normal window)"
-                        className="h-10 flex-1 min-w-40 rounded-lg border border-border bg-surface px-2 text-sm"
-                      />
-                      <Button
-                        size="md"
-                        variant="danger"
-                        disabled={!overrideReason.trim() || applyPromotionOverride.isPending}
-                        onClick={() =>
-                          applyPromotionOverride.mutate({
-                            sessionId,
-                            promotionId: p.id,
-                            reason: overrideReason.trim(),
-                          })
-                        }
-                      >
-                        Confirm override
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {rewardChoices.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600">
+                  🎁 Your rewards
+                </p>
+                {rewardChoices.map(renderRow)}
+              </div>
+            )}
+            {normalChoices.length > 0 && (
+              <div className="space-y-2">
+                {rewardChoices.length > 0 && (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                    Promotions
+                  </p>
+                )}
+                {normalChoices.map(renderRow)}
+              </div>
+            )}
           </div>
           {applyPromotion.error && (
             <p className="text-sm text-status-danger">{applyPromotion.error.message}</p>

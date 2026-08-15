@@ -532,19 +532,21 @@ export const checkoutRouter = router({
         where: { id: input.sessionId },
         select: { memberId: true },
       });
-      const earnedPromotionIds = session?.memberId
-        ? (
-            await ctx.prisma.benefitRedemption.findMany({
-              where: { status: "AVAILABLE", memberId: session.memberId },
-              select: { promotionId: true },
-            })
-          ).map((r) => r.promotionId)
-        : [];
+      const earnedPromotionIds = new Set(
+        session?.memberId
+          ? (
+              await ctx.prisma.benefitRedemption.findMany({
+                where: { status: "AVAILABLE", memberId: session.memberId },
+                select: { promotionId: true },
+              })
+            ).map((r) => r.promotionId)
+          : [],
+      );
       const promotions = await ctx.prisma.promotion.findMany({
         where: {
           OR: [
             { active: true },
-            ...(earnedPromotionIds.length > 0 ? [{ id: { in: earnedPromotionIds } }] : []),
+            ...(earnedPromotionIds.size > 0 ? [{ id: { in: Array.from(earnedPromotionIds) } }] : []),
           ],
         },
         orderBy: { name: "asc" },
@@ -557,6 +559,11 @@ export const checkoutRouter = router({
         value: toNum(p.value),
         rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
         stackable: p.stackable,
+        // Flags a member's own earned-and-unredeemed reward, same as
+        // listEligiblePromotions above — the picker uses this to keep
+        // "Your rewards" visually separate from ordinary promotions
+        // instead of interleaving them in one alphabetical list.
+        earnedViaBenefit: earnedPromotionIds.has(p.id),
       }));
     }),
 
