@@ -4,6 +4,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { describeBenefit } from "@/lib/benefits";
 
 export function AdventurerProfile({ memberId }: { memberId: string }) {
   const utils = trpc.useUtils();
@@ -53,6 +54,11 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
 
   const progress = profile.progression;
   const pct = progress ? Math.round((progress.expIntoLevel / progress.expForNextLevel) * 100) : 0;
+  // What this member has actually earned to redeem, separate from the
+  // achievement badge itself — every achievement.hasReward unlock left a
+  // BenefitRedemption row (checkout.ts / achievements.award).
+  const benefits = profile.achievements.filter((a) => a.benefit);
+  const availableBenefits = benefits.filter((b) => b.benefit!.status === "AVAILABLE");
 
   return (
     <div className="space-y-6">
@@ -87,6 +93,46 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
           <span>฿{profile.lifetimeSpending.toFixed(0)} spent</span>
         </div>
       </div>
+
+      {/* Full-width, above the grid — staff should never miss that a
+          member walking up to the till has something to claim. */}
+      {benefits.length > 0 && (
+        <Card className="space-y-2">
+          <p className="font-medium text-foreground">
+            Benefits {availableBenefits.length > 0 && `(${availableBenefits.length} to claim)`}
+          </p>
+          <div className="space-y-2">
+            {benefits
+              .slice()
+              .sort((a, b) =>
+                a.benefit!.status === "AVAILABLE" && b.benefit!.status !== "AVAILABLE" ? -1 : 0,
+              )
+              .map((a) => (
+                <div
+                  key={a.id}
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-lg p-2 text-sm ${
+                    a.benefit!.status === "AVAILABLE" ? "bg-teal-500/10" : "bg-background opacity-60"
+                  }`}
+                >
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {a.achievement.icon ?? "🎁"}{" "}
+                      {describeBenefit(a.achievement.benefitType, a.achievement.benefitConfig)}
+                    </p>
+                    <p className="text-xs text-foreground-muted">From: {a.achievement.nameEn}</p>
+                  </div>
+                  <span className="text-xs font-medium text-foreground-muted">
+                    {a.benefit!.status === "AVAILABLE"
+                      ? "Available"
+                      : a.benefit!.status === "USED"
+                        ? "Redeemed"
+                        : "Expired"}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-3">

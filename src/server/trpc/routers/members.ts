@@ -384,7 +384,7 @@ export const membersRouter = router({
             include: {
               class: true,
               memberAchievements: {
-                include: { achievement: true },
+                include: { achievement: true, benefit: true },
                 orderBy: { unlockedAt: "desc" },
               },
             },
@@ -437,6 +437,21 @@ export const membersRouter = router({
             unlockedAt: unlocked?.unlockedAt ?? null,
           };
         }),
+        // Rewards from achievements that grant one (§Achievement Benefits)
+        // — shown separately from the achievement badge itself, since
+        // what a member actually cares about here is "what can I claim,"
+        // not the trigger that earned it.
+        benefits: member.memberAchievements
+          .filter((ma) => ma.benefit)
+          .map((ma) => ({
+            id: ma.benefit!.id,
+            achievementNameEn: ma.achievement.nameEn,
+            icon: ma.achievement.icon,
+            benefitType: ma.achievement.benefitType,
+            benefitConfig: ma.achievement.benefitConfig,
+            status: ma.benefit!.status,
+            earnedAt: ma.benefit!.earnedAt,
+          })),
       };
     }),
 });

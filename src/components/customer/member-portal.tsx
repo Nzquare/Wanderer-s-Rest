@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { describeBenefit } from "@/lib/benefits";
 
 /**
  * Fully public "check my profile" page (§Member self-service) — a member
@@ -65,6 +66,37 @@ export function MemberPortal() {
               )}
               <p className="mt-4 text-sm text-white/70">{profile.visits} visits so far</p>
             </div>
+
+            {profile.benefits.length > 0 && (
+              <div className="rounded-2xl border border-white/20 bg-white/5 p-5">
+                <p className="font-medium text-white">
+                  Benefits ({profile.benefits.filter((b) => b.status === "AVAILABLE").length} to claim)
+                </p>
+                <div className="mt-3 space-y-2">
+                  {profile.benefits
+                    .slice()
+                    .sort((a, b) => (a.status === "AVAILABLE" ? -1 : b.status === "AVAILABLE" ? 1 : 0))
+                    .map((b) => (
+                      <div
+                        key={b.id}
+                        className={`rounded-lg p-2 text-sm ${
+                          b.status === "AVAILABLE" ? "bg-teal-500/20" : "bg-white/5 opacity-60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-white">
+                            {b.icon ?? "🎁"} {describeBenefit(b.benefitType, b.benefitConfig)}
+                          </p>
+                          <span className="shrink-0 text-xs text-white/70">
+                            {b.status === "AVAILABLE" ? "Show this to staff" : b.status === "USED" ? "Redeemed" : "Expired"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-white/50">From: {b.achievementNameEn}</p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
             <div className="rounded-2xl border border-white/20 bg-white/5 p-5">
               <p className="font-medium text-white">
