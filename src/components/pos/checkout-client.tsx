@@ -638,7 +638,17 @@ export function CheckoutClient({
             recordPayment.mutate({
               sessionId,
               payments: payments
-                .map((p, i) => ({ method: p.method, amount: effectiveAmounts[i] }))
+                .map((p, i) => ({
+                  method: p.method,
+                  amount: effectiveAmounts[i],
+                  // Only meaningful for cash, and only when the cashier
+                  // actually typed one — the receipt shows what was
+                  // tendered and the change given when present.
+                  cashReceived:
+                    p.method === "CASH" && Number(p.cashReceived) > 0
+                      ? Number(p.cashReceived)
+                      : undefined,
+                }))
                 .filter((p) => p.amount > 0),
             })
           }

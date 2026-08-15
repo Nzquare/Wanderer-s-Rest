@@ -38,7 +38,9 @@ interface ReceiptSnapshot {
     taxAmount: number;
     total: number;
   };
-  payments: { method: string; amount: number }[];
+  // cashReceived/change are absent on receipts printed before this field
+  // existed, and on any non-cash payment — omit those lines when missing.
+  payments: { method: string; amount: number; cashReceived?: number; change?: number }[];
   // memberCode/classNameEn/classIcon are absent on receipts printed before
   // this field existed — fall back to omitting that line, same as any
   // other pre-existing snapshot field.
@@ -164,6 +166,14 @@ export function ReceiptView({
                   Class: {snapshot.member.classIcon ?? ""} {snapshot.member.classNameEn}
                 </p>
               )}
+              <p className="font-semibold text-foreground">+{snapshot.expAwarded} EXP</p>
+              {snapshot.lifetimeExpAfter != null && snapshot.levelAfter != null && (
+                <p className="text-xs text-foreground-muted">
+                  Total {snapshot.lifetimeExpAfter} EXP · Level {snapshot.levelAfter}
+                  {snapshot.rankNameAfter &&
+                    ` · ${snapshot.rankIconAfter ?? "🎖️"} ${snapshot.rankNameAfter}`}
+                </p>
+              )}
             </>
           )}
         </div>
@@ -252,9 +262,23 @@ export function ReceiptView({
         </div>
         <div className="border-t border-dashed border-border pt-2 space-y-1">
           {snapshot.payments.map((p, i) => (
-            <div key={i} className="flex justify-between">
-              <span>{p.method}</span>
-              <span>฿{p.amount.toFixed(0)}</span>
+            <div key={i}>
+              <div className="flex justify-between">
+                <span>{p.method}</span>
+                <span>฿{p.amount.toFixed(0)}</span>
+              </div>
+              {p.cashReceived != null && (
+                <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                  <span>Received</span>
+                  <span>฿{p.cashReceived.toFixed(0)}</span>
+                </div>
+              )}
+              {p.change != null && p.change > 0 && (
+                <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                  <span>Change</span>
+                  <span>฿{p.change.toFixed(0)}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>

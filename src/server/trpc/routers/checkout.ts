@@ -653,6 +653,14 @@ export const checkoutRouter = router({
             method: z.enum(["CASH", "PROMPTPAY", "CARD", "OTHER"]),
             amount: z.number().positive(),
             reference: z.string().optional(),
+            // CASH only — what the customer actually handed over
+            // (checkout-client.tsx's change-due calculator). Never part
+            // of the money actually owed/recorded (`amount` already is
+            // that, and the drawer only ever nets `amount` either way —
+            // the ฿100-in/฿40-change split isn't a separate financial
+            // fact anything else needs) — carried through only so the
+            // receipt can show what was tendered and the change given.
+            cashReceived: z.number().positive().optional(),
           }),
         ),
       }),
@@ -831,7 +839,12 @@ export const checkoutRouter = router({
             isFreeItem: d.promotion?.type === "FREE_ITEM",
           })),
           bill,
-          payments: input.payments,
+          payments: input.payments.map((p) => ({
+            method: p.method,
+            amount: p.amount,
+            cashReceived: p.cashReceived,
+            change: p.cashReceived != null ? p.cashReceived - p.amount : undefined,
+          })),
           // Member details (§Receipt member details) — a self-contained
           // snapshot of who this bill belonged to and where they stood
           // right after it, same §45 reasoning as everything else in
