@@ -294,9 +294,24 @@ function PricingTypeDetailsModal({
 
         <div className="flex items-center justify-between border-t border-border pt-3">
           {t.inUse ? (
-            <p className="text-xs text-foreground-muted">
-              Already used by a session or reservation — mark Inactive instead of deleting.
-            </p>
+            <span className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-foreground-muted">
+                Already used by a session or reservation, so it can&apos;t be
+                deleted — that would break that history.{" "}
+                {t.active
+                  ? "Mark it Inactive to hide it from the till instead:"
+                  : "It's already Inactive, so it's hidden from the till."}
+              </span>
+              {t.active && (
+                <button
+                  disabled={update.isPending}
+                  onClick={() => update.mutate({ id: t.id, active: false })}
+                  className="font-medium text-teal-600 underline"
+                >
+                  {update.isPending ? "Marking…" : "Mark Inactive"}
+                </button>
+              )}
+            </span>
           ) : confirmingDelete ? (
             <span className="flex items-center gap-2 text-xs">
               <span className="text-status-danger">Delete for good?</span>
