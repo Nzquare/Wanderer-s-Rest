@@ -158,10 +158,7 @@ export function ReceiptView({
           <p className="text-xs text-foreground-muted">Staff: {snapshot.staff}</p>
           {snapshot.member && (
             <>
-              <p>
-                Member: {snapshot.member.adventurerName}
-                {snapshot.member.memberCode && ` (${snapshot.member.memberCode})`}
-              </p>
+              <p>Member: {snapshot.member.adventurerName}</p>
               {snapshot.member.classNameEn && (
                 <p className="text-xs text-foreground-muted">
                   Class: {snapshot.member.classIcon ?? ""} {snapshot.member.classNameEn}
