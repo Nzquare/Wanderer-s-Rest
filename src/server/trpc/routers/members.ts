@@ -252,4 +252,75 @@ export const membersRouter = router({
         return { ok: true, newLifetimeExp };
       });
     }),
+
+  /**
+   * Directly set a member's rank (§Rank management — "I need to adjust
+   * rank also"). Rank is normally *derived* from lifetimeExp on every EXP
+   * change (checkout payment, adjustExp, refund all recompute it via
+   * computeProgression) — a bare `rankId` write here would just get
+   * silently overwritten the next time any of those run. Instead this
+   * sets lifetimeExp to the exact minimum needed to land at level 1 of
+   * the chosen rank (sum of every earlier rank's levelsRequired, times
+   * EXP-per-level) and records the delta as an ordinary ExpHistory entry
+   * — the same mechanism adjustExp already uses, just expressed in terms
+   * of "put them in this rank" instead of a raw ± amount, so it never
+   * desyncs from the derived model.
+   */
+  setRank: permissionProcedure(Permission.ADJUST_EXP)
+    .input(
+      z.object({
+        memberId: z.string(),
+        rankId: z.string(),
+        note: z.string().max(300).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.prisma.$transaction(async (tx) => {
+        const [member, ranks, membershipSettings] = await Promise.all([
+          tx.member.findUnique({ where: { id: input.memberId } }),
+          tx.rank.findMany({ orderBy: { order: "asc" } }),
+          getSettings("membership", tx),
+        ]);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND" });
+        const targetIndex = ranks.findIndex((r) => r.id === input.rankId);
+        if (targetIndex === -1) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Not a valid rank." });
+        }
+        const target = ranks[targetIndex];
+
+        const levelsBeforeTarget = ranks
+          .slice(0, targetIndex)
+          .reduce((s, r) => s + r.levelsRequired, 0);
+        const targetLifetimeExp = Math.max(
+          0,
+          levelsBeforeTarget * Math.max(1, membershipSettings.expPerLevel),
+        );
+        const amount = targetLifetimeExp - member.lifetimeExp;
+
+        await tx.member.update({
+          where: { id: member.id },
+          data: { lifetimeExp: targetLifetimeExp, rankId: target.id },
+        });
+        await tx.expHistory.create({
+          data: {
+            memberId: member.id,
+            amount,
+            reason: "ADMIN_ADJUSTMENT",
+            staffId: ctx.staff.id,
+            lifetimeExpAfter: targetLifetimeExp,
+            note: `Rank set to ${target.nameEn}${input.note ? ` — ${input.note}` : ""}`,
+          },
+        });
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "RANK_ADJUSTMENT",
+          entityType: "Member",
+          entityId: member.id,
+          previousValue: { rankId: member.rankId, lifetimeExp: member.lifetimeExp },
+          newValue: { rankId: target.id, rankName: target.nameEn, lifetimeExp: targetLifetimeExp },
+          reason: input.note,
+        });
+        return { ok: true, newLifetimeExp: targetLifetimeExp, rankName: target.nameEn };
+      });
+    }),
 });

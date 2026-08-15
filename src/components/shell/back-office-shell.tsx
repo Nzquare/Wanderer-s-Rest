@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/back-office/menu", label: "Menu" },
   { href: "/back-office/games", label: "Game Library" },
   { href: "/back-office/members", label: "Members" },
+  { href: "/back-office/ranks", label: "Ranks" },
   { href: "/back-office/achievements", label: "Achievements" },
   { href: "/back-office/reservations", label: "Reservations" },
   { href: "/back-office/promotions", label: "Promotions" },

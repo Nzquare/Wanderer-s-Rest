@@ -143,11 +143,15 @@ async function main() {
     [5, "ตำนาน", "Legendary"],
   ];
   for (const [order, nameTh, nameEn] of ranks) {
-    await prisma.rank.upsert({
-      where: { order },
-      create: { order, nameTh, nameEn, levelsRequired: 20 },
-      update: {},
-    });
+    // `order` isn't a unique column (§Rank management — it has to stay
+    // reorderable in a single batch from Back Office), so upsert-by-order
+    // isn't available here; nameEn is this seed list's natural key instead.
+    const existing = await prisma.rank.findFirst({ where: { nameEn } });
+    if (existing) {
+      await prisma.rank.update({ where: { id: existing.id }, data: { order, nameTh } });
+    } else {
+      await prisma.rank.create({ data: { order, nameTh, nameEn, levelsRequired: 20 } });
+    }
   }
 
   // ── Adventurer classes (§29) ─────────────────────────────────────────

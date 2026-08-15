@@ -9,6 +9,7 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
   const utils = trpc.useUtils();
   const { data: profile, isLoading } = trpc.members.getProfile.useQuery({ memberId });
   const { data: classes } = trpc.members.listClasses.useQuery();
+  const { data: ranks } = trpc.ranks.list.useQuery();
   const { data: manualAchievements } = trpc.achievements.listManualAwardable.useQuery();
   const { data: catalog } = trpc.achievements.list.useQuery();
 
@@ -17,6 +18,8 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
     "ADMIN_ADJUSTMENT",
   );
   const [expNote, setExpNote] = useState("");
+  const [rankId, setRankId] = useState("");
+  const [rankNote, setRankNote] = useState("");
   const [awardAchievementId, setAwardAchievementId] = useState("");
   const [awardNote, setAwardNote] = useState("");
 
@@ -26,6 +29,13 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
     onSuccess: () => {
       setExpAmount("");
       setExpNote("");
+      invalidate();
+    },
+  });
+  const setRank = trpc.members.setRank.useMutation({
+    onSuccess: () => {
+      setRankId("");
+      setRankNote("");
       invalidate();
     },
   });
@@ -276,6 +286,49 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
               Apply
             </Button>
           </div>
+          {adjustExp.error && (
+            <p className="text-xs text-status-danger">{adjustExp.error.message}</p>
+          )}
+
+          {/* Rank is normally derived from lifetime EXP (adjusted above) —
+              this sets it directly by moving lifetimeExp to that rank's
+              own minimum, recorded as an ordinary EXP adjustment, so it
+              sticks instead of getting recomputed away on the next
+              purchase (§Rank management). */}
+          <p className="pt-2 font-medium text-foreground">Adjust Rank</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <select
+              value={rankId}
+              onChange={(e) => setRankId(e.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-2 text-sm"
+            >
+              <option value="">Choose rank…</option>
+              {ranks?.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.icon ?? "🎖️"} {r.nameEn}
+                </option>
+              ))}
+            </select>
+            <input
+              value={rankNote}
+              onChange={(e) => setRankNote(e.target.value)}
+              placeholder="Note (optional)"
+              className="h-10 flex-1 min-w-32 rounded-lg border border-border bg-background px-2 text-sm"
+            />
+            <Button
+              size="md"
+              variant="outline"
+              disabled={!rankId || setRank.isPending}
+              onClick={() =>
+                setRank.mutate({ memberId, rankId, note: rankNote || undefined })
+              }
+            >
+              {setRank.isPending ? "Setting…" : "Set rank"}
+            </Button>
+          </div>
+          {setRank.error && (
+            <p className="text-xs text-status-danger">{setRank.error.message}</p>
+          )}
 
           <p className="pt-2 font-medium text-foreground">Award manual achievement</p>
           <div className="flex flex-wrap items-end gap-2">

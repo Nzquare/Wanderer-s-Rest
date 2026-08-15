@@ -652,15 +652,22 @@ model AdventurerClass {
 }
 
 model Rank {
-  id               String  @id @default(cuid())
-  order            Int     @unique
+  id               String   @id @default(cuid())
+  // Not unique (unlike its name suggests) — same sortOrder-style convention
+  // as PricingType/MenuCategory/etc. elsewhere in this schema, deliberately
+  // non-unique so Back Office's drag-to-reorder can renumber the whole list
+  // in one batch of updates without a transient duplicate ever tripping a
+  // unique constraint mid-reorder (§Rank management).
+  order            Int      @default(0)
   nameTh           String
   nameEn           String
   icon             String?
   descriptionTh    String?
   descriptionEn    String?
-  levelsRequired   Int     @default(20)
+  levelsRequired   Int      @default(20)
   extraRequirement Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   members Member[]
 }
