@@ -24,6 +24,7 @@ type Category = (typeof CATEGORIES)[number];
 const AUTO_TRIGGERS = [
   { value: "VISIT_COUNT", label: "Visit count", field: "count" },
   { value: "LEVEL_REACHED", label: "Level reached", field: "level" },
+  { value: "CLASS_LEVEL_REACHED", label: "Level reached in a class", field: "classAndLevel" },
   { value: "RANK_REACHED", label: "Rank order reached", field: "rankOrder" },
   { value: "LIFETIME_SPEND", label: "Lifetime spend (฿)", field: "amount" },
   { value: "UNIQUE_GAMES_COUNT", label: "Unique games played", field: "count" },
@@ -44,6 +45,8 @@ type TriggerType = (typeof AUTO_TRIGGERS)[number]["value"];
  * without having to guess from the label alone.
  */
 const TRIGGER_HINTS: Partial<Record<TriggerType, string>> = {
+  CLASS_LEVEL_REACHED:
+    "Unlocks once a member of the chosen class reaches this level — e.g. Level 21 Fighter unlocks \"Amateur Fighter\". A different class at the same level, or the right class below it, doesn't count.",
   UNIQUE_GAMES_COUNT:
     "Counts how many different games the member has played in total — any games, no need to pick which ones. Set the threshold below.",
   TOTAL_GAMES_COUNT:
@@ -68,7 +71,7 @@ const TRIGGER_HINTS: Partial<Record<TriggerType, string>> = {
 const CATEGORY_TRIGGER_TYPES: Partial<Record<Category, TriggerType[]>> = {
   VISITS: ["VISIT_COUNT"],
   SPENDING: ["LIFETIME_SPEND"],
-  LEVEL: ["LEVEL_REACHED"],
+  LEVEL: ["LEVEL_REACHED", "CLASS_LEVEL_REACHED"],
   RANK: ["RANK_REACHED"],
   GAMES: [
     "UNIQUE_GAMES_COUNT",
@@ -135,6 +138,8 @@ interface FormState {
   /** Only used by the "gameIdAndCount" field — triggerValue holds the count. */
   triggerGameId: string;
   triggerGameLabel: string;
+  /** Only used by the "classAndLevel" field — triggerValue holds the level. */
+  triggerClassId: string;
   hasReward: boolean;
   /** Which Promotion (Back Office → Promotions) this achievement grants. */
   promotionId: string;
@@ -152,6 +157,7 @@ const BLANK_FORM: FormState = {
   triggerValue: "",
   triggerGameId: "",
   triggerGameLabel: "",
+  triggerClassId: "",
   hasReward: false,
   promotionId: "",
   hidden: false,
@@ -169,6 +175,7 @@ function AchievementFields({
 }) {
   const availableTriggers = triggersForCategory(form.category);
   const triggerField = AUTO_TRIGGERS.find((t) => t.value === form.triggerType)?.field ?? "count";
+  const { data: classes } = trpc.classes.list.useQuery();
 
   function setCategory(category: Category) {
     setForm((f) => {
@@ -287,7 +294,38 @@ function AchievementFields({
               </div>
             </>
           )}
-          {triggerField !== "gameId" && triggerField !== "gameIdAndCount" && (
+          {triggerField === "classAndLevel" && (
+            <>
+              <div className="w-40">
+                <label className="text-xs text-foreground-muted">Class</label>
+                <select
+                  value={form.triggerClassId}
+                  onChange={(e) => setForm((f) => ({ ...f, triggerClassId: e.target.value }))}
+                  className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                >
+                  <option value="">Choose a class…</option>
+                  {classes?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.icon ?? ""} {c.nameEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-24">
+                <label className="text-xs text-foreground-muted">Level</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.triggerValue}
+                  onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}
+                  className="h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                />
+              </div>
+            </>
+          )}
+          {triggerField !== "gameId" &&
+            triggerField !== "gameIdAndCount" &&
+            triggerField !== "classAndLevel" && (
             <div className="w-28">
               <label className="text-xs text-foreground-muted">Threshold</label>
               <input
@@ -381,7 +419,14 @@ function buildPayload(form: FormState) {
       triggerValue = { gameId: form.triggerValue };
     } else if (triggerField === "gameIdAndCount" && form.triggerGameId && form.triggerValue) {
       triggerValue = { gameId: form.triggerGameId, count: Number(form.triggerValue) };
-    } else if (triggerField !== "gameId" && triggerField !== "gameIdAndCount" && form.triggerValue) {
+    } else if (triggerField === "classAndLevel" && form.triggerClassId && form.triggerValue) {
+      triggerValue = { classId: form.triggerClassId, level: Number(form.triggerValue) };
+    } else if (
+      triggerField !== "gameId" &&
+      triggerField !== "gameIdAndCount" &&
+      triggerField !== "classAndLevel" &&
+      form.triggerValue
+    ) {
       triggerValue = { [triggerField]: Number(form.triggerValue) };
     }
   }
@@ -490,9 +535,12 @@ function AchievementCard({
           ? String(tv.gameId ?? "")
           : field === "gameIdAndCount"
             ? String(tv.count ?? "")
-            : String(tv[field] ?? ""),
+            : field === "classAndLevel"
+              ? String(tv.level ?? "")
+              : String(tv[field] ?? ""),
       triggerGameId: field === "gameIdAndCount" ? String(tv.gameId ?? "") : "",
       triggerGameLabel: "",
+      triggerClassId: field === "classAndLevel" ? String(tv.classId ?? "") : "",
       hasReward: achievement.hasReward,
       promotionId: achievement.promotion?.id ?? "",
       hidden: achievement.hidden,

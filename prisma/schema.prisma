@@ -768,6 +768,10 @@ enum AchievementTriggerType {
   VISIT_COUNT
   RANK_REACHED
   LEVEL_REACHED
+  // Level reached while holding a specific AdventurerClass (§Class-tied
+  // achievements) — e.g. "Level 21 Fighter" unlocks "Amateur Fighter".
+  // triggerValue is { classId, level }.
+  CLASS_LEVEL_REACHED
   UNIQUE_GAMES_COUNT
   CATEGORY_GAMES_COUNT
   CATEGORIES_PLAYED_COUNT

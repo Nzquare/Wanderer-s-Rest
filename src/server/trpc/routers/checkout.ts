@@ -832,6 +832,7 @@ export const checkoutRouter = router({
               totalLevel: after.totalLevel,
               rankOrder: after.rank.order,
               lifetimeSpending: toNum(session.member.lifetimeSpending) + eligible,
+              classId: session.member.classId,
               ...gameStats,
             },
           );

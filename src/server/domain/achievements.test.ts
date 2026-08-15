@@ -24,6 +24,38 @@ describe("isAchievementSatisfied", () => {
     ).toBe(true);
   });
 
+  it("CLASS_LEVEL_REACHED requires both the class and the level", () => {
+    const fighter = { ...stats, classId: "fighter-id" };
+    // Right class, level met.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "CLASS_LEVEL_REACHED", triggerValue: { classId: "fighter-id", level: 8 } },
+        fighter,
+      ),
+    ).toBe(true);
+    // Right class, level not met yet.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "CLASS_LEVEL_REACHED", triggerValue: { classId: "fighter-id", level: 9 } },
+        fighter,
+      ),
+    ).toBe(false);
+    // Level met, but wrong class.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "CLASS_LEVEL_REACHED", triggerValue: { classId: "scholar-id", level: 8 } },
+        fighter,
+      ),
+    ).toBe(false);
+    // No class linked at all.
+    expect(
+      isAchievementSatisfied(
+        { triggerType: "CLASS_LEVEL_REACHED", triggerValue: { classId: "fighter-id", level: 8 } },
+        stats,
+      ),
+    ).toBe(false);
+  });
+
   it("RANK_REACHED", () => {
     expect(
       isAchievementSatisfied(

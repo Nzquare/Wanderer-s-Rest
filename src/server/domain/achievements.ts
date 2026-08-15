@@ -14,6 +14,7 @@ export type TriggerType =
   | "VISIT_COUNT"
   | "LEVEL_REACHED"
   | "RANK_REACHED"
+  | "CLASS_LEVEL_REACHED"
   | "LIFETIME_SPEND"
   | "UNIQUE_GAMES_COUNT"
   | "CATEGORY_GAMES_COUNT"
@@ -28,6 +29,8 @@ export interface MemberStatsForEvaluation {
   totalLevel: number;
   rankOrder: number;
   lifetimeSpending: number;
+  /** The member's current AdventurerClass id, if any — feeds CLASS_LEVEL_REACHED. */
+  classId?: string | null;
   uniqueGamesCount?: number;
   totalGamesCount?: number;
   categoriesPlayedCount?: number;
@@ -59,6 +62,15 @@ export function isAchievementSatisfied(
       return stats.visits >= num(v, "count");
     case "LEVEL_REACHED":
       return stats.totalLevel >= num(v, "level");
+    case "CLASS_LEVEL_REACHED":
+      // Both conditions at once, per §Class-tied achievements — e.g.
+      // "Level 21 Fighter" only unlocks for a Fighter, and only once
+      // they've actually reached level 21, not either alone.
+      return (
+        !!stats.classId &&
+        stats.classId === String(v.classId ?? "") &&
+        stats.totalLevel >= num(v, "level")
+      );
     case "RANK_REACHED":
       return stats.rankOrder >= num(v, "rankOrder");
     case "LIFETIME_SPEND":
