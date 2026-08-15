@@ -204,6 +204,20 @@ export function CheckoutClient({
   const paidTotal = effectiveAmounts.reduce((s, a) => s + a, 0);
   const remaining = preview.bill.total - paidTotal;
 
+  // Cash received must actually be entered — and cover the row's own
+  // amount — before Confirm Payment is allowed, so a cashier can't
+  // finish a cash sale without ever recording what the customer handed
+  // over (and the change owed). Only rows that'll actually be submitted
+  // (effectiveAmount > 0) count, same filter recordPayment's own mutate
+  // call below applies.
+  const cashRowIssues = payments
+    .map((p, i) => ({ ...p, effectiveAmount: effectiveAmounts[i] }))
+    .filter((p) => p.method === "CASH" && p.effectiveAmount > 0);
+  const cashReceivedMissing = cashRowIssues.some((p) => !(Number(p.cashReceived) > 0));
+  const cashReceivedShort = cashRowIssues.some(
+    (p) => Number(p.cashReceived) > 0 && Number(p.cashReceived) < p.effectiveAmount,
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -490,8 +504,8 @@ export function CheckoutClient({
               }
               className="h-11 rounded-lg border border-border bg-background px-2 text-sm"
             >
-              <option value="CASH">Cash</option>
               <option value="PROMPTPAY">PromptPay / QR</option>
+              <option value="CASH">Cash</option>
               <option value="CARD">Card</option>
               <option value="OTHER">Other</option>
             </select>
@@ -627,13 +641,28 @@ export function CheckoutClient({
             ฿{remaining.toFixed(0)}
           </span>
         </div>
+        {cashReceivedMissing && (
+          <p className="text-sm text-status-warning">
+            Enter the cash received amount before confirming payment.
+          </p>
+        )}
+        {!cashReceivedMissing && cashReceivedShort && (
+          <p className="text-sm text-status-warning">
+            Cash received doesn&apos;t cover the amount — check what was entered.
+          </p>
+        )}
         {recordPayment.error && (
           <p className="text-sm text-status-danger">{recordPayment.error.message}</p>
         )}
         <Button
           size="xl"
           className="w-full"
-          disabled={Math.abs(remaining) > 0.5 || recordPayment.isPending}
+          disabled={
+            Math.abs(remaining) > 0.5 ||
+            recordPayment.isPending ||
+            cashReceivedMissing ||
+            cashReceivedShort
+          }
           onClick={() =>
             recordPayment.mutate({
               sessionId,
