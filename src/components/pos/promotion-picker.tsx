@@ -30,7 +30,7 @@ export function PromotionPicker({
   const { data: eligiblePromotions } = trpc.checkout.listEligiblePromotions.useQuery({
     sessionId,
   });
-  const { data: allPromotions } = trpc.checkout.listAllPromotions.useQuery();
+  const { data: allPromotions } = trpc.checkout.listAllPromotions.useQuery({ sessionId });
   const { data: appliedDiscounts } = trpc.checkout.listAppliedDiscounts.useQuery({ sessionId });
 
   const [open, setOpen] = useState(false);

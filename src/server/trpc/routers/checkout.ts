@@ -367,8 +367,20 @@ export const checkoutRouter = router({
           )
         : new Set<string>();
 
+      // A promotion a member actually earned (§Benefits) has to be
+      // fetchable even if it's since gone inactive for general use —
+      // staff turning off a promotion's everyday availability shouldn't
+      // also take away a reward someone already unlocked. Only the
+      // active ones show for everyone else.
       const promotions = await ctx.prisma.promotion.findMany({
-        where: { active: true },
+        where: {
+          OR: [
+            { active: true },
+            ...(earnedPromotionIds.size > 0
+              ? [{ id: { in: Array.from(earnedPromotionIds) } }]
+              : []),
+          ],
+        },
         include: { rewardMenuItem: { select: { basePrice: true, nameEn: true } } },
       });
       const now = new Date();
@@ -500,21 +512,46 @@ export const checkoutRouter = router({
    * normal window/minimum-spend/day — applyPromotionOverride below is the
    * matching mutation, and it requires a reason precisely because it
    * bypasses those checks.
+   *
+   * Also includes the linked member's own earned-but-currently-inactive
+   * promotions (same reasoning as listEligiblePromotions above) — without
+   * this, a promotion staff turned off after someone already earned it
+   * would silently vanish from the picker entirely, with no way to
+   * redeem an already-earned reward at all.
    */
-  listAllPromotions: permissionProcedure(Permission.APPLY_DISCOUNTS).query(async ({ ctx }) => {
-    const promotions = await ctx.prisma.promotion.findMany({
-      where: { active: true },
-      orderBy: { name: "asc" },
-      include: { rewardMenuItem: { select: { nameEn: true } } },
-    });
-    return promotions.map((p) => ({
-      id: p.id,
-      name: p.name,
-      type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
-      value: toNum(p.value),
-      rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
-    }));
-  }),
+  listAllPromotions: permissionProcedure(Permission.APPLY_DISCOUNTS)
+    .input(z.object({ sessionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.prisma.tableSession.findUnique({
+        where: { id: input.sessionId },
+        select: { memberId: true },
+      });
+      const earnedPromotionIds = session?.memberId
+        ? (
+            await ctx.prisma.benefitRedemption.findMany({
+              where: { status: "AVAILABLE", memberId: session.memberId },
+              select: { promotionId: true },
+            })
+          ).map((r) => r.promotionId)
+        : [];
+      const promotions = await ctx.prisma.promotion.findMany({
+        where: {
+          OR: [
+            { active: true },
+            ...(earnedPromotionIds.length > 0 ? [{ id: { in: earnedPromotionIds } }] : []),
+          ],
+        },
+        orderBy: { name: "asc" },
+        include: { rewardMenuItem: { select: { nameEn: true } } },
+      });
+      return promotions.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
+        value: toNum(p.value),
+        rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
+      }));
+    }),
 
   /**
    * A session's currently applied discounts on their own, independent of
