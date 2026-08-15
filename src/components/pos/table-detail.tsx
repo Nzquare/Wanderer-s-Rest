@@ -15,6 +15,7 @@ import { OrderPanel } from "./order-panel";
 import { OrderList } from "./order-list";
 import { GameLogPanel } from "./game-log-panel";
 import { SplitBillModal } from "./split-bill-modal";
+import { StartPlayingPanel } from "./start-playing-panel";
 import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -23,6 +24,7 @@ function PlayerRow({
   player,
   tableId,
   locked,
+  notStarted,
 }: {
   player: {
     id: string;
@@ -35,6 +37,12 @@ function PlayerRow({
   };
   tableId: string;
   locked: boolean;
+  /** Table hasn't started playing yet (§Start Playing) — every player
+   * sits PAUSED at zero elapsed until a price is picked, so the usual
+   * per-player Resume/Pause controls are hidden here (resumePlayer
+   * rejects it anyway) in favor of the one table-level Start Playing
+   * action, which resumes everyone together. */
+  notStarted: boolean;
 }) {
   const utils = trpc.useUtils();
   const invalidate = () =>
@@ -90,7 +98,10 @@ function PlayerRow({
             </Button>
           </>
         )}
-        {player.status === "PAUSED" && (
+        {player.status === "PAUSED" && notStarted && (
+          <span className="text-xs text-foreground-muted">Waiting to start</span>
+        )}
+        {player.status === "PAUSED" && !notStarted && (
           <>
             <Button
               size="md"
@@ -241,6 +252,11 @@ export function TableDetail({
   // new orders, no timer restarts) until Back to Table explicitly reopens
   // it. See sessions.backToTable / sessions.ts's OPEN_ORDER_STATUSES.
   const locked = session?.status === "READY_FOR_CHECKOUT";
+  // Seated but never started playing (§Start Playing) — opened with
+  // OpenTableForm's "No play yet", or every player still sits PAUSED at
+  // zero elapsed with no pricing type chosen. Distinguishes this from a
+  // genuine mid-game pause, which always already has a pricing type.
+  const notStarted = session?.status === "PAUSED" && !session.pricingType;
 
   return (
     <div className="space-y-4">
@@ -302,7 +318,13 @@ export function TableDetail({
                 <p className="text-3xl font-semibold text-foreground">
                   ฿{grandTotal.toFixed(0)}
                 </p>
-                {liveBill && (() => {
+                {notStarted ? (
+                  <p className="mt-1 text-xs text-foreground-muted">
+                    {session.players.length} player{session.players.length === 1 ? "" : "s"} seated ·
+                    not playing yet · Order ฿{foodDrinkSubtotal.toFixed(0)}
+                  </p>
+                ) : (
+                  liveBill && (() => {
                   // Once every fee line has hit the daily cap, the bill is
                   // pinned flat for the rest of the day just like FIXED/
                   // PACKAGE pricing — the elapsed-time readout stops meaning
@@ -333,7 +355,8 @@ export function TableDetail({
                       )}
                     </>
                   );
-                })()}
+                  })()
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 {session.status === "OPEN" && (
@@ -345,7 +368,7 @@ export function TableDetail({
                     Pause Table
                   </Button>
                 )}
-                {session.status === "PAUSED" && (
+                {session.status === "PAUSED" && !notStarted && (
                   <Button
                     variant="primary"
                     onClick={() => resumeTable.mutate({ sessionId: session.id })}
@@ -392,6 +415,10 @@ export function TableDetail({
                 </Button>
               </div>
             </Card>
+          );
+
+          const startPlayingPanel = notStarted && (
+            <StartPlayingPanel sessionId={session.id} tableId={tableId} />
           );
 
           const voidPanel = voidOpen && (
@@ -481,6 +508,7 @@ export function TableDetail({
                     key={p.id}
                     tableId={tableId}
                     locked={locked}
+                    notStarted={notStarted}
                     player={{
                       id: p.id,
                       label: p.label,
@@ -599,6 +627,7 @@ export function TableDetail({
                 <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                   <div className="space-y-4">
                     {billCard}
+                    {startPlayingPanel}
                     {voidPanel}
                     {playersSection}
                     {gameLogSection}
@@ -619,6 +648,7 @@ export function TableDetail({
             <>
               <div className="space-y-4">
                 {billCard}
+                {startPlayingPanel}
                 {voidPanel}
                 {playersSection}
                 {ordersSection}

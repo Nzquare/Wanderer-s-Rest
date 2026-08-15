@@ -273,6 +273,13 @@ export const sessionsRouter = router({
         packageId: z.string().optional(),
         memberId: z.string().optional(),
         notes: z.string().optional(),
+        // False = "seated, not playing yet" (§Start Playing) — customer is
+        // ordering/deciding, no pricing type is chosen and no player timer
+        // starts. Players land PAUSED at zero elapsed instead of ACTIVE,
+        // same shape a genuine mid-game pause leaves them in, so resuming
+        // later reuses that exact machinery. startPlaying below is the
+        // only door back out of this state — see its own comment.
+        startPlaying: z.boolean().default(true),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -301,7 +308,7 @@ export const sessionsRouter = router({
         }
 
         let pricingTypeId = input.pricingTypeId;
-        if (!pricingTypeId) {
+        if (input.startPlaying && !pricingTypeId) {
           const regular = await tx.pricingType.findUnique({
             where: { code: "REGULAR" },
           });
@@ -312,10 +319,13 @@ export const sessionsRouter = router({
         const session = await tx.tableSession.create({
           data: {
             tableId: table.id,
-            status: "OPEN",
+            status: input.startPlaying ? "OPEN" : "PAUSED",
             startTime: now,
             playerCount: input.playerCount,
-            pricingTypeId,
+            // Left unset (null) in the "no play yet" case — that's the
+            // signal startPlaying/resumePlayer check for "has this table
+            // ever actually started" (see below).
+            pricingTypeId: input.startPlaying ? pricingTypeId : undefined,
             packageId: input.packageId,
             memberId: input.memberId,
             notes: input.notes,
@@ -324,7 +334,8 @@ export const sessionsRouter = router({
               create: Array.from({ length: input.playerCount }, (_, i) => ({
                 label: `Player ${i + 1}`,
                 startTime: now,
-                status: "ACTIVE" as const,
+                pausedAt: input.startPlaying ? null : now,
+                status: input.startPlaying ? ("ACTIVE" as const) : ("PAUSED" as const),
                 addedById: ctx.staff.id,
               })),
             },
@@ -333,7 +344,7 @@ export const sessionsRouter = router({
 
         await tx.restaurantTable.update({
           where: { id: table.id },
-          data: { status: "PLAYING" },
+          data: { status: input.startPlaying ? "PLAYING" : "PAUSED" },
         });
 
         return { sessionId: session.id };
@@ -355,13 +366,20 @@ export const sessionsRouter = router({
               : "Session is not open.",
         });
       }
+      // A player added while the table is PAUSED — whether that's a
+      // genuine mid-game pause or the table hasn't started playing yet
+      // (§Start Playing) — joins in that same paused state instead of
+      // running while everyone else is stopped.
+      const now = new Date();
+      const paused = session.status === "PAUSED";
       await ctx.prisma.$transaction([
         ctx.prisma.sessionPlayer.create({
           data: {
             sessionId: session.id,
             label: input.label ?? `Player ${session.playerCount + 1}`,
-            startTime: new Date(),
-            status: "ACTIVE",
+            startTime: now,
+            pausedAt: paused ? now : null,
+            status: paused ? "PAUSED" : "ACTIVE",
             addedById: ctx.staff.id,
           },
         }),
@@ -394,9 +412,21 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const player = await ctx.prisma.sessionPlayer.findUnique({
         where: { id: input.sessionPlayerId },
+        include: { session: { select: { pricingTypeId: true } } },
       });
       if (!player || player.status !== "PAUSED" || !player.pausedAt) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Player is not paused." });
+      }
+      // No pricing type yet means this table hasn't started playing at all
+      // (§Start Playing) — resuming one player one-off would start their
+      // clock with no price chosen. Start Playing sets the price for the
+      // whole table and resumes everyone together; a genuine mid-game
+      // pause always already has a pricing type and isn't affected.
+      if (!player.session.pricingTypeId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This table hasn't started playing yet — use Start Playing to pick a price first.",
+        });
       }
       const additionalPausedMs = Date.now() - player.pausedAt.getTime();
       await ctx.prisma.sessionPlayer.update({
@@ -504,6 +534,16 @@ export const sessionsRouter = router({
         include: { players: true },
       });
       if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      // A table that never started playing (§Start Playing) is also
+      // sitting PAUSED with no pricingTypeId — that state only unlocks
+      // through startPlaying, which picks the price at the same time it
+      // resumes everyone, never through a plain resume with no price set.
+      if (session.status === "PAUSED" && !session.pricingTypeId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This table hasn't started playing yet — use Start Playing to pick a price first.",
+        });
+      }
       const now = new Date();
       await ctx.prisma.$transaction([
         ...session.players
@@ -523,6 +563,63 @@ export const sessionsRouter = router({
         ctx.prisma.tableSession.update({
           where: { id: session.id },
           data: { status: "OPEN" },
+        }),
+        ctx.prisma.restaurantTable.update({
+          where: { id: session.tableId },
+          data: { status: "PLAYING" },
+        }),
+      ]);
+      return { ok: true };
+    }),
+
+  /**
+   * Turns a "seated, not playing yet" table (opened with
+   * openTable.startPlaying=false) into a running one: picks the pricing
+   * type and resumes every player in one go, exactly like resumeTable
+   * plus setting the price. Only valid from that pre-play state — a
+   * table that's already started keeps whatever price it started with;
+   * changing pricing mid-session isn't something a "resume" action
+   * should ever do silently.
+   */
+  startPlaying: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionId: z.string(), pricingTypeId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.prisma.tableSession.findUnique({
+        where: { id: input.sessionId },
+        include: { players: true },
+      });
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      if (session.status !== "PAUSED" || session.pricingTypeId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This table has already started — use Resume Table instead.",
+        });
+      }
+      const pricingType = await ctx.prisma.pricingType.findUnique({
+        where: { id: input.pricingTypeId },
+      });
+      if (!pricingType || !pricingType.active) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid pricing type." });
+      }
+      const now = new Date();
+      await ctx.prisma.$transaction([
+        ...session.players
+          .filter((p) => p.status === "PAUSED" && p.pausedAt)
+          .map((p) =>
+            ctx.prisma.sessionPlayer.update({
+              where: { id: p.id },
+              data: {
+                status: "ACTIVE",
+                pausedAt: null,
+                accumulatedPausedMs:
+                  p.accumulatedPausedMs +
+                  BigInt(Math.max(0, now.getTime() - p.pausedAt!.getTime())),
+              },
+            }),
+          ),
+        ctx.prisma.tableSession.update({
+          where: { id: session.id },
+          data: { status: "OPEN", pricingTypeId: input.pricingTypeId },
         }),
         ctx.prisma.restaurantTable.update({
           where: { id: session.tableId },
