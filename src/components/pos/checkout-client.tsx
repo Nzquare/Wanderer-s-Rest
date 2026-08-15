@@ -211,19 +211,19 @@ export function CheckoutClient({
   );
 
   const isSplitPayment = payments.length > 1;
-  // A single CASH or PROMPTPAY payment always covers the whole bill —
-  // locking it to the remaining balance means there's nothing for the
-  // cashier to type or get wrong. The moment it's part of a split, the
+  // A single payment — cash, PromptPay, card, or other — always covers
+  // the whole bill, whatever the method, so it locks to the remaining
+  // balance instead of asking the cashier to type an amount that can
+  // only ever be right one way. The moment it's part of a split, the
   // lock comes off since each row then covers however much of the bill
   // the cashier decides it should (see the input fallback below).
   const effectiveAmounts: number[] = [];
   {
     let runningTotal = 0;
     for (const p of payments) {
-      const amount =
-        (p.method === "PROMPTPAY" || p.method === "CASH") && !isSplitPayment
-          ? Math.max(0, Math.round((preview.bill.total - runningTotal) * 100) / 100)
-          : Number(p.amount) || 0;
+      const amount = !isSplitPayment
+        ? Math.max(0, Math.round((preview.bill.total - runningTotal) * 100) / 100)
+        : Number(p.amount) || 0;
       effectiveAmounts.push(amount);
       runningTotal += amount;
     }
@@ -556,7 +556,7 @@ export function CheckoutClient({
         <p className="text-sm font-medium text-foreground-muted">Payment</p>
         {payments.map((p, i) => {
           const isCash = p.method === "CASH";
-          const isLocked = (p.method === "PROMPTPAY" || isCash) && !isSplitPayment;
+          const isLocked = !isSplitPayment;
           const received = Number(p.cashReceived) || 0;
           const change = received - effectiveAmounts[i];
           return (
@@ -595,9 +595,7 @@ export function CheckoutClient({
                     ),
                   )
                 }
-                placeholder={
-                  p.method === "PROMPTPAY" ? `Amount (e.g. ${remaining.toFixed(0)} left)` : "Amount"
-                }
+                placeholder={`Amount (e.g. ${remaining.toFixed(0)} left)`}
                 className="h-11 flex-1 rounded-lg border border-border bg-background px-2 text-sm"
               />
             )}
