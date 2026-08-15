@@ -39,8 +39,22 @@ interface ReceiptSnapshot {
     total: number;
   };
   payments: { method: string; amount: number }[];
-  member: { adventurerName: string } | null;
+  // memberCode/classNameEn/classIcon are absent on receipts printed before
+  // this field existed — fall back to omitting that line, same as any
+  // other pre-existing snapshot field.
+  member: {
+    adventurerName: string;
+    memberCode?: string;
+    classNameEn?: string | null;
+    classIcon?: string | null;
+  } | null;
   expAwarded: number;
+  // Also absent on older receipts — the "Quest Complete" banner's total
+  // EXP/level/rank line just doesn't render for those.
+  lifetimeExpAfter?: number | null;
+  levelAfter?: number | null;
+  rankNameAfter?: string | null;
+  rankIconAfter?: string | null;
   unlockedAchievements?: { nameEn: string }[];
   staff: string;
   closedAt: string;
@@ -87,6 +101,13 @@ export function ReceiptView({
           <p className="mt-1 text-3xl font-bold text-foreground">
             +{snapshot.expAwarded} EXP
           </p>
+          {snapshot.lifetimeExpAfter != null && snapshot.levelAfter != null && (
+            <p className="mt-1 text-sm text-foreground-muted">
+              Total {snapshot.lifetimeExpAfter} EXP · Level {snapshot.levelAfter}
+              {snapshot.rankNameAfter &&
+                ` · ${snapshot.rankIconAfter ?? "🎖️"} ${snapshot.rankNameAfter}`}
+            </p>
+          )}
           {leveledUp && progression && (
             <p className="mt-2 text-sm font-medium text-foreground">
               Level Up! LV {progression.levelBefore} → LV {progression.levelAfter}
@@ -135,7 +156,19 @@ export function ReceiptView({
             Table {snapshot.table.code} · {snapshot.players} player(s)
           </p>
           <p className="text-xs text-foreground-muted">Staff: {snapshot.staff}</p>
-          {snapshot.member && <p>Member: {snapshot.member.adventurerName}</p>}
+          {snapshot.member && (
+            <>
+              <p>
+                Member: {snapshot.member.adventurerName}
+                {snapshot.member.memberCode && ` (${snapshot.member.memberCode})`}
+              </p>
+              {snapshot.member.classNameEn && (
+                <p className="text-xs text-foreground-muted">
+                  Class: {snapshot.member.classIcon ?? ""} {snapshot.member.classNameEn}
+                </p>
+              )}
+            </>
+          )}
         </div>
         <div className="border-t border-dashed border-border pt-2 space-y-1">
           <div className="flex justify-between">

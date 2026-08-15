@@ -24,7 +24,10 @@ const checkoutInclude = {
   players: true,
   pricingType: true,
   package: true,
-  member: true,
+  // class included so the receipt (§Receipt member details) can show it
+  // alongside the member's name — nothing else in checkout.ts needed the
+  // nested relation, member's own scalar fields were enough before this.
+  member: { include: { class: true } },
   orders: {
     where: { status: "SUBMITTED" as const },
     include: {
@@ -709,6 +712,7 @@ export const checkoutRouter = router({
           levelAfter: number;
           rankBefore: string;
           rankAfter: string;
+          rankIconAfter: string | null;
         } | null = null;
         let unlockedAchievements: { nameEn: string }[] = [];
 
@@ -757,6 +761,7 @@ export const checkoutRouter = router({
             levelAfter: after.totalLevel,
             rankBefore: before.rank.nameEn,
             rankAfter: after.rank.nameEn,
+            rankIconAfter: after.rank.icon,
           };
 
           // ── Automatic achievements (§30, §53) ─────────────────────────
@@ -827,8 +832,24 @@ export const checkoutRouter = router({
           })),
           bill,
           payments: input.payments,
-          member: session.member ? { adventurerName: session.member.adventurerName } : null,
+          // Member details (§Receipt member details) — a self-contained
+          // snapshot of who this bill belonged to and where they stood
+          // right after it, same §45 reasoning as everything else in
+          // here: frozen at payment time, never re-derived later from
+          // whatever the member's live record happens to say by then.
+          member: session.member
+            ? {
+                adventurerName: session.member.adventurerName,
+                memberCode: session.member.memberCode,
+                classNameEn: session.member.class?.nameEn ?? null,
+                classIcon: session.member.class?.icon ?? null,
+              }
+            : null,
           expAwarded: expSummary?.expAwarded ?? 0,
+          lifetimeExpAfter: expSummary?.lifetimeExpAfter ?? null,
+          levelAfter: expSummary?.levelAfter ?? null,
+          rankNameAfter: expSummary?.rankAfter ?? null,
+          rankIconAfter: expSummary?.rankIconAfter ?? null,
           unlockedAchievements,
           staff: ctx.staff.name,
           closedAt: new Date().toISOString(),
