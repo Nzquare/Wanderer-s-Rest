@@ -16,6 +16,7 @@ import { OrderList } from "./order-list";
 import { GameLogPanel } from "./game-log-panel";
 import { SplitBillModal } from "./split-bill-modal";
 import { StartPlayingPanel } from "./start-playing-panel";
+import { PromotionPicker } from "./promotion-picker";
 import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -168,6 +169,54 @@ function NotOpenablePanel({
         >
           {markAvailable.isPending ? "Marking…" : "Mark Available"}
         </Button>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Applied promotions for this table, shown on the table page itself — not
+ * just at Checkout (§Table-page promotions: a discount, especially a
+ * member's own earned reward, is often decided before the bill is even
+ * sent to checkout). Only rendered for basePath "/cashier" below —
+ * applying/removing a promotion needs APPLY_DISCOUNTS, which Staff Mobile
+ * roles (GM, Tavern Keeper) don't generally carry, same reasoning as the
+ * "Checkout →" button being cashier-only.
+ */
+function PromotionsSection({ sessionId }: { sessionId: string }) {
+  const utils = trpc.useUtils();
+  const { data: appliedDiscounts } = trpc.checkout.listAppliedDiscounts.useQuery({ sessionId });
+  const removeDiscount = trpc.checkout.removeDiscount.useMutation({
+    onSuccess: () =>
+      Promise.all([
+        utils.checkout.listAppliedDiscounts.invalidate({ sessionId }),
+        utils.checkout.listEligiblePromotions.invalidate({ sessionId }),
+      ]),
+  });
+
+  return (
+    <Card className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-foreground-muted">Promotions</p>
+        <PromotionPicker sessionId={sessionId} />
+      </div>
+      {appliedDiscounts && appliedDiscounts.length > 0 && (
+        <div className="space-y-1">
+          {appliedDiscounts.map((d) => (
+            <div key={d.id} className="flex justify-between text-sm text-status-danger">
+              <span>{d.label}</span>
+              <div className="flex items-center gap-2">
+                <span>{d.isFreeItem ? "Free" : `-฿${d.amount.toFixed(0)}`}</span>
+                <button
+                  onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                  className="text-xs underline"
+                >
+                  remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </Card>
   );
@@ -578,6 +627,11 @@ export function TableDetail({
             </Card>
           );
 
+          // Cashier-only — see PromotionsSection's own comment.
+          const promotionsSection = basePath === "/cashier" && (
+            <PromotionsSection sessionId={session.id} />
+          );
+
           const notesSection = (
             <div className="space-y-1">
               <p className="text-xs font-medium text-foreground-muted">
@@ -628,6 +682,7 @@ export function TableDetail({
                     {billCard}
                     {startPlayingPanel}
                     {memberSection}
+                    {promotionsSection}
                     {voidPanel}
                     {playersSection}
                     {gameLogSection}
@@ -649,6 +704,7 @@ export function TableDetail({
                 {billCard}
                 {startPlayingPanel}
                 {memberSection}
+                {promotionsSection}
                 {voidPanel}
                 {playersSection}
                 {ordersSection}

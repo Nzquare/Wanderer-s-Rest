@@ -637,25 +637,35 @@ export const sessionsRouter = router({
         include: { players: true },
       });
       if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      // A table that never started playing (§Start Playing) has every
+      // player already sitting PAUSED at zero elapsed with no pricingType
+      // chosen — there's no running timer to stop. Forcing them through
+      // STOPPED here would make backToTable's resume below bring them back
+      // as ACTIVE, silently starting the timer on a table that never
+      // picked a price. Leave those players exactly as they are; only an
+      // already-started table's players get stopped.
+      const notStarted = session.status === "PAUSED" && !session.pricingTypeId;
       const now = new Date();
       await ctx.prisma.$transaction([
-        ...session.players
-          .filter((p) => p.status !== "STOPPED")
-          .map((p) => {
-            const extraPausedMs =
-              p.status === "PAUSED" && p.pausedAt
-                ? Math.max(0, now.getTime() - p.pausedAt.getTime())
-                : 0;
-            return ctx.prisma.sessionPlayer.update({
-              where: { id: p.id },
-              data: {
-                status: "STOPPED",
-                pausedAt: null,
-                endTime: now,
-                accumulatedPausedMs: p.accumulatedPausedMs + BigInt(extraPausedMs),
-              },
-            });
-          }),
+        ...(notStarted
+          ? []
+          : session.players
+              .filter((p) => p.status !== "STOPPED")
+              .map((p) => {
+                const extraPausedMs =
+                  p.status === "PAUSED" && p.pausedAt
+                    ? Math.max(0, now.getTime() - p.pausedAt.getTime())
+                    : 0;
+                return ctx.prisma.sessionPlayer.update({
+                  where: { id: p.id },
+                  data: {
+                    status: "STOPPED",
+                    pausedAt: null,
+                    endTime: now,
+                    accumulatedPausedMs: p.accumulatedPausedMs + BigInt(extraPausedMs),
+                  },
+                });
+              })),
         ctx.prisma.tableSession.update({
           where: { id: session.id },
           data: { status: "READY_FOR_CHECKOUT" },
@@ -682,6 +692,14 @@ export const sessionsRouter = router({
    * running at once. A player who was individually stopped earlier for
    * an unrelated reason (e.g. left early) would also resume; staff can
    * stop them again if that's not wanted.
+   *
+   * A table that never started playing (no pricingTypeId — see the
+   * notStarted branch in markReadyForCheckout above) never actually
+   * stopped its players in the first place, since there was no running
+   * timer to stop — so there's nothing here to resume either. Reopen it
+   * back into the same not-started PAUSED state instead of flipping
+   * players to ACTIVE, which would start billing a table that never
+   * picked a price.
    */
   backToTable: permissionProcedure(Permission.MANAGE_TIMERS)
     .input(z.object({ sessionId: z.string() }))
@@ -697,29 +715,32 @@ export const sessionsRouter = router({
           message: "This table isn't waiting for checkout.",
         });
       }
+      const notStarted = !session.pricingTypeId;
       const now = new Date();
       await ctx.prisma.$transaction([
-        ...session.players
-          .filter((p) => p.status === "STOPPED")
-          .map((p) => {
-            const gapMs = p.endTime ? Math.max(0, now.getTime() - p.endTime.getTime()) : 0;
-            return ctx.prisma.sessionPlayer.update({
-              where: { id: p.id },
-              data: {
-                status: "ACTIVE",
-                pausedAt: null,
-                endTime: null,
-                accumulatedPausedMs: p.accumulatedPausedMs + BigInt(gapMs),
-              },
-            });
-          }),
+        ...(notStarted
+          ? []
+          : session.players
+              .filter((p) => p.status === "STOPPED")
+              .map((p) => {
+                const gapMs = p.endTime ? Math.max(0, now.getTime() - p.endTime.getTime()) : 0;
+                return ctx.prisma.sessionPlayer.update({
+                  where: { id: p.id },
+                  data: {
+                    status: "ACTIVE",
+                    pausedAt: null,
+                    endTime: null,
+                    accumulatedPausedMs: p.accumulatedPausedMs + BigInt(gapMs),
+                  },
+                });
+              })),
         ctx.prisma.tableSession.update({
           where: { id: session.id },
-          data: { status: "OPEN" },
+          data: { status: notStarted ? "PAUSED" : "OPEN" },
         }),
         ctx.prisma.restaurantTable.update({
           where: { id: session.tableId },
-          data: { status: "PLAYING" },
+          data: { status: notStarted ? "PAUSED" : "PLAYING" },
         }),
       ]);
       return { ok: true };

@@ -516,6 +516,31 @@ export const checkoutRouter = router({
   }),
 
   /**
+   * A session's currently applied discounts on their own, independent of
+   * the full checkout preview (getPreview needs settings/tax/service-charge
+   * context a plain table page doesn't have) — powers PromotionPicker
+   * wherever it's dropped in, including the table page before checkout
+   * (§Table-page promotions), not just the Checkout screen itself.
+   */
+  listAppliedDiscounts: cashierProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const discounts = await ctx.prisma.appliedDiscount.findMany({
+        where: { sessionId: input.sessionId },
+        include: { appliedBy: { select: { name: true } }, promotion: { select: { type: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      return discounts.map((d) => ({
+        id: d.id,
+        promotionId: d.promotionId,
+        label: d.label,
+        amount: toNum(d.amount),
+        appliedByName: d.appliedBy.name,
+        isFreeItem: d.promotion?.type === "FREE_ITEM",
+      }));
+    }),
+
+  /**
    * Manually apply a specific Back Office promotion with a required reason,
    * skipping the date/day/time/minimum-spend/member-only eligibility
    * checks listEligiblePromotions/applyPromotion enforce — this is the
@@ -600,7 +625,25 @@ export const checkoutRouter = router({
   removeDiscount: permissionProcedure(Permission.APPLY_DISCOUNTS)
     .input(z.object({ discountId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.appliedDiscount.delete({ where: { id: input.discountId } });
+      const discount = await ctx.prisma.appliedDiscount.findUnique({
+        where: { id: input.discountId },
+        select: { benefitRedemptionId: true },
+      });
+      await ctx.prisma.$transaction([
+        ctx.prisma.appliedDiscount.delete({ where: { id: input.discountId } }),
+        // Removing an earned reward gives it back, same reasoning as
+        // voidSession (sessions.ts) — it was marked USED the moment it
+        // was applied, before payment, so taking it back off the bill
+        // should undo that too, not leave it stuck redeemed for nothing.
+        ...(discount?.benefitRedemptionId
+          ? [
+              ctx.prisma.benefitRedemption.update({
+                where: { id: discount.benefitRedemptionId },
+                data: { status: "AVAILABLE" as const, usedAt: null, usedById: null, relatedSessionId: null },
+              }),
+            ]
+          : []),
+      ]);
       return { ok: true };
     }),
 
