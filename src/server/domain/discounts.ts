@@ -43,8 +43,6 @@ export interface PromotionContext {
   now: Date;
   hasMember: boolean;
   currentSpend: number;
-  /** Menu item ids actually in this bill's order — FREE_ITEM can only redeem one of these. */
-  orderedMenuItemIds: Set<string>;
 }
 
 function toMinutes(hhmm: string): number {
@@ -76,12 +74,11 @@ export function isPromotionEligible(
   if (promo.minimumSpend != null && ctx.currentSpend < promo.minimumSpend) {
     return false;
   }
-  if (promo.type === "FREE_ITEM") {
-    // Nothing to redeem if the reward item isn't actually in this order.
-    if (!promo.rewardMenuItemId || !ctx.orderedMenuItemIds.has(promo.rewardMenuItemId)) {
-      return false;
-    }
-  }
+  // FREE_ITEM just needs a reward item configured (§Free item redemptions)
+  // — redeeming it hands the guest a separate free item, unlinked from
+  // whatever they did or didn't separately order, so there's no "was it
+  // actually ordered" check here.
+  if (promo.type === "FREE_ITEM" && !promo.rewardMenuItemId) return false;
   return true;
 }
 

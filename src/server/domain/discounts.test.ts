@@ -25,7 +25,6 @@ const baseCtx = {
   now: new Date("2026-08-10T12:00:00"),
   hasMember: false,
   currentSpend: 500,
-  orderedMenuItemIds: new Set<string>(),
 };
 
 describe("isPromotionEligible", () => {
@@ -51,15 +50,13 @@ describe("isPromotionEligible", () => {
       );
     });
 
-    it("is ineligible when the reward item isn't in the order", () => {
+    // A redeemed free item is a separate gift, unlinked from whatever the
+    // guest did or didn't separately order (§Free item redemptions) — so
+    // as long as a reward item is configured, it's eligible regardless of
+    // what's actually in this bill's order.
+    it("is eligible with a reward item configured, regardless of the order", () => {
       const p = promo({ type: "FREE_ITEM", rewardMenuItemId: "fried-chicken" });
-      expect(isPromotionEligible(p, baseCtx)).toBe(false);
-    });
-
-    it("is eligible once the reward item is actually ordered", () => {
-      const p = promo({ type: "FREE_ITEM", rewardMenuItemId: "fried-chicken" });
-      const ctx = { ...baseCtx, orderedMenuItemIds: new Set(["fried-chicken"]) };
-      expect(isPromotionEligible(p, ctx)).toBe(true);
+      expect(isPromotionEligible(p, baseCtx)).toBe(true);
     });
   });
 });

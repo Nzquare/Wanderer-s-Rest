@@ -27,9 +27,10 @@ type PaymentMethod = "CASH" | "PROMPTPAY" | "CARD" | "OTHER";
  * whatever categories exist — each its own subtotal line, instead of one
  * blanket "Food/drink" bucket that would mislabel non-food merchandise.
  *
- * A unit redeemed by a Free Item promotion (§Free item redemptions) is
- * priced at ฿0 right on this line — there's no separate "discount" for it
- * anywhere, it's just free, so the line itself says so.
+ * Never touched by a Free Item promotion redemption (§Free item
+ * redemptions) — what's ordered here is what was actually ordered and
+ * priced at order time; a redeemed free item is a separate gift, shown of
+ * its own accord below, not a change to any of these lines.
  */
 function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; compact?: boolean }) {
   const headingCls = compact ? "flex justify-between" : "flex justify-between text-sm";
@@ -48,10 +49,8 @@ function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; co
             <div key={item.id} className={lineCls}>
               <span>
                 {item.quantity}× {item.nameEn}
-                {item.freeUnits > 0 &&
-                  (item.freeUnits >= item.quantity ? " 🎁 free" : ` (${item.freeUnits} free)`)}
               </span>
-              <span>{item.lineTotal === 0 ? "Free" : `฿${item.lineTotal.toFixed(0)}`}</span>
+              <span>฿{item.lineTotal.toFixed(0)}</span>
             </div>
           ))}
         </div>
@@ -249,9 +248,10 @@ export function CheckoutClient({
             ))}
         </div>
         <ItemsByCategoryLines groups={preview.itemsByCategory} />
-        {/* Free item redemptions already priced their unit at ฿0 right on
-            the item's own line above — no ฿ figure here, this is purely
-            "what got redeemed" with a way to undo it, not a discount. */}
+        {/* A redeemed free item is a separate gift, unlinked from the
+            order above (§Free item redemptions) — not a discount, so no ฿
+            figure, just what got redeemed and a way to undo it. It never
+            touches the total either. */}
         {preview.appliedDiscounts
           .filter((d) => d.isFreeItem)
           .map((d) => (
@@ -334,8 +334,15 @@ export function CheckoutClient({
                 </div>
               ))}
             <ItemsByCategoryLines groups={preview.itemsByCategory} compact />
-            {/* Free items already show "🎁 free" on their own line above —
-                only genuine discounts get a line here. */}
+            {/* A redeemed free item is a separate gift (§Free item
+                redemptions), not a discount — no ฿ figure. */}
+            {preview.appliedDiscounts
+              .filter((d) => d.isFreeItem)
+              .map((d) => (
+                <div key={d.id} className="flex justify-between">
+                  <span>🎁 {d.label}</span>
+                </div>
+              ))}
             {preview.appliedDiscounts
               .filter((d) => !d.isFreeItem)
               .map((d) => (

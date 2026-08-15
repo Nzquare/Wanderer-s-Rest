@@ -15,10 +15,7 @@ interface ReceiptSnapshot {
   // Older receipts (printed before this field existed) default to HOURLY so
   // they keep rendering their per-player minutes breakdown as before.
   pricingModel?: string;
-  // freeUnits is absent on receipts printed before Free item redemptions
-  // baked into the item's own line (§Free item redemptions) — falls back
-  // to 0/falsy, same as any other pre-existing snapshot field.
-  foodDrinkItems?: { id: string; nameEn: string; quantity: number; lineTotal: number; freeUnits?: number }[];
+  foodDrinkItems?: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   foodDrinkSubtotal: number;
   // Receipts printed before this field existed only have the flat
   // foodDrinkItems list above, lumped under one "Food/drink" heading —
@@ -28,7 +25,7 @@ interface ReceiptSnapshot {
     categoryId: string;
     categoryName: string;
     subtotal: number;
-    items: { id: string; nameEn: string; quantity: number; lineTotal: number; freeUnits?: number }[];
+    items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   }[];
   // isFreeItem is absent on receipts printed before this field existed —
   // falls back to falsy, same as any other pre-existing snapshot field.
@@ -166,10 +163,8 @@ export function ReceiptView({
                   <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
                     <span>
                       {item.quantity}× {item.nameEn}
-                      {!!item.freeUnits &&
-                        (item.freeUnits >= item.quantity ? " 🎁 free" : ` (${item.freeUnits} free)`)}
                     </span>
-                    <span>{item.lineTotal === 0 ? "Free" : `฿${item.lineTotal.toFixed(0)}`}</span>
+                    <span>฿{item.lineTotal.toFixed(0)}</span>
                   </div>
                 ))}
               </div>
@@ -184,16 +179,22 @@ export function ReceiptView({
                 <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
                   <span>
                     {item.quantity}× {item.nameEn}
-                    {!!item.freeUnits &&
-                      (item.freeUnits >= item.quantity ? " 🎁 free" : ` (${item.freeUnits} free)`)}
                   </span>
-                  <span>{item.lineTotal === 0 ? "Free" : `฿${item.lineTotal.toFixed(0)}`}</span>
+                  <span>฿{item.lineTotal.toFixed(0)}</span>
                 </div>
               ))}
             </>
           )}
-          {/* Free item redemptions already show on their own line above —
-              no separate discount line for them, they aren't a discount. */}
+          {/* A redeemed free item is a separate gift (§Free item
+              redemptions), not a discount — no ฿ figure, just what the
+              guest received. */}
+          {snapshot.discounts
+            .filter((d) => d.isFreeItem)
+            .map((d, i) => (
+              <div key={i} className="flex justify-between">
+                <span>🎁 {d.label}</span>
+              </div>
+            ))}
           {snapshot.discounts
             .filter((d) => !d.isFreeItem)
             .map((d, i) => (
