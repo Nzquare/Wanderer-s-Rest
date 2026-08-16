@@ -1,8 +1,9 @@
 "use client";
 
-// Synthesizes a short two-note chime via Web Audio instead of shipping an
+// Synthesizes a short three-note chime via Web Audio instead of shipping an
 // audio asset — works everywhere, respects the volume setting, and needs
-// no file to host (§17 "one short sound, not a looping alarm").
+// no file to host (§17 "one short sound, not a looping alarm" — bigger and
+// longer, still a single shot, not a repeating siren).
 let sharedContext: AudioContext | null = null;
 
 function getContextCtor() {
@@ -49,19 +50,27 @@ export function playChime(volume: number = 0.8) {
     if (ctx.state === "suspended") void ctx.resume();
     const now = ctx.currentTime;
 
-    [880, 1320].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const start = now + i * 0.12;
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(volume * 0.3, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.3);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.32);
+    // Three ascending notes instead of two, each held longer and stacked
+    // with a second detuned oscillator per note for more body — roughly
+    // triples total duration and, with the higher gain ceiling below,
+    // reads as a proper "order bell" instead of a soft blip.
+    [880, 1100, 1320].forEach((freq, i) => {
+      const start = now + i * 0.16;
+      const peak = Math.min(1, volume) * 0.6;
+      [freq, freq * 2].forEach((f, layer) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = f;
+        const layerPeak = layer === 0 ? peak : peak * 0.35;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(layerPeak, start + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.47);
+      });
     });
   } catch {
     // Audio isn't critical — never let a chime failure break the UI.
