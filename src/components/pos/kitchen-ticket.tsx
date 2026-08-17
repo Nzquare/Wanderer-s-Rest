@@ -58,6 +58,10 @@ export function KitchenTicket({
       className="print-area hidden print:block"
     >
       <div className="mx-auto max-w-xs space-y-3 p-4 font-mono">
+        {/* Blank strip above the header — enough clear paper to clip or
+            magnet the ticket to a board without covering the table
+            number or any item line. */}
+        <div style={{ height: "18mm" }} aria-hidden />
         <div className="space-y-0.5 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.2em]">Kitchen Order</p>
           <p className="text-3xl font-bold">Table {order.tableCode}</p>
