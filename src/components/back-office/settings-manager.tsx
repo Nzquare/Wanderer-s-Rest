@@ -110,9 +110,8 @@ function SettingsForm({ data }: { data: AllSettings }) {
       <Card className="space-y-3">
         <p className="font-medium text-foreground">Table pricing defaults</p>
         <p className="text-xs text-foreground-muted">
-          These prefill new pricing types — existing Regular/Student rates
-          live in Back Office → Tables pricing types (coming soon); edit
-          them directly in the database for now if needed.
+          These only prefill a brand-new pricing type — to edit an existing
+          one (Regular, Student, etc.) go to Back Office → Pricing.
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="Regular ฿/hr">
