@@ -84,36 +84,29 @@ button,
   touch-action: manipulation;
 }
 
-/* Receipt/invoice printing (§20, §21) — only the printed area itself goes
-   to the printer. The checkout page can have both #invoice-print-area and
-   #promptpay-print-area in the DOM at once; checkout-client.tsx's printAs()
-   keeps only one of them classed print:block at a time (the other stays
-   `hidden`, i.e. display:none, so it's out of the print flow regardless of
-   the visibility rules below), so exactly one prints per button. */
+/* Receipt/invoice/kitchen-ticket printing (§20, §21, §Kitchen order
+   printing) — only the printed area itself goes to the printer. Any
+   number of `.print-area` elements can be in the DOM at once (a Cashier
+   table page alone can have the table's QR slip, the order panel's own
+   kitchen ticket, and the order history's reprint ticket, all as
+   siblings) — each one's own local state gates it between `hidden`
+   (display:none, out of the print flow entirely) and
+   `print-area hidden print:block` right when it's actually being
+   printed, via src/lib/print-once.ts, which also clears it back to
+   `hidden` once the print dialog closes. That's what keeps exactly one
+   `.print-area` visible per print job — the shared class here doesn't
+   enforce that itself, it only has to find whichever one currently
+   isn't `hidden`. A new print area only needs this class, not a new
+   entry in this file. */
 @media print {
   body * {
     visibility: hidden;
   }
-  #receipt-print-area,
-  #receipt-print-area *,
-  #promptpay-print-area,
-  #promptpay-print-area *,
-  #invoice-print-area,
-  #invoice-print-area *,
-  #table-qr-print-area,
-  #table-qr-print-area *,
-  #kitchen-print-area,
-  #kitchen-print-area *,
-  #kitchen-print-area-panel,
-  #kitchen-print-area-panel * {
+  .print-area,
+  .print-area * {
     visibility: visible;
   }
-  #receipt-print-area,
-  #promptpay-print-area,
-  #invoice-print-area,
-  #table-qr-print-area,
-  #kitchen-print-area,
-  #kitchen-print-area-panel {
+  .print-area {
     position: absolute;
     top: 0;
     left: 0;

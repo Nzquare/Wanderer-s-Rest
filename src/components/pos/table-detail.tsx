@@ -374,7 +374,7 @@ export function TableDetail({
       {table.qrEnabled && origin && (
         <div
           id="table-qr-print-area"
-          className={showQrPrint ? "hidden print:block" : "hidden"}
+          className={showQrPrint ? "print-area hidden print:block" : "hidden"}
         >
           <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
             <p className="font-semibold">Wanderer&apos;s Rest</p>
@@ -617,15 +617,19 @@ export function TableDetail({
                 Orders
               </p>
               <OrderList
+                tableCode={table.code}
                 orders={session.orders.map((o) => ({
                   id: o.id,
                   source: o.source,
                   createdAt: String(o.createdAt),
+                  notes: o.notes,
+                  staffName: o.orderedBy?.name ?? null,
                   items: o.items.map((i) => ({
                     id: i.id,
                     nameSnapshotEn: i.nameSnapshotEn,
                     quantity: i.quantity,
                     unitPriceSnapshot: i.unitPriceSnapshot,
+                    notes: i.notes,
                     modifiers: i.modifiers.map((m) => ({
                       id: m.id,
                       nameSnapshotEn: m.nameSnapshotEn,

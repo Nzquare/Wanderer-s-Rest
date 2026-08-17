@@ -324,7 +324,7 @@ export function CheckoutClient({
             "--receipt-print-width": `${checkoutSettings?.printerWidthMm ?? 80}mm`,
           } as CSSProperties
         }
-        className={printMode === "invoice" ? "hidden print:block" : "hidden"}
+        className={printMode === "invoice" ? "print-area hidden print:block" : "hidden"}
       >
         <div className="mx-auto max-w-xs space-y-2 p-4 font-mono text-sm">
           <div className="text-center">
@@ -620,7 +620,7 @@ export function CheckoutClient({
               <div
                 id="promptpay-print-area"
                 style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-                className={printMode === "promptpay" ? "hidden print:block" : "hidden"}
+                className={printMode === "promptpay" ? "print-area hidden print:block" : "hidden"}
               >
                 <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
                   <p className="font-semibold">Wanderer&apos;s Rest</p>

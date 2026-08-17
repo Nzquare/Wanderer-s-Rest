@@ -75,7 +75,14 @@ const sessionInclude = {
   member: true,
   orders: {
     where: { status: "SUBMITTED" as const },
-    include: { items: { include: { modifiers: true, comboSelections: true } } },
+    // orderedBy is needed to label a reprinted kitchen ticket the same
+    // way the original was (§Kitchen ticket reprint) — everything else
+    // here (notes, item snapshots) is already a plain scalar field that
+    // comes along for free.
+    include: {
+      items: { include: { modifiers: true, comboSelections: true } },
+      orderedBy: { select: { name: true } },
+    },
     orderBy: { createdAt: "asc" as const },
   },
 };

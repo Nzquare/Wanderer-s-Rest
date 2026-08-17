@@ -139,9 +139,10 @@ export function ReceiptView({
         id="receipt-print-area"
         style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
         className={
-          printerWidthMm === 58
+          "print-area " +
+          (printerWidthMm === 58
             ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface p-4 font-mono text-xs"
-            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface p-5 font-mono text-sm"
+            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface p-5 font-mono text-sm")
         }
       >
         <div className="text-center">

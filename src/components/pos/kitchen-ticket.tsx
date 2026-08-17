@@ -55,7 +55,7 @@ export function KitchenTicket({
     <div
       id={printAreaId}
       style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-      className="hidden print:block"
+      className="print-area hidden print:block"
     >
       <div className="mx-auto max-w-xs space-y-3 p-4 font-mono">
         <div className="space-y-0.5 text-center">
