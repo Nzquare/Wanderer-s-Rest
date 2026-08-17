@@ -31,19 +31,29 @@ export interface KitchenTicketOrder {
  * the page, modifiers/combo picks/notes indented so they can't be missed
  * but don't compete with the item name for attention.
  *
- * Lives in its own component so both the alert banner's manual "Print"
- * button and its auto-print-on-arrival path render the exact same ticket.
+ * Lives in its own component so the alert banner's manual "Print" button,
+ * its auto-print-on-arrival path, and the Cashier order panel's own
+ * "order placed" print (§Kitchen order printing for cashier-entered
+ * orders) all render the exact same ticket.
+ *
+ * `printAreaId` defaults to the one shared id, but the alert banner and
+ * the order panel can both be mounted on the same page at once (the
+ * Cashier table page — banner in the shell, panel in the page content),
+ * so a caller that might render alongside another KitchenTicket needs its
+ * own id to avoid two elements sharing one — see order-panel.tsx.
  */
 export function KitchenTicket({
   order,
   printerWidthMm,
+  printAreaId = "kitchen-print-area",
 }: {
   order: KitchenTicketOrder;
   printerWidthMm: number;
+  printAreaId?: string;
 }) {
   return (
     <div
-      id="kitchen-print-area"
+      id={printAreaId}
       style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
       className="hidden print:block"
     >

@@ -632,6 +632,7 @@ export function TableDetail({
             <OrderPanel
               sessionId={session.id}
               tableId={tableId}
+              tableCode={table.code}
               source={basePath === "/cashier" ? "CASHIER" : "STAFF"}
             />
           );

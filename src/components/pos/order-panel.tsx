@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { playChime } from "@/lib/chime";
+import { KitchenTicket, type KitchenTicketOrder } from "./kitchen-ticket";
 
 interface ModifierOption {
   id: string;
@@ -79,13 +82,17 @@ interface CartLine {
 export function OrderPanel({
   sessionId,
   tableId,
+  tableCode,
   source,
 }: {
   sessionId: string;
   tableId: string;
+  tableCode: string;
   source: "CASHIER" | "STAFF";
 }) {
   const { data: categories, isLoading } = trpc.menu.listForOrdering.useQuery();
+  const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [pickingItem, setPickingItem] = useState<MenuItem | null>(null);
   const [selection, setSelection] = useState<Record<string, string[]>>({});
@@ -93,13 +100,33 @@ export function OrderPanel({
   const [cart, setCart] = useState<CartLine[]>([]);
   const utils = trpc.useUtils();
 
+  // Snapshot of the cart at the moment "Submit Order" was clicked — read
+  // back in onSuccess rather than closing over `cart` directly, since the
+  // cart's already been cleared by the time this fires (§Kitchen order
+  // printing for cashier-entered orders — the cashier's own table page has
+  // no separate "unacknowledged order" flow to catch this from, unlike
+  // Staff/Customer-QR orders, so the kitchen ticket has to fire right here).
+  const pendingTicket = useRef<KitchenTicketOrder | null>(null);
+  const [printOrder, setPrintOrder] = useState<KitchenTicketOrder | null>(null);
+
   const submit = trpc.orders.add.useMutation({
     onSuccess: async () => {
+      const ticket = pendingTicket.current;
+      pendingTicket.current = null;
       setCart([]);
       await Promise.all([
         utils.sessions.getTableDetail.invalidate({ tableId }),
         utils.sessions.listTables.invalidate(),
       ]);
+      if (ticket) {
+        if (notificationSettings?.cashierSoundEnabled) {
+          playChime(notificationSettings.volume);
+        }
+        if (notificationSettings?.autoPrintKitchenTicket) {
+          flushSync(() => setPrintOrder(ticket));
+          window.print();
+        }
+      }
     },
   });
 
@@ -395,7 +422,32 @@ export function OrderPanel({
             size="lg"
             className="w-full"
             disabled={submit.isPending}
-            onClick={() =>
+            onClick={() => {
+              // Only a Cashier-placed order needs its own immediate
+              // chime + print — a Staff-phone order still gets picked up
+              // by the Cashier screen's own alert banner/auto-print (§17),
+              // and a phone has no kitchen printer to open a dialog on.
+              if (source === "CASHIER") {
+                pendingTicket.current = {
+                  id: `local-${Date.now()}`,
+                  tableCode,
+                  source,
+                  staffName: null,
+                  createdAt: new Date(),
+                  notes: null,
+                  items: cart.map((l) => ({
+                    id: l.key,
+                    nameEn: l.nameEn,
+                    quantity: l.quantity,
+                    notes: null,
+                    modifierNames: [
+                      ...(l.modifierLabel ? l.modifierLabel.split(", ") : []),
+                      ...l.comboSelections.map((cs) => cs.label),
+                    ],
+                    comboSelections: [],
+                  })),
+                };
+              }
               submit.mutate({
                 sessionId,
                 source,
@@ -408,12 +460,19 @@ export function OrderPanel({
                     selectedMenuItemId: cs.selectedMenuItemId,
                   })),
                 })),
-              })
-            }
+              });
+            }}
           >
             {submit.isPending ? "Sending…" : "Submit Order"}
           </Button>
         </div>
+      )}
+      {printOrder && (
+        <KitchenTicket
+          order={printOrder}
+          printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
+          printAreaId="kitchen-print-area-panel"
+        />
       )}
     </div>
   );
