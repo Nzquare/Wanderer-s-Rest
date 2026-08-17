@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { playChime } from "@/lib/chime";
+import { printOnce } from "@/lib/print-once";
 import { cn } from "@/lib/cn";
 import { KitchenTicket } from "./kitchen-ticket";
 
@@ -37,13 +37,17 @@ export function OrderAlertBanner() {
   const seenIds = useRef<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
   // The order currently loaded into the hidden #kitchen-print-area — set
-  // right before window.print() so the print dialog picks up exactly one
-  // ticket at a time (see printTicket below).
+  // right before window.print() and cleared again once the print dialog
+  // closes (see printOnce), so it doesn't stay `print:block` and bleed
+  // into some other print job on a later Cashier page (§printer overlap
+  // bug — this banner lives in the shell, present on every screen).
   const [printOrder, setPrintOrder] = useState<PendingOrder | null>(null);
 
   function printTicket(order: PendingOrder) {
-    flushSync(() => setPrintOrder(order));
-    window.print();
+    printOnce(
+      () => setPrintOrder(order),
+      () => setPrintOrder(null),
+    );
   }
 
   useEffect(() => {

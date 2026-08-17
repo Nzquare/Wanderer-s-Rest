@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { playChime } from "@/lib/chime";
+import { printOnce } from "@/lib/print-once";
 import { KitchenTicket, type KitchenTicketOrder } from "./kitchen-ticket";
 
 interface ModifierOption {
@@ -123,8 +123,10 @@ export function OrderPanel({
           playChime(notificationSettings.volume);
         }
         if (notificationSettings?.autoPrintKitchenTicket) {
-          flushSync(() => setPrintOrder(ticket));
-          window.print();
+          printOnce(
+            () => setPrintOrder(ticket),
+            () => setPrintOrder(null),
+          );
         }
       }
     },

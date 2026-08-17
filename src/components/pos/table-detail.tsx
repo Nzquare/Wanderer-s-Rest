@@ -12,6 +12,7 @@ import { LiveTimer, formatMinutesShort } from "./live-timer";
 import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
 import { OrderPanel } from "./order-panel";
+import { printOnce } from "@/lib/print-once";
 import { OrderList } from "./order-list";
 import { GameLogPanel } from "./game-log-panel";
 import { SplitBillModal } from "./split-bill-modal";
@@ -259,6 +260,11 @@ export function TableDetail({
   const [origin] = useState(() =>
     typeof window !== "undefined" ? window.location.origin : "",
   );
+  // Gates #table-qr-print-area — this page also hosts OrderPanel's own
+  // kitchen-ticket print area, so the QR slip can no longer just be
+  // unconditionally `print:block`; that left it stuck showing on every
+  // print job on the page (§printer overlap bug). See printOnce.
+  const [showQrPrint, setShowQrPrint] = useState(false);
 
   const invalidate = () =>
     Promise.all([
@@ -344,7 +350,16 @@ export function TableDetail({
               code identifies the table itself (§6), so it can be printed
               and placed before the table is ever opened. */}
           {table.qrEnabled && origin && (
-            <Button size="md" variant="outline" onClick={() => window.print()}>
+            <Button
+              size="md"
+              variant="outline"
+              onClick={() =>
+                printOnce(
+                  () => setShowQrPrint(true),
+                  () => setShowQrPrint(false),
+                )
+              }
+            >
               Print QR
             </Button>
           )}
@@ -352,9 +367,15 @@ export function TableDetail({
         </div>
       </div>
 
-      {/* Printed slip — hidden on screen, shown only by @media print. */}
+      {/* Printed slip — hidden on screen, shown only by @media print, and
+          only while showQrPrint is on (see printOnce above) — this page
+          also hosts OrderPanel's own kitchen-ticket print area, so this
+          can't just be unconditionally print:block anymore. */}
       {table.qrEnabled && origin && (
-        <div id="table-qr-print-area" className="hidden print:block">
+        <div
+          id="table-qr-print-area"
+          className={showQrPrint ? "hidden print:block" : "hidden"}
+        >
           <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
             <p className="font-semibold">Wanderer&apos;s Rest</p>
             <p className="text-xs">Table {table.code} — Scan to order</p>
