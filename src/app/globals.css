@@ -101,13 +101,16 @@ button,
   #invoice-print-area,
   #invoice-print-area *,
   #table-qr-print-area,
-  #table-qr-print-area * {
+  #table-qr-print-area *,
+  #kitchen-print-area,
+  #kitchen-print-area * {
     visibility: visible;
   }
   #receipt-print-area,
   #promptpay-print-area,
   #invoice-print-area,
-  #table-qr-print-area {
+  #table-qr-print-area,
+  #kitchen-print-area {
     position: absolute;
     top: 0;
     left: 0;

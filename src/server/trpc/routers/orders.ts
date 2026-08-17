@@ -190,7 +190,12 @@ export const ordersRouter = router({
       return { orderId: order.id };
     }),
 
-  /** Orders from Staff phones or Customer QR the cashier hasn't seen yet (§17). */
+  /**
+   * Orders from Staff phones or Customer QR the cashier hasn't seen yet
+   * (§17). Full item/modifier/combo detail is included, not just a
+   * summary string — this feeds the kitchen ticket print (§Kitchen order
+   * printing) as well as the alert banner's own list.
+   */
   listUnacknowledged: cashierProcedure.query(async ({ ctx }) => {
     const orders = await ctx.prisma.order.findMany({
       where: {
@@ -199,7 +204,7 @@ export const ordersRouter = router({
         status: "SUBMITTED",
       },
       include: {
-        items: true,
+        items: { include: { modifiers: true, comboSelections: true } },
         session: { include: { table: true } },
         orderedBy: { select: { name: true } },
       },
@@ -212,7 +217,19 @@ export const ordersRouter = router({
       source: o.source,
       staffName: o.orderedBy?.name ?? null,
       createdAt: o.createdAt,
+      notes: o.notes,
       itemSummary: o.items.map((i) => `${i.quantity}× ${i.nameSnapshotEn}`).join(", "),
+      items: o.items.map((i) => ({
+        id: i.id,
+        nameEn: i.nameSnapshotEn,
+        quantity: i.quantity,
+        notes: i.notes,
+        modifierNames: i.modifiers.map((m) => m.nameSnapshotEn),
+        comboSelections: i.comboSelections.map((cs) => ({
+          slotNameEn: cs.slotNameSnapshotEn,
+          nameEn: cs.nameSnapshotEn,
+        })),
+      })),
     }));
   }),
 

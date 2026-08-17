@@ -1,15 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "@/server/trpc/routers/_app";
 import { playChime } from "@/lib/chime";
 import { cn } from "@/lib/cn";
+import { KitchenTicket } from "./kitchen-ticket";
 
 const SOURCE_LABEL: Record<string, string> = {
   STAFF: "Staff order",
   CUSTOMER_QR: "Customer order",
 };
+
+type PendingOrder = inferRouterOutputs<AppRouter>["orders"]["listUnacknowledged"][number];
 
 /**
  * Lives in the Cashier shell so it's present on every screen (§17). Polls
@@ -20,6 +26,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export function OrderAlertBanner() {
   const utils = trpc.useUtils();
   const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const { data: pending } = trpc.orders.listUnacknowledged.useQuery(undefined, {
     refetchInterval: 4_000,
   });
@@ -29,21 +36,40 @@ export function OrderAlertBanner() {
 
   const seenIds = useRef<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
+  // The order currently loaded into the hidden #kitchen-print-area — set
+  // right before window.print() so the print dialog picks up exactly one
+  // ticket at a time (see printTicket below).
+  const [printOrder, setPrintOrder] = useState<PendingOrder | null>(null);
+
+  function printTicket(order: PendingOrder) {
+    flushSync(() => setPrintOrder(order));
+    window.print();
+  }
 
   useEffect(() => {
     if (!pending || !notificationSettings) return;
     const newOnes = pending.filter((o) => !seenIds.current.has(o.id));
     pending.forEach((o) => seenIds.current.add(o.id));
 
-    const shouldRing = newOnes.some(
-      (o) =>
-        (o.source === "CUSTOMER_QR" && notificationSettings.notifyOnCustomerOrder) ||
-        (o.source === "STAFF" && notificationSettings.notifyOnStaffOrder),
-    );
+    const notifiable = (o: PendingOrder) =>
+      (o.source === "CUSTOMER_QR" && notificationSettings.notifyOnCustomerOrder) ||
+      (o.source === "STAFF" && notificationSettings.notifyOnStaffOrder);
+
+    const shouldRing = newOnes.some(notifiable);
     if (shouldRing && notificationSettings.cashierSoundEnabled) {
       playChime(notificationSettings.volume);
     }
     if (newOnes.length > 0) setCollapsed(false);
+
+    // Auto-print one kitchen ticket per poll tick (§Kitchen order
+    // printing) — if several orders land in the same tick, only the
+    // first opens a print dialog automatically; the rest stay one tap
+    // away via the manual Print button on each row below, rather than
+    // stacking multiple print dialogs on top of each other.
+    if (notificationSettings.autoPrintKitchenTicket) {
+      const toAutoPrint = newOnes.find(notifiable);
+      if (toAutoPrint) printTicket(toAutoPrint);
+    }
   }, [pending, notificationSettings]);
 
   if (!pending || pending.length === 0) return null;
@@ -79,6 +105,13 @@ export function OrderAlertBanner() {
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                <button
+                  onClick={() => printTicket(order)}
+                  title="Print kitchen ticket"
+                  className="rounded-lg border border-teal-600 px-2 py-1.5 text-xs font-medium text-teal-700 dark:text-teal-300"
+                >
+                  🖨️ Print
+                </button>
                 <Link
                   href={`/cashier/tables/${order.tableId}`}
                   onClick={() => acknowledge.mutate({ orderId: order.id })}
@@ -96,6 +129,9 @@ export function OrderAlertBanner() {
             </div>
           ))}
         </div>
+      )}
+      {printOrder && (
+        <KitchenTicket order={printOrder} printerWidthMm={checkoutSettings?.printerWidthMm ?? 80} />
       )}
     </div>
   );

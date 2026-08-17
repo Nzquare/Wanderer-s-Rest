@@ -54,6 +54,12 @@ export const notificationSettingsSchema = z.object({
   notifyOnCustomerOrder: z.boolean().default(true),
   notifyOnStaffOrder: z.boolean().default(true),
   notifyOnReservation: z.boolean().default(true),
+  /** Auto-open the print dialog for a kitchen ticket the moment a new
+   * Staff/Customer-QR order arrives (§Kitchen order printing) — still
+   * respects notifyOnCustomerOrder/notifyOnStaffOrder for *which* sources
+   * trigger it. A manual print button on each order stays available
+   * regardless, for reprints or when this is off. */
+  autoPrintKitchenTicket: z.boolean().default(true),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 

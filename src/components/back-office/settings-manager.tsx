@@ -331,7 +331,27 @@ function SettingsForm({ data }: { data: AllSettings }) {
             />
             Notify on staff order
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={notifications.autoPrintKitchenTicket}
+              onChange={(e) =>
+                setNotifications({
+                  ...notifications,
+                  autoPrintKitchenTicket: e.target.checked,
+                })
+              }
+            />
+            Auto-print kitchen ticket
+          </label>
         </div>
+        <p className="text-xs text-foreground-muted">
+          Auto-print opens the print dialog for a kitchen ticket the moment a
+          new customer/staff order comes in (uses the same printer as
+          receipts — Checkout → printer width above). Every order also gets
+          its own manual print button in the order alert, whether or not
+          this is on.
+        </p>
         <Button
           size="md"
           disabled={saveNotifications.isPending}
