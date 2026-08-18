@@ -51,17 +51,12 @@ function SettingsForm({ data }: { data: AllSettings }) {
   const utils = trpc.useUtils();
 
   const [cafe, setCafe] = useState(data.cafe);
-  const [pricing, setPricing] = useState(data.tablePricingDefaults);
   const [membership, setMembership] = useState(data.membership);
   const [checkout, setCheckout] = useState(data.checkout);
   const [notifications, setNotifications] = useState(data.notifications);
-  const [reservations, setReservations] = useState(data.reservations);
 
   const invalidate = () => utils.settings.getAll.invalidate();
   const saveCafe = trpc.settings.updateCafe.useMutation({ onSuccess: invalidate });
-  const savePricing = trpc.settings.updateTablePricingDefaults.useMutation({
-    onSuccess: invalidate,
-  });
   const saveMembership = trpc.settings.updateMembership.useMutation({
     onSuccess: invalidate,
   });
@@ -69,9 +64,6 @@ function SettingsForm({ data }: { data: AllSettings }) {
     onSuccess: invalidate,
   });
   const saveNotifications = trpc.settings.updateNotifications.useMutation({
-    onSuccess: invalidate,
-  });
-  const saveReservations = trpc.settings.updateReservations.useMutation({
     onSuccess: invalidate,
   });
 
@@ -110,63 +102,6 @@ function SettingsForm({ data }: { data: AllSettings }) {
           </Field>
         </div>
         <Button size="md" disabled={saveCafe.isPending} onClick={() => saveCafe.mutate(cafe)}>
-          Save
-        </Button>
-      </Card>
-
-      <Card className="space-y-3">
-        <p className="font-medium text-foreground">Table pricing defaults</p>
-        <p className="text-xs text-foreground-muted">
-          These only prefill a brand-new pricing type — to edit an existing
-          one (Regular, Student, etc.) go to Back Office → Pricing.
-        </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Regular ฿/hr">
-            <input
-              type="number"
-              className={inputCls}
-              value={pricing.regularHourlyRate}
-              onChange={(e) =>
-                setPricing({ ...pricing, regularHourlyRate: Number(e.target.value) })
-              }
-            />
-          </Field>
-          <Field label="Student ฿/hr">
-            <input
-              type="number"
-              className={inputCls}
-              value={pricing.studentHourlyRate}
-              onChange={(e) =>
-                setPricing({ ...pricing, studentHourlyRate: Number(e.target.value) })
-              }
-            />
-          </Field>
-          <Field label="Grace period (min)">
-            <input
-              type="number"
-              className={inputCls}
-              value={pricing.gracePeriodMinutes}
-              onChange={(e) =>
-                setPricing({ ...pricing, gracePeriodMinutes: Number(e.target.value) })
-              }
-            />
-          </Field>
-          <Field label="Daily cap ฿/person">
-            <input
-              type="number"
-              className={inputCls}
-              value={pricing.dailyCapPerPerson}
-              onChange={(e) =>
-                setPricing({ ...pricing, dailyCapPerPerson: Number(e.target.value) })
-              }
-            />
-          </Field>
-        </div>
-        <Button
-          size="md"
-          disabled={savePricing.isPending}
-          onClick={() => savePricing.mutate(pricing)}
-        >
           Save
         </Button>
       </Card>
@@ -362,58 +297,6 @@ function SettingsForm({ data }: { data: AllSettings }) {
           size="md"
           disabled={saveNotifications.isPending}
           onClick={() => saveNotifications.mutate(notifications)}
-        >
-          Save
-        </Button>
-      </Card>
-
-      <Card className="space-y-3">
-        <p className="font-medium text-foreground">Reservations</p>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={reservations.casualRequiresDeposit}
-              onChange={(e) =>
-                setReservations({
-                  ...reservations,
-                  casualRequiresDeposit: e.target.checked,
-                })
-              }
-            />
-            Casual bookings require deposit
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={reservations.specialRequiresDeposit}
-              onChange={(e) =>
-                setReservations({
-                  ...reservations,
-                  specialRequiresDeposit: e.target.checked,
-                })
-              }
-            />
-            D&D/special bookings require deposit
-          </label>
-          <Field label="Default deposit (฿)">
-            <input
-              type="number"
-              className={inputCls}
-              value={reservations.specialDefaultDepositAmount}
-              onChange={(e) =>
-                setReservations({
-                  ...reservations,
-                  specialDefaultDepositAmount: Number(e.target.value),
-                })
-              }
-            />
-          </Field>
-        </div>
-        <Button
-          size="md"
-          disabled={saveReservations.isPending}
-          onClick={() => saveReservations.mutate(reservations)}
         >
           Save
         </Button>

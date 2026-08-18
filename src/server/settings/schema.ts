@@ -19,14 +19,6 @@ export const cafeSettingsSchema = z.object({
 });
 export type CafeSettings = z.infer<typeof cafeSettingsSchema>;
 
-export const tablePricingDefaultsSchema = z.object({
-  regularHourlyRate: z.number().default(60),
-  studentHourlyRate: z.number().default(50),
-  gracePeriodMinutes: z.number().default(15),
-  dailyCapPerPerson: z.number().default(199),
-});
-export type TablePricingDefaults = z.infer<typeof tablePricingDefaultsSchema>;
-
 export const membershipSettingsSchema = z.object({
   bahtPerExp: z.number().default(10),
   expPerLevel: z.number().default(100),
@@ -50,10 +42,8 @@ export type CheckoutSettings = z.infer<typeof checkoutSettingsSchema>;
 export const notificationSettingsSchema = z.object({
   cashierSoundEnabled: z.boolean().default(true),
   volume: z.number().min(0).max(1).default(0.8),
-  sound: z.enum(["chime", "bell", "ding"]).default("chime"),
   notifyOnCustomerOrder: z.boolean().default(true),
   notifyOnStaffOrder: z.boolean().default(true),
-  notifyOnReservation: z.boolean().default(true),
   /** Auto-open the print dialog for a kitchen ticket the moment a new
    * Staff/Customer-QR order arrives (§Kitchen order printing) — still
    * respects notifyOnCustomerOrder/notifyOnStaffOrder for *which* sources
@@ -63,20 +53,11 @@ export const notificationSettingsSchema = z.object({
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
-export const reservationSettingsSchema = z.object({
-  casualRequiresDeposit: z.boolean().default(false),
-  specialRequiresDeposit: z.boolean().default(true),
-  specialDefaultDepositAmount: z.number().default(200),
-});
-export type ReservationSettings = z.infer<typeof reservationSettingsSchema>;
-
 export const settingsSchemas = {
   cafe: cafeSettingsSchema,
-  tablePricingDefaults: tablePricingDefaultsSchema,
   membership: membershipSettingsSchema,
   checkout: checkoutSettingsSchema,
   notifications: notificationSettingsSchema,
-  reservations: reservationSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof settingsSchemas;

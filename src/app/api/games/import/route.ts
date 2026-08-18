@@ -19,11 +19,6 @@ import { cellText, cellNumber, headerColumnMap, type RowIssue } from "@/server/i
  * library*, not scoped to category — board game titles are unique enough
  * in practice, and this is what makes re-importing after editing the sheet
  * update existing rows instead of duplicating them.
- *
- * Total Quantity is special: updating it shifts Available Quantity by the
- * same delta (clamped at 0) rather than overwriting it outright, so a
- * re-import doesn't silently "return" copies that are currently checked
- * out — see availableQuantity below.
  */
 export async function POST(req: NextRequest) {
   const staff = await getCurrentStaff();
@@ -132,9 +127,7 @@ export async function POST(req: NextRequest) {
       if (qtyCol) {
         const newTotal = cellNumber(row.getCell(qtyCol).value);
         if (newTotal != null && newTotal >= 0) {
-          const delta = newTotal - existing.totalQuantity;
           data.totalQuantity = newTotal;
-          data.availableQuantity = Math.max(0, existing.availableQuantity + delta);
         }
       }
       const updated = await prisma.game.update({ where: { id: existing.id }, data });
@@ -156,7 +149,6 @@ export async function POST(req: NextRequest) {
           difficulty: difficultyCol ? cellText(row.getCell(difficultyCol).value) || undefined : undefined,
           ageRecommendation: ageCol ? cellText(row.getCell(ageCol).value) || undefined : undefined,
           totalQuantity,
-          availableQuantity: totalQuantity,
         },
       });
       gameByNameEn.set(nameEn.toLowerCase(), created);

@@ -39,22 +39,22 @@ model Staff {
 
   auditLogs                 AuditLog[]
   createdSessions           TableSession[]      @relation("SessionCreatedBy")
-  closedSessions             TableSession[]      @relation("SessionClosedBy")
-  addedPlayers               SessionPlayer[]
-  orders                     Order[]
-  payments                   Payment[]
-  issuedRefunds               Refund[]            @relation("RefundStaff")
-  approvedRefunds             Refund[]            @relation("RefundApprovedBy")
-  appliedDiscounts             AppliedDiscount[]   @relation("DiscountAppliedBy")
-  approvedDiscountOverrides   AppliedDiscount[]   @relation("DiscountOverrideApprovedBy")
-  expAdjustments               ExpHistory[]
-  awardedAchievements         MemberAchievement[]
-  redeemedBenefits             BenefitRedemption[] @relation("BenefitUsedBy")
-  grantedBenefits               BenefitRedemption[] @relation("BenefitGrantedBy")
-  recordedGames                 GameSession[]
-  createdReservations         Reservation[]
-  openedShifts                 Shift[]             @relation("ShiftOpenedBy")
-  closedShifts                 Shift[]             @relation("ShiftClosedBy")
+  closedSessions            TableSession[]      @relation("SessionClosedBy")
+  addedPlayers              SessionPlayer[]
+  orders                    Order[]
+  payments                  Payment[]
+  issuedRefunds             Refund[]            @relation("RefundStaff")
+  approvedRefunds           Refund[]            @relation("RefundApprovedBy")
+  appliedDiscounts          AppliedDiscount[]   @relation("DiscountAppliedBy")
+  approvedDiscountOverrides AppliedDiscount[]   @relation("DiscountOverrideApprovedBy")
+  expAdjustments            ExpHistory[]
+  awardedAchievements       MemberAchievement[]
+  redeemedBenefits          BenefitRedemption[] @relation("BenefitUsedBy")
+  grantedBenefits           BenefitRedemption[] @relation("BenefitGrantedBy")
+  recordedGames             GameSession[]
+  createdReservations       Reservation[]
+  openedShifts              Shift[]             @relation("ShiftOpenedBy")
+  closedShifts              Shift[]             @relation("ShiftClosedBy")
 }
 
 enum Permission {
@@ -147,25 +147,25 @@ enum TableKind {
 }
 
 model RestaurantTable {
-  id        String      @id @default(cuid())
-  code      String      @unique
-  name      String
-  capacity  Int
-  area      String?
-  active    Boolean     @default(true)
-  qrEnabled Boolean     @default(true)
-  qrToken   String      @unique @default(cuid())
-  notes     String?
-  status    TableStatus @default(AVAILABLE)
-  sortOrder Int         @default(0)
-  kind      TableKind   @default(STANDARD)
+  id            String            @id @default(cuid())
+  code          String            @unique
+  name          String
+  capacity      Int
+  area          String?
+  active        Boolean           @default(true)
+  qrEnabled     Boolean           @default(true)
+  qrToken       String            @unique @default(cuid())
+  notes         String?
+  status        TableStatus       @default(AVAILABLE)
+  sortOrder     Int               @default(0)
+  kind          TableKind         @default(STANDARD)
   // Only set for kind=SPLIT — the STANDARD table this Quick Sale table was
   // split off of, purely informational (§Quick Sale "Split from Table X").
   originTableId String?
   originTable   RestaurantTable?  @relation("TableSplitOrigin", fields: [originTableId], references: [id])
   splitTables   RestaurantTable[] @relation("TableSplitOrigin")
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   sessions     TableSession[]
   reservations Reservation[]
@@ -334,41 +334,41 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id               String       @id @default(cuid())
-  categoryId       String
-  category         MenuCategory @relation(fields: [categoryId], references: [id])
-  nameTh           String
-  nameEn           String
-  descriptionTh    String?
-  descriptionEn    String?
-  photoUrl         String?
-  basePrice        Decimal      @db.Decimal(12, 2)
-  active           Boolean      @default(true)
-  soldOut          Boolean      @default(false)
-  featured         Boolean      @default(false)
-  seasonal         Boolean      @default(false)
-  isNew            Boolean      @default(false)
-  staffOnly        Boolean      @default(false)
-  customerVisible  Boolean      @default(true)
-  discountEligible Boolean      @default(true)
-  isCombo          Boolean      @default(false)
-  sortOrder        Int          @default(0)
-  dietaryTags      Json?
-  allergenTags     Json?
-  availableDays       Json?
-  availableStartTime  String?
-  availableEndTime    String?
-  availableFrom       DateTime?
-  availableTo         DateTime?
-  trackQuantity       Boolean   @default(false)
-  remainingQuantity   Int?
-  notes            String?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                 String       @id @default(cuid())
+  categoryId         String
+  category           MenuCategory @relation(fields: [categoryId], references: [id])
+  nameTh             String
+  nameEn             String
+  descriptionTh      String?
+  descriptionEn      String?
+  photoUrl           String?
+  basePrice          Decimal      @db.Decimal(12, 2)
+  active             Boolean      @default(true)
+  soldOut            Boolean      @default(false)
+  featured           Boolean      @default(false)
+  seasonal           Boolean      @default(false)
+  isNew              Boolean      @default(false)
+  staffOnly          Boolean      @default(false)
+  customerVisible    Boolean      @default(true)
+  discountEligible   Boolean      @default(true)
+  isCombo            Boolean      @default(false)
+  sortOrder          Int          @default(0)
+  dietaryTags        Json?
+  allergenTags       Json?
+  availableDays      Json?
+  availableStartTime String?
+  availableEndTime   String?
+  availableFrom      DateTime?
+  availableTo        DateTime?
+  trackQuantity      Boolean      @default(false)
+  remainingQuantity  Int?
+  notes              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  modifierGroups MenuItemModifierGroup[]
-  comboSlots     ComboSlot[]
-  orderItems     OrderItem[]
+  modifierGroups        MenuItemModifierGroup[]
+  comboSlots            ComboSlot[]
+  orderItems            OrderItem[]
   comboChoiceSelections OrderItemComboSelection[] @relation("ComboSelectionChoice")
   redeemablePromotions  Promotion[]
 
@@ -417,17 +417,17 @@ model MenuItemModifierGroup {
 }
 
 model ComboSlot {
-  id          String       @id @default(cuid())
+  id          String        @id @default(cuid())
   comboItemId String
-  comboItem   MenuItem     @relation(fields: [comboItemId], references: [id], onDelete: Cascade)
+  comboItem   MenuItem      @relation(fields: [comboItemId], references: [id], onDelete: Cascade)
   nameTh      String
   nameEn      String
   categoryId  String?
   category    MenuCategory? @relation(fields: [categoryId], references: [id])
-  minSelect   Int          @default(1)
-  maxSelect   Int          @default(1)
-  extraCharge Decimal      @default(0) @db.Decimal(12, 2)
-  sortOrder   Int          @default(0)
+  minSelect   Int           @default(1)
+  maxSelect   Int           @default(1)
+  extraCharge Decimal       @default(0) @db.Decimal(12, 2)
+  sortOrder   Int           @default(0)
 
   selections OrderItemComboSelection[]
 }
@@ -440,18 +440,18 @@ model ComboSlot {
  * so a later menu/combo edit never rewrites a past order's receipt.
  */
 model OrderItemComboSelection {
-  id                 String    @id @default(cuid())
-  orderItemId        String
-  orderItem          OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  comboSlotId        String?
-  comboSlot          ComboSlot? @relation(fields: [comboSlotId], references: [id], onDelete: SetNull)
-  slotNameSnapshotTh String
-  slotNameSnapshotEn String
-  selectedMenuItemId String?
-  selectedMenuItem   MenuItem? @relation("ComboSelectionChoice", fields: [selectedMenuItemId], references: [id])
+  id                  String     @id @default(cuid())
+  orderItemId         String
+  orderItem           OrderItem  @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  comboSlotId         String?
+  comboSlot           ComboSlot? @relation(fields: [comboSlotId], references: [id], onDelete: SetNull)
+  slotNameSnapshotTh  String
+  slotNameSnapshotEn  String
+  selectedMenuItemId  String?
+  selectedMenuItem    MenuItem?  @relation("ComboSelectionChoice", fields: [selectedMenuItemId], references: [id])
   nameSnapshotTh      String
   nameSnapshotEn      String
-  extraChargeSnapshot Decimal  @default(0) @db.Decimal(12, 2)
+  extraChargeSnapshot Decimal    @default(0) @db.Decimal(12, 2)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -470,15 +470,15 @@ enum OrderStatus {
 }
 
 model Order {
-  id          String       @id @default(cuid())
-  sessionId   String
-  session     TableSession @relation(fields: [sessionId], references: [id])
-  source      OrderSource
-  orderedById String?
-  orderedBy   Staff?       @relation(fields: [orderedById], references: [id])
-  status      OrderStatus  @default(SUBMITTED)
-  notes       String?
-  createdAt   DateTime     @default(now())
+  id             String       @id @default(cuid())
+  sessionId      String
+  session        TableSession @relation(fields: [sessionId], references: [id])
+  source         OrderSource
+  orderedById    String?
+  orderedBy      Staff?       @relation(fields: [orderedById], references: [id])
+  status         OrderStatus  @default(SUBMITTED)
+  notes          String?
+  createdAt      DateTime     @default(now())
   // Set when a cashier has seen this order (§17) — only orders from STAFF
   // or CUSTOMER_QR ever need this; cashier-entered orders don't alert themselves.
   acknowledgedAt DateTime?
@@ -593,30 +593,30 @@ enum DiscountType {
 }
 
 model Promotion {
-  id                     String       @id @default(cuid())
-  name                   String
-  type                   DiscountType
-  value                  Decimal      @db.Decimal(12, 2)
+  id                  String       @id @default(cuid())
+  name                String
+  type                DiscountType
+  value               Decimal      @db.Decimal(12, 2)
   // Set only for type FREE_ITEM — the specific menu item this promotion
   // redeems. Its price is read live at redemption time (§45 note: this is
   // a *rule*, not a historical record — the discount amount itself still
   // gets snapshotted onto AppliedDiscount like every other promotion).
-  rewardMenuItemId       String?
-  rewardMenuItem         MenuItem?    @relation(fields: [rewardMenuItemId], references: [id])
-  startDate              DateTime?
-  endDate                DateTime?
-  activeDays             Json?
-  startTime              String?
-  endTime                String?
-  eligibleMenuItemIds    Json?
-  minimumSpend           Decimal?     @db.Decimal(12, 2)
-  memberOnly             Boolean      @default(false)
-  stackable              Boolean      @default(false)
-  active                 Boolean      @default(true)
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  rewardMenuItemId    String?
+  rewardMenuItem      MenuItem?    @relation(fields: [rewardMenuItemId], references: [id])
+  startDate           DateTime?
+  endDate             DateTime?
+  activeDays          Json?
+  startTime           String?
+  endTime             String?
+  eligibleMenuItemIds Json?
+  minimumSpend        Decimal?     @db.Decimal(12, 2)
+  memberOnly          Boolean      @default(false)
+  stackable           Boolean      @default(false)
+  active              Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  appliedDiscounts AppliedDiscount[]
+  appliedDiscounts      AppliedDiscount[]
   // Achievements that grant this promotion as their reward (§Benefits) —
   // see Achievement.promotionId.
   grantedByAchievements Achievement[]
@@ -894,15 +894,9 @@ model BenefitRedemption {
 // Games (§34–37)
 // ─────────────────────────────────────────────────────────────────────────
 
-enum GameStatus {
-  AVAILABLE
-  IN_USE
-  MISSING
-  DAMAGED
-  ARCHIVED
-}
-
-/** Managed game categories (replaces free-text Game.category). */
+/**
+ * Managed game categories (replaces free-text Game.category).
+ */
 model GameCategory {
   id        String   @id @default(cuid())
   nameTh    String
@@ -931,8 +925,6 @@ model Game {
   language          String?
   shelfLocation     String?
   totalQuantity     Int           @default(1)
-  availableQuantity Int           @default(1)
-  status            GameStatus    @default(AVAILABLE)
   notes             String?
   active            Boolean       @default(true)
   createdAt         DateTime      @default(now())
