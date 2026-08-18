@@ -197,6 +197,19 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
     );
   }
 
+  // A table sent to checkout still has an active session (hasActiveSession
+  // above) but its bill is locked — no new orders until it's back on the
+  // table (§Customer QR checkout-lock mismatch). Distinct message from
+  // "not opened yet" since the table very much is open, just mid-payment.
+  if (!data.canOrder) {
+    return (
+      <p className="rounded-2xl bg-white/10 p-6 text-center text-white/80">
+        Your bill is being prepared — no new orders right now. Flag down a
+        Tavern Keeper if you need something before paying.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2 rounded-full bg-white/10 p-1">

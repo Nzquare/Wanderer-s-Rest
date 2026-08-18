@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "../trpc";
 import { toNum } from "@/lib/decimal";
-import { createOrder, cartItemSchema } from "./orders";
+import { createOrder, cartItemSchema, OPEN_ORDER_STATUSES } from "./orders";
 import type { PrismaClient } from "@/generated/prisma/client";
 
 const ACTIVE_SESSION_STATUSES = ["OPEN", "PAUSED", "READY_FOR_CHECKOUT"] as const;
@@ -34,6 +34,7 @@ export const customerRouter = router({
           tableCode: table.code,
           qrEnabled: false,
           hasActiveSession: false,
+          canOrder: false,
           categories: [],
         };
       }
@@ -82,6 +83,14 @@ export const customerRouter = router({
         tableCode: table.code,
         qrEnabled: true,
         hasActiveSession: !!session,
+        // Distinct from hasActiveSession — a table sent to checkout
+        // (READY_FOR_CHECKOUT) still has an active session, but its bill
+        // is locked (createOrder validates against this exact same
+        // OPEN_ORDER_STATUSES constant, imported rather than duplicated
+        // so the two can't drift apart again — §Customer QR checkout-lock
+        // mismatch). Without this, the menu showed as fully orderable
+        // right up until the customer tapped Submit and got rejected.
+        canOrder: !!session && OPEN_ORDER_STATUSES.includes(session.status as (typeof OPEN_ORDER_STATUSES)[number]),
         categories: categories
           .filter((c) => c.items.length > 0)
           .map((cat) => ({
