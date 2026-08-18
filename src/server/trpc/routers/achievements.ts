@@ -172,33 +172,40 @@ export const achievementsRouter = router({
         }
       }
 
-      const memberAchievement = await ctx.prisma.memberAchievement.create({
-        data: {
-          memberId: input.memberId,
-          achievementId: input.achievementId,
-          awardedById: ctx.staff.id,
-          note: input.note,
-          sessionId: input.sessionId,
-        },
-      });
-
-      if (achievement.hasReward && achievement.promotionId) {
-        await ctx.prisma.benefitRedemption.create({
+      // One transaction — the award and the reward it grants land
+      // together. Split into two separate calls, a failure between them
+      // would award the achievement with no reward to show for it (or,
+      // worse, leave the memberAchievement row orphaned with no
+      // BenefitRedemption at all despite hasReward being true).
+      await ctx.prisma.$transaction(async (tx) => {
+        const memberAchievement = await tx.memberAchievement.create({
           data: {
             memberId: input.memberId,
-            memberAchievementId: memberAchievement.id,
-            promotionId: achievement.promotionId,
+            achievementId: input.achievementId,
+            awardedById: ctx.staff.id,
+            note: input.note,
+            sessionId: input.sessionId,
           },
         });
-      }
 
-      await logAudit(ctx.prisma, {
-        staffId: ctx.staff.id,
-        action: "ACHIEVEMENT_AWARDED",
-        entityType: "Member",
-        entityId: input.memberId,
-        newValue: { achievementId: achievement.id, achievementCode: achievement.code },
-        reason: input.note,
+        if (achievement.hasReward && achievement.promotionId) {
+          await tx.benefitRedemption.create({
+            data: {
+              memberId: input.memberId,
+              memberAchievementId: memberAchievement.id,
+              promotionId: achievement.promotionId,
+            },
+          });
+        }
+
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "ACHIEVEMENT_AWARDED",
+          entityType: "Member",
+          entityId: input.memberId,
+          newValue: { achievementId: achievement.id, achievementCode: achievement.code },
+          reason: input.note,
+        });
       });
 
       return { ok: true };

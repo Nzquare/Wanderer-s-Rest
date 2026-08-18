@@ -360,7 +360,15 @@ export const checkoutRouter = router({
         ? new Set(
             (
               await ctx.prisma.benefitRedemption.findMany({
-                where: { status: "AVAILABLE", memberId: session.member.id },
+                // expiresAt is set at grant time (benefits.grant) but was
+                // never actually checked anywhere — an AVAILABLE reward
+                // stayed redeemable forever regardless of its own expiry
+                // date (§Benefit expiry enforcement).
+                where: {
+                  status: "AVAILABLE",
+                  memberId: session.member.id,
+                  OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+                },
                 select: { promotionId: true },
               })
             ).map((r) => r.promotionId),
@@ -447,7 +455,15 @@ export const checkoutRouter = router({
       // expensive way to find nothing.
       const earnedRedemption = session.member
         ? await ctx.prisma.benefitRedemption.findFirst({
-            where: { status: "AVAILABLE", memberId: session.member.id, promotionId: promotion.id },
+            // Re-check expiry server-side too (§Benefit expiry
+            // enforcement) — a stale client-side eligible list is exactly
+            // the kind of thing this apply step already re-verifies below.
+            where: {
+              status: "AVAILABLE",
+              memberId: session.member.id,
+              promotionId: promotion.id,
+              OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+            },
           })
         : null;
       // Re-check eligibility server-side rather than trusting the client's
@@ -476,36 +492,44 @@ export const checkoutRouter = router({
           ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
           : promotion.name;
 
-      await ctx.prisma.appliedDiscount.create({
-        data: {
-          sessionId: session.id,
-          promotionId: promotion.id,
-          label,
-          amount,
-          appliedById: ctx.staff.id,
-          // Links this discount back to the specific reward it redeemed
-          // (§Benefits) — the Adventurer Profile's Benefits section reads
-          // this to show "Redeemed" instead of leaving it AVAILABLE forever.
-          benefitRedemptionId: earnedRedemption?.id,
-        },
-      });
-      if (earnedRedemption) {
-        await ctx.prisma.benefitRedemption.update({
-          where: { id: earnedRedemption.id },
+      // One transaction — an earned reward is marked USED in the same
+      // write as the discount that redeems it. These used to be two
+      // separate calls: if the redemption update failed (or the request
+      // dropped) after the discount already landed, the member kept an
+      // AVAILABLE reward they'd already spent and could redeem it again
+      // on the next bill (§Benefit redemption atomicity).
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.appliedDiscount.create({
           data: {
-            status: "USED",
-            usedAt: new Date(),
-            usedById: ctx.staff.id,
-            relatedSessionId: session.id,
+            sessionId: session.id,
+            promotionId: promotion.id,
+            label,
+            amount,
+            appliedById: ctx.staff.id,
+            // Links this discount back to the specific reward it redeemed
+            // (§Benefits) — the Adventurer Profile's Benefits section reads
+            // this to show "Redeemed" instead of leaving it AVAILABLE forever.
+            benefitRedemptionId: earnedRedemption?.id,
           },
         });
-      }
-      await logAudit(ctx.prisma, {
-        staffId: ctx.staff.id,
-        action: "PROMOTION_APPLIED",
-        entityType: "TableSession",
-        entityId: session.id,
-        newValue: { promotionId: promotion.id, label, amount },
+        if (earnedRedemption) {
+          await tx.benefitRedemption.update({
+            where: { id: earnedRedemption.id },
+            data: {
+              status: "USED",
+              usedAt: new Date(),
+              usedById: ctx.staff.id,
+              relatedSessionId: session.id,
+            },
+          });
+        }
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "PROMOTION_APPLIED",
+          entityType: "TableSession",
+          entityId: session.id,
+          newValue: { promotionId: promotion.id, label, amount },
+        });
       });
       return { ok: true, amount };
     }),
@@ -536,7 +560,13 @@ export const checkoutRouter = router({
         session?.memberId
           ? (
               await ctx.prisma.benefitRedemption.findMany({
-                where: { status: "AVAILABLE", memberId: session.memberId },
+                // See listEligiblePromotions' own comment — expiresAt was
+                // stored but never checked (§Benefit expiry enforcement).
+                where: {
+                  status: "AVAILABLE",
+                  memberId: session.memberId,
+                  OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+                },
                 select: { promotionId: true },
               })
             ).map((r) => r.promotionId)
@@ -667,26 +697,48 @@ export const checkoutRouter = router({
   removeDiscount: permissionProcedure(Permission.APPLY_DISCOUNTS)
     .input(z.object({ discountId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const discount = await ctx.prisma.appliedDiscount.findUnique({
-        where: { id: input.discountId },
-        select: { benefitRedemptionId: true },
-      });
-      await ctx.prisma.$transaction([
-        ctx.prisma.appliedDiscount.delete({ where: { id: input.discountId } }),
+      return ctx.prisma.$transaction(async (tx) => {
+        const discount = await tx.appliedDiscount.findUnique({
+          where: { id: input.discountId },
+          include: { session: { select: { id: true, paymentStatus: true } } },
+        });
+        if (!discount) throw new TRPCError({ code: "NOT_FOUND" });
+        // Same guard every other discount mutation on this bill enforces
+        // (applyPromotion/applyPromotionOverride/applyManualDiscount) — a
+        // paid bill's discounts are locked in, matching its stored bill
+        // snapshot. Without this, a discount could be deleted off an
+        // already-checked-out bill: the receipt/discountTotal snapshot
+        // would still show the original figure while the AppliedDiscount
+        // row (and anything reading it, like the promotion-usage report)
+        // silently disagreed.
+        if (discount.session.paymentStatus === "PAID") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
+        }
+
+        await tx.appliedDiscount.delete({ where: { id: input.discountId } });
         // Removing an earned reward gives it back, same reasoning as
         // voidSession (sessions.ts) — it was marked USED the moment it
         // was applied, before payment, so taking it back off the bill
         // should undo that too, not leave it stuck redeemed for nothing.
-        ...(discount?.benefitRedemptionId
-          ? [
-              ctx.prisma.benefitRedemption.update({
-                where: { id: discount.benefitRedemptionId },
-                data: { status: "AVAILABLE" as const, usedAt: null, usedById: null, relatedSessionId: null },
-              }),
-            ]
-          : []),
-      ]);
-      return { ok: true };
+        if (discount.benefitRedemptionId) {
+          await tx.benefitRedemption.update({
+            where: { id: discount.benefitRedemptionId },
+            data: { status: "AVAILABLE", usedAt: null, usedById: null, relatedSessionId: null },
+          });
+        }
+        await logAudit(tx, {
+          staffId: ctx.staff.id,
+          action: "DISCOUNT_REMOVED",
+          entityType: "TableSession",
+          entityId: discount.session.id,
+          previousValue: {
+            promotionId: discount.promotionId,
+            label: discount.label,
+            amount: toNum(discount.amount),
+          },
+        });
+        return { ok: true };
+      });
     }),
 
   recordPayment: cashierProcedure

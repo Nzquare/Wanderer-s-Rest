@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, cashierProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
+import { toNum } from "@/lib/decimal";
 
 const manage = () => permissionProcedure(Permission.MANAGE_RESERVATIONS);
 
@@ -14,8 +15,8 @@ export const reservationsRouter = router({
   }),
 
   /** Powers the Cashier dashboard's "Upcoming reservations" widget (§3). */
-  listUpcoming: cashierProcedure.query(({ ctx }) => {
-    return ctx.prisma.reservation.findMany({
+  listUpcoming: cashierProcedure.query(async ({ ctx }) => {
+    const reservations = await ctx.prisma.reservation.findMany({
       where: {
         status: { in: ["PENDING", "CONFIRMED"] },
         date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
@@ -24,14 +25,19 @@ export const reservationsRouter = router({
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       take: 50,
     });
+    // Decimal doesn't survive the wire as a number without this — same
+    // toNum() convention used everywhere else a Decimal crosses into a
+    // tRPC response.
+    return reservations.map((r) => ({ ...r, depositAmount: toNum(r.depositAmount) }));
   }),
 
-  list: manage().query(({ ctx }) => {
-    return ctx.prisma.reservation.findMany({
+  list: manage().query(async ({ ctx }) => {
+    const reservations = await ctx.prisma.reservation.findMany({
       include: { type: true, table: true, member: { select: { adventurerName: true } } },
       orderBy: [{ date: "desc" }, { startTime: "desc" }],
       take: 200,
     });
+    return reservations.map((r) => ({ ...r, depositAmount: toNum(r.depositAmount) }));
   }),
 
   create: manage()
@@ -59,11 +65,13 @@ export const reservationsRouter = router({
       if (!type) throw new TRPCError({ code: "NOT_FOUND", message: "Reservation type not found." });
 
       const depositAmount = input.depositAmount ?? (type.requiresDeposit ? Number(type.defaultDepositAmount ?? 0) : undefined);
-      const depositStatus = !type.requiresDeposit
-        ? "NOT_REQUIRED"
-        : depositAmount
-          ? "PAID"
-          : "PENDING";
+      // Booking the reservation and collecting the deposit are two
+      // different events — this mutation only does the first one, so it
+      // must never claim PAID just because an amount was entered/computed
+      // (§Reservation deposit accuracy). Staff mark it collected
+      // separately once money actually changes hands (ReservationRow's
+      // "Mark deposit paid" action).
+      const depositStatus = !type.requiresDeposit ? "NOT_REQUIRED" : "PENDING";
 
       return ctx.prisma.reservation.create({
         data: {

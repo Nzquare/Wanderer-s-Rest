@@ -888,6 +888,12 @@ export const sessionsRouter = router({
    * are deliberately left alone — revoking a milestone (and any benefit
    * already redeemed from it) isn't something a refund should do
    * silently; that stays a separate manual call if it's ever needed.
+   *
+   * Every completed Payment on this session is marked REFUNDED (with a
+   * matching Refund row per payment) here too — shift close's expectedCash
+   * and the Transactions report both filter Payment on
+   * `status: "COMPLETED"`, so without this a refunded cash sale kept
+   * counting toward the expected drawer total forever.
    */
   refundSession: permissionProcedure(Permission.REFUND_TRANSACTION)
     .input(
@@ -923,6 +929,33 @@ export const sessionsRouter = router({
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Incorrect passcode for the assigned staff member.",
+          });
+        }
+
+        // Mark every completed payment on this bill REFUNDED and record a
+        // matching Refund row per payment — without this, a refunded bill's
+        // cash payment stayed indistinguishable from a live one anywhere
+        // that reads Payment.status: Shift close's expectedCash (shifts.ts)
+        // and the Transactions detail report both filter on
+        // `status: "COMPLETED"`, so a refunded cash sale kept inflating the
+        // expected drawer total and the "payments by method" breakdown
+        // forever, with the mismatch only visible via session.paymentStatus
+        // on the session itself (§Refund payment-record accuracy).
+        const payments = await tx.payment.findMany({
+          where: { sessionId: session.id, status: "COMPLETED" },
+        });
+        for (const payment of payments) {
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: { status: "REFUNDED" },
+          });
+          await tx.refund.create({
+            data: {
+              paymentId: payment.id,
+              amount: payment.amount,
+              reason: input.reason,
+              staffId: assignedStaff.id,
+            },
           });
         }
 
@@ -1000,6 +1033,15 @@ export const sessionsRouter = router({
         where: { id: input.sessionId },
       });
       if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      // Once paid, EXP/spending has already been awarded to whoever was
+      // linked at that moment (checkout.recordPayment) — linking someone
+      // else in afterward would misattribute that history without
+      // actually granting them anything, and a later refund reads
+      // session.member to reverse it, so the member on the row has to
+      // stay the one payment actually happened for (§Member link lock).
+      if (session.paymentStatus === "PAID") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
+      }
       if (session.memberId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1016,6 +1058,16 @@ export const sessionsRouter = router({
   unlinkMember: staffProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const session = await ctx.prisma.tableSession.findUnique({
+        where: { id: input.sessionId },
+      });
+      if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+      // See linkMember's comment — unlinking after payment would silently
+      // break a later refund's EXP/spending reversal (refundSession reads
+      // session.member at refund time, not at payment time).
+      if (session.paymentStatus === "PAID") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Session already paid." });
+      }
       await ctx.prisma.tableSession.update({
         where: { id: input.sessionId },
         data: { memberId: null },

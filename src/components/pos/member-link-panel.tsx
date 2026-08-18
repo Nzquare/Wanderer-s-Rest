@@ -49,25 +49,30 @@ export function MemberLinkPanel({
 
   if (member) {
     return (
-      <div className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
-        <div>
-          <p className="text-xs text-foreground-muted">Linked member</p>
-          <p className="font-medium text-foreground">{member.adventurerName}</p>
-          <Link
-            href={`/back-office/members/${member.id}`}
-            className="text-xs text-teal-600 underline"
+      <div className="space-y-1">
+        <div className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
+          <div>
+            <p className="text-xs text-foreground-muted">Linked member</p>
+            <p className="font-medium text-foreground">{member.adventurerName}</p>
+            <Link
+              href={`/back-office/members/${member.id}`}
+              className="text-xs text-teal-600 underline"
+            >
+              View profile
+            </Link>
+          </div>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => unlink.mutate({ sessionId })}
+            disabled={unlink.isPending}
           >
-            View profile
-          </Link>
+            Unlink
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="md"
-          onClick={() => unlink.mutate({ sessionId })}
-          disabled={unlink.isPending}
-        >
-          Unlink
-        </Button>
+        {unlink.error && (
+          <p className="text-xs text-status-danger">{unlink.error.message}</p>
+        )}
       </div>
     );
   }
@@ -75,6 +80,7 @@ export function MemberLinkPanel({
   return (
     <div className="space-y-2 rounded-xl border border-border bg-surface p-3">
       <p className="text-xs text-foreground-muted">Link a member</p>
+      {link.error && <p className="text-xs text-status-danger">{link.error.message}</p>}
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}

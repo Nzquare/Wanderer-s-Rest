@@ -222,6 +222,32 @@ function ReservationRow({ reservation }: { reservation: UpcomingReservation }) {
           {reservation.status.replace("_", " ")}
         </span>
       </div>
+      {reservation.depositStatus !== "NOT_REQUIRED" && (
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 font-medium",
+              reservation.depositStatus === "PAID"
+                ? "bg-status-success/15 text-status-success"
+                : reservation.depositStatus === "PENDING"
+                  ? "bg-status-warning/15 text-status-warning"
+                  : "bg-status-neutral/15 text-status-neutral",
+            )}
+          >
+            Deposit {reservation.depositStatus.toLowerCase()}
+            {reservation.depositAmount ? ` · ฿${Number(reservation.depositAmount)}` : ""}
+          </span>
+          {reservation.depositStatus === "PENDING" && (
+            <button
+              onClick={() => update.mutate({ id: reservation.id, depositStatus: "PAID" })}
+              disabled={update.isPending}
+              className="text-teal-600 underline"
+            >
+              Mark collected
+            </button>
+          )}
+        </div>
+      )}
       {(reservation.status === "PENDING" || reservation.status === "CONFIRMED") && (
         <div className="flex gap-2">
           <Button size="md" onClick={() => setCheckingIn((v) => !v)}>
