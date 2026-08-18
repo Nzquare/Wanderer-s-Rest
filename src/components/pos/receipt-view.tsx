@@ -80,7 +80,16 @@ export function ReceiptView({
   const rankedUp = progression && progression.rankAfter !== progression.rankBefore;
 
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
+  const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
+  // Back Office → Settings has real inputs for both of these (café name,
+  // receipt footer) — the printed receipt used to ignore them entirely and
+  // print a hardcoded "Wanderer's Rest" / "Thank you for visiting..." no
+  // matter what was saved there (§Receipt settings wiring). Falls back to
+  // the same schema defaults those settings already default to, so a
+  // brand-new install prints exactly what it did before this.
+  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
+  const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
 
   // Once every fee line hit the daily cap, the bill was pinned flat for the
   // rest of the day just like FIXED/PACKAGE pricing — show "All day"
@@ -146,7 +155,7 @@ export function ReceiptView({
         }
       >
         <div className="text-center">
-          <p className="font-semibold">Wanderer&apos;s Rest</p>
+          <p className="font-semibold">{cafeName}</p>
           <p className="text-xs text-foreground-muted">
             Receipt #{snapshot.receiptNumber}
           </p>
@@ -288,9 +297,7 @@ export function ReceiptView({
             EXP earned: +{snapshot.expAwarded}
           </div>
         )}
-        <p className="pt-2 text-center text-xs text-foreground-muted">
-          Thank you for visiting Wanderer&apos;s Rest!
-        </p>
+        <p className="pt-2 text-center text-xs text-foreground-muted">{receiptFooter}</p>
       </div>
 
       <div className="flex gap-2 print:hidden">

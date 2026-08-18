@@ -119,6 +119,15 @@ export const staffRouter = router({
         where: { id: input.staffId },
         data: { pinHash },
       });
+      // Resetting someone else's login credential was the one action in
+      // this file with no audit trail at all — every sibling mutation
+      // here (status, role, permissions) already logs one.
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "STAFF_PIN_RESET",
+        entityType: "Staff",
+        entityId: input.staffId,
+      });
       return { ok: true };
     }),
 

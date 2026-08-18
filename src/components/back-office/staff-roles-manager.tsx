@@ -270,9 +270,19 @@ function CreateRoleForm() {
 }
 
 export function StaffRolesManager() {
-  const { data: staffList } = trpc.staff.list.useQuery();
-  const { data: roles } = trpc.staff.listRoles.useQuery();
+  const { data: staffList, error: staffError } = trpc.staff.list.useQuery();
+  const { data: roles, error: rolesError } = trpc.staff.listRoles.useQuery();
   const { data: allPermissions } = trpc.staff.allPermissions.useQuery();
+
+  // A FORBIDDEN here (no MANAGE_STAFF) used to just fall through to
+  // `roles ?? []` on every list — an apparently-working but silently empty
+  // page (create form with nothing to pick from, no staff/roles listed, no
+  // explanation) rather than a page that ever says why (§Back Office
+  // permission-error visibility).
+  const error = staffError ?? rolesError;
+  if (error) {
+    return <p className="text-sm text-status-danger">{error.message}</p>;
+  }
 
   return (
     <div className="space-y-8">

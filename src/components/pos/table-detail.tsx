@@ -254,6 +254,10 @@ export function TableDetail({
     { tableId },
     { refetchInterval: 15_000 },
   );
+  const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
+  // Same fallback as receipt-view.tsx/checkout-client.tsx — matches what
+  // this setting already defaults to (§Receipt settings wiring).
+  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   // Only read on the client; the print area that uses this is hidden until
   // printed (@media print), so there's nothing to mismatch during hydration.
@@ -377,7 +381,7 @@ export function TableDetail({
           className={showQrPrint ? "print-area hidden print:block" : "hidden"}
         >
           <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
-            <p className="font-semibold">Wanderer&apos;s Rest</p>
+            <p className="font-semibold">{cafeName}</p>
             <p className="text-xs">Table {table.code} — Scan to order</p>
             <div className="flex justify-center py-2">
               <QrCodeImage value={`${origin}/t/${table.qrToken}`} size={220} />

@@ -4,7 +4,7 @@ export default function CashierReservationsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold text-foreground">Reservations</h1>
-      <ReservationsManager />
+      <ReservationsManager basePath="/cashier" />
     </div>
   );
 }

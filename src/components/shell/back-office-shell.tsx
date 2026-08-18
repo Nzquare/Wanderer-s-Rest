@@ -1,23 +1,33 @@
 import Link from "next/link";
 import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
-import { canAccessCashier, canAccessStaffMobile } from "@/server/rbac/can";
+import { canAccessCashier, canAccessStaffMobile, can } from "@/server/rbac/can";
+import { Permission } from "@/generated/prisma/enums";
 
-const NAV_ITEMS = [
+// Each page's own data query is gated behind one of these (see the
+// matching router's `manage()`/permissionProcedure call) — canAccessBackOffice
+// only requires ANY of a handful of permissions to get in the door at all
+// (e.g. a GM with just MANAGE_MEMBERS, or a Tavern Keeper with just
+// MANAGE_GAMES), so most of these pages were reachable but permanently
+// stuck on their own "Loading…" text for anyone without this specific one
+// (§Back Office nav permission gating) — no error, just a query that 403'd
+// forever. `permission: undefined` means every Back Office visitor can use
+// it, no further check.
+const NAV_ITEMS: { href: string; label: string; permission?: Permission }[] = [
   { href: "/back-office", label: "Dashboard" },
-  { href: "/back-office/tables", label: "Tables" },
-  { href: "/back-office/pricing", label: "Pricing" },
-  { href: "/back-office/menu", label: "Menu" },
-  { href: "/back-office/games", label: "Game Library" },
-  { href: "/back-office/members", label: "Members" },
-  { href: "/back-office/classes", label: "Classes" },
-  { href: "/back-office/ranks", label: "Ranks" },
-  { href: "/back-office/achievements", label: "Achievements" },
-  { href: "/back-office/reservations", label: "Reservations" },
-  { href: "/back-office/promotions", label: "Promotions" },
-  { href: "/back-office/staff", label: "Staff & Roles" },
-  { href: "/back-office/reports", label: "Reports" },
-  { href: "/back-office/settings", label: "Settings" },
+  { href: "/back-office/tables", label: "Tables", permission: Permission.MANAGE_TABLES },
+  { href: "/back-office/pricing", label: "Pricing", permission: Permission.MANAGE_SETTINGS },
+  { href: "/back-office/menu", label: "Menu", permission: Permission.MANAGE_MENU },
+  { href: "/back-office/games", label: "Game Library", permission: Permission.MANAGE_GAMES },
+  { href: "/back-office/members", label: "Members", permission: Permission.MANAGE_MEMBERS },
+  { href: "/back-office/classes", label: "Classes", permission: Permission.MANAGE_SETTINGS },
+  { href: "/back-office/ranks", label: "Ranks", permission: Permission.MANAGE_SETTINGS },
+  { href: "/back-office/achievements", label: "Achievements", permission: Permission.MANAGE_SETTINGS },
+  { href: "/back-office/reservations", label: "Reservations", permission: Permission.MANAGE_RESERVATIONS },
+  { href: "/back-office/promotions", label: "Promotions", permission: Permission.MANAGE_PROMOTIONS },
+  { href: "/back-office/staff", label: "Staff & Roles", permission: Permission.MANAGE_STAFF },
+  { href: "/back-office/reports", label: "Reports", permission: Permission.VIEW_REPORTS },
+  { href: "/back-office/settings", label: "Settings", permission: Permission.MANAGE_SETTINGS },
 ];
 
 export function BackOfficeShell({
@@ -53,15 +63,17 @@ export function BackOfficeShell({
           )}
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="block rounded-lg px-3 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              {item.label}
-            </Link>
-          ))}
+          {NAV_ITEMS.filter((item) => !item.permission || can(staff, item.permission)).map(
+            (item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="block rounded-lg px-3 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                {item.label}
+              </Link>
+            ),
+          )}
         </nav>
         <div className="border-t border-white/10 px-3 py-4">
           <p className="px-3 text-xs text-white/50">

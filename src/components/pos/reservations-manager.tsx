@@ -145,9 +145,11 @@ function NewReservationForm() {
 
 function CheckInPicker({
   reservationId,
+  basePath,
   onDone,
 }: {
   reservationId: string;
+  basePath: "/cashier" | "/back-office";
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -156,7 +158,16 @@ function CheckInPicker({
   const checkIn = trpc.reservations.checkIn.useMutation({
     onSuccess: (data) => {
       onDone();
-      router.push(`/cashier/tables/${data.tableId}`);
+      // Back Office has no live table-session page of its own (only
+      // Cashier does) — and Back Office staff may not even have Cashier
+      // access, so auto-navigating them there unannounced could drop them
+      // on a page they can't use at all (§Reservation check-in redirect).
+      // Only jump straight to the table when check-in happened from
+      // Cashier itself; from Back Office, just close the picker and let
+      // the reservations list (still on screen) speak for itself.
+      if (basePath === "/cashier") {
+        router.push(`/cashier/tables/${data.tableId}`);
+      }
     },
   });
 
@@ -183,7 +194,13 @@ function CheckInPicker({
   );
 }
 
-function ReservationRow({ reservation }: { reservation: UpcomingReservation }) {
+function ReservationRow({
+  reservation,
+  basePath,
+}: {
+  reservation: UpcomingReservation;
+  basePath: "/cashier" | "/back-office";
+}) {
   const utils = trpc.useUtils();
   const [checkingIn, setCheckingIn] = useState(false);
   const update = trpc.reservations.update.useMutation({
@@ -279,13 +296,21 @@ function ReservationRow({ reservation }: { reservation: UpcomingReservation }) {
         </div>
       )}
       {checkingIn && (
-        <CheckInPicker reservationId={reservation.id} onDone={() => setCheckingIn(false)} />
+        <CheckInPicker
+          reservationId={reservation.id}
+          basePath={basePath}
+          onDone={() => setCheckingIn(false)}
+        />
       )}
     </Card>
   );
 }
 
-export function ReservationsManager() {
+export function ReservationsManager({
+  basePath,
+}: {
+  basePath: "/cashier" | "/back-office";
+}) {
   const { data: upcoming, isLoading } = trpc.reservations.listUpcoming.useQuery();
 
   return (
@@ -300,7 +325,7 @@ export function ReservationsManager() {
           <p className="text-sm text-foreground-muted">No upcoming reservations.</p>
         )}
         {upcoming?.map((r) => (
-          <ReservationRow key={r.id} reservation={r} />
+          <ReservationRow key={r.id} reservation={r} basePath={basePath} />
         ))}
       </div>
     </div>

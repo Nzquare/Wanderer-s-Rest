@@ -9,7 +9,7 @@ export default function BackOfficeReservationsPage() {
           Same reservations Cashier sees — manage them from either place.
         </p>
       </div>
-      <ReservationsManager />
+      <ReservationsManager basePath="/back-office" />
     </div>
   );
 }

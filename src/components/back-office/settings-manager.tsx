@@ -28,8 +28,15 @@ const inputCls =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm";
 
 export function SettingsManager() {
-  const { data, isLoading } = trpc.settings.getAll.useQuery();
+  const { data, isLoading, error } = trpc.settings.getAll.useQuery();
 
+  // A FORBIDDEN here (no MANAGE_SETTINGS) used to leave isLoading false and
+  // data undefined with nothing distinguishing it from a slow load — this
+  // page just showed "Loading settings…" forever, with no error, no matter
+  // how long the visitor waited (§Back Office permission-error visibility).
+  if (error) {
+    return <p className="text-sm text-status-danger">{error.message}</p>;
+  }
   if (isLoading || !data) {
     return <p className="text-sm text-foreground-muted">Loading settings…</p>;
   }

@@ -30,6 +30,10 @@ export const settingsRouter = router({
    * needs printerWidthMm to print at the right paper size. */
   getCheckout: staffProcedure.query(() => getSettings("checkout")),
 
+  /** Read-only — the receipt view needs the café's own name for its
+   * header rather than a hardcoded one (§Receipt settings wiring). */
+  getCafe: staffProcedure.query(() => getSettings("cafe")),
+
   updateCafe: manage()
     .input(cafeSettingsSchema.partial())
     .mutation(({ input }) => updateSettings("cafe", input)),

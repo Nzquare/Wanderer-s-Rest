@@ -83,6 +83,11 @@ export function CheckoutClient({
     sessionId,
   });
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
+  const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
+  // Same fallback as receipt-view.tsx — matches what these settings
+  // already default to, so an unconfigured install prints the same thing
+  // it always did (§Receipt settings wiring).
+  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
 
   // PromotionPicker (shared with the table page — §Table-page promotions)
   // owns the "Add promotion" popup itself: every active promotion,
@@ -328,7 +333,7 @@ export function CheckoutClient({
       >
         <div className="mx-auto max-w-xs space-y-2 p-4 font-mono text-sm">
           <div className="text-center">
-            <p className="font-semibold">Wanderer&apos;s Rest</p>
+            <p className="font-semibold">{cafeName}</p>
             <p className="text-xs">Invoice — Table {preview.table.code}</p>
             <p className="text-xs">{new Date().toLocaleString()}</p>
           </div>
@@ -648,7 +653,7 @@ export function CheckoutClient({
                 className={printMode === "promptpay" ? "print-area hidden print:block" : "hidden"}
               >
                 <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
-                  <p className="font-semibold">Wanderer&apos;s Rest</p>
+                  <p className="font-semibold">{cafeName}</p>
                   <p className="text-xs">Table {preview.table.code}</p>
                   <div className="flex justify-center py-2">
                     <QrCodeImage value={qrValue} size={220} />
