@@ -28,6 +28,11 @@ const checkoutInclude = {
   // alongside the member's name — nothing else in checkout.ts needed the
   // nested relation, member's own scalar fields were enough before this.
   member: { include: { class: true } },
+  // A reservation's deposit isn't auto-credited against the bill (§
+  // Reservation deposit reminder) — staff apply it themselves via the
+  // existing manual-discount flow. This is just enough to remind them
+  // it's there and prefill the amount.
+  reservation: { select: { depositAmount: true, depositStatus: true } },
   orders: {
     where: { status: "SUBMITTED" as const },
     include: {
@@ -286,6 +291,17 @@ export const checkoutRouter = router({
         memberPreview,
         sessionStatus: session.status,
         paymentStatus: session.paymentStatus,
+        // A collected reservation deposit isn't auto-credited against the
+        // bill (§Reservation deposit reminder) — checkout-client.tsx shows
+        // this as a reminder with a "Deduct now" button that prefills the
+        // existing manual-discount box, so applying it is still a
+        // deliberate staff action, not something that could silently
+        // double-apply. Only surfaced once the deposit is actually PAID —
+        // nothing to deduct for one still PENDING.
+        depositReminder:
+          session.reservation?.depositStatus === "PAID" && toNum(session.reservation.depositAmount) > 0
+            ? { amount: toNum(session.reservation.depositAmount) }
+            : null,
       };
     }),
 

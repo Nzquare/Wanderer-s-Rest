@@ -246,6 +246,15 @@ function ReservationRow({ reservation }: { reservation: UpcomingReservation }) {
               Mark collected
             </button>
           )}
+          {reservation.depositStatus === "PAID" && (
+            <button
+              onClick={() => update.mutate({ id: reservation.id, depositStatus: "PENDING" })}
+              disabled={update.isPending}
+              className="text-foreground-muted underline"
+            >
+              Mark unpaid
+            </button>
+          )}
         </div>
       )}
       {(reservation.status === "PENDING" || reservation.status === "CONFIRMED") && (

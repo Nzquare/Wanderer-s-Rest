@@ -421,6 +421,31 @@ export function CheckoutClient({
         </Card>
       )}
 
+      {/* Deposits aren't auto-credited (§Reservation deposit reminder) —
+          this just makes it hard to forget one's sitting there, and
+          prefills the custom-discount box so applying it is still a
+          deliberate click, not something that could silently double-up. */}
+      {preview.depositReminder && (
+        <Card className="flex flex-wrap items-center justify-between gap-2 border-status-warning/40 bg-status-warning/10">
+          <p className="text-sm text-foreground">
+            This table has a <strong>฿{preview.depositReminder.amount}</strong> reservation
+            deposit already collected — remember to deduct it from the bill.
+          </p>
+          <Button
+            size="md"
+            variant="outline"
+            onClick={() => {
+              setDiscountType("FIXED_AMOUNT");
+              setDiscountValue(String(preview.depositReminder!.amount));
+              setDiscountReason("Reservation deposit already collected");
+              setCustomOpen(true);
+            }}
+          >
+            Deduct now
+          </Button>
+        </Card>
+      )}
+
       <Card className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium text-foreground-muted">Discounts</p>
         <div className="flex gap-2">
