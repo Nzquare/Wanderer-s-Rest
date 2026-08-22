@@ -6,8 +6,10 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { fileToResizedDataUrl } from "@/lib/image-to-data-url";
 
 type AllSettings = inferRouterOutputs<AppRouter>["settings"]["getAll"];
+type CafeSettings = AllSettings["cafe"];
 
 function Field({
   label,
@@ -26,6 +28,74 @@ function Field({
 
 const inputCls =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm";
+
+/**
+ * Café logo upload (§Logo upload) — no file-storage service is set up for
+ * this project, so there's nowhere to POST a file to. Instead the picked
+ * image is resized in the browser and turned into a data URI
+ * (fileToResizedDataUrl), stored as the same plain `logoUrl` string every
+ * consumer already reads via `<img src>` — works immediately, no new
+ * infrastructure, no upload endpoint.
+ */
+function LogoField({
+  cafe,
+  setCafe,
+}: {
+  cafe: CafeSettings;
+  setCafe: (next: CafeSettings) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleFile(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    try {
+      const dataUrl = await fileToResizedDataUrl(file);
+      setCafe({ ...cafe, logoUrl: dataUrl });
+    } catch {
+      setError("Couldn't read that image — try a different file.");
+    }
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-foreground-muted">Logo</label>
+      <div className="mt-1 flex items-center gap-3">
+        {cafe.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cafe.logoUrl}
+            alt="Logo preview"
+            className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
+          />
+        )}
+        <div className="space-y-1">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+            className="text-sm"
+          />
+          {cafe.logoUrl && (
+            <button
+              type="button"
+              onClick={() => setCafe({ ...cafe, logoUrl: null })}
+              className="block text-xs text-status-danger underline"
+            >
+              Remove logo
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <p className="mt-1 text-xs text-status-danger">{error}</p>}
+      <p className="mt-1 text-xs text-foreground-muted">
+        Shown on printed receipts and the customer-facing ordering/member
+        pages. Leave unset to show the café name as text instead. Uploading
+        a new file replaces this immediately (don&apos;t forget Save below).
+      </p>
+    </div>
+  );
+}
 
 export function SettingsManager() {
   const { data, isLoading, error } = trpc.settings.getAll.useQuery();
@@ -101,30 +171,7 @@ function SettingsForm({ data }: { data: AllSettings }) {
             />
           </Field>
         </div>
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <Field label="Logo URL">
-              <input
-                className={inputCls}
-                value={cafe.logoUrl ?? ""}
-                onChange={(e) => setCafe({ ...cafe, logoUrl: e.target.value || null })}
-                placeholder="https://… or /brand/logo-source.png"
-              />
-            </Field>
-            <p className="mt-1 text-xs text-foreground-muted">
-              Shown on printed receipts and the customer-facing ordering/member
-              pages. Leave blank to show the café name as text instead.
-            </p>
-          </div>
-          {cafe.logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={cafe.logoUrl}
-              alt="Logo preview"
-              className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
-            />
-          )}
-        </div>
+        <LogoField cafe={cafe} setCafe={setCafe} />
         <Button size="md" disabled={saveCafe.isPending} onClick={() => saveCafe.mutate(cafe)}>
           Save
         </Button>
