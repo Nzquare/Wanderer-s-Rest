@@ -14,14 +14,14 @@ export default async function MemberProfilePage() {
   const cafe = await getSettings("cafe");
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-brand-950 via-brand-900 to-brand-800 px-4 py-8 text-white">
+    <main className="min-h-screen bg-gradient-to-b from-brand-950 via-brand-900 to-brand-800 px-4 py-5 text-white">
       <div className="mx-auto max-w-md">
-        <div className="mb-6 text-center">
+        <div className="mb-4 text-center">
           {cafe.logoUrl && (
             // See src/app/t/[token]/page.tsx's own comment — same logo,
             // same fallback (§Receipt/website logo).
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={cafe.logoUrl} alt="" className="mx-auto mb-3 h-40 w-40 object-contain" />
+            <img src={cafe.logoUrl} alt="" className="mx-auto mb-1 h-40 w-40 object-contain" />
           )}
           <p className="text-xs uppercase tracking-[0.35em] text-teal-400">{cafe.nameEn}</p>
           <h1 className="mt-1 text-2xl font-semibold">My Profile</h1>

@@ -47,13 +47,13 @@ export function BackOfficeShell({
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-64 shrink-0 flex-col bg-brand-950 text-white/90 md:flex">
-        <div className="px-5 py-6">
+        <div className="px-5 py-4">
           {darkLogo && (
             // Stacked above the name (rather than inline) so the logo can
             // run bigger without squeezing the tracked-out wordmark text
             // against the sidebar's fixed 256px width.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={darkLogo} alt="" className="mb-3 h-14 w-14 object-contain" />
+            <img src={darkLogo} alt="" className="mb-1 h-20 w-20 object-contain" />
           )}
           <p className="text-xs uppercase tracking-[0.3em] text-teal-400">
             {cafe.nameEn}
@@ -101,11 +101,11 @@ export function BackOfficeShell({
         </div>
       </aside>
       <main className="flex-1 overflow-x-hidden">
-        <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
+        <header className="pt-safe-header flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
           <span className="flex items-center gap-2 text-sm font-semibold">
             {lightLogo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={lightLogo} alt="" className="h-10 w-10 object-contain" />
+              <img src={lightLogo} alt="" className="h-12 w-12 object-contain" />
             )}
             Back Office
           </span>

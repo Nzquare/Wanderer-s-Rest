@@ -159,14 +159,14 @@ export function ReceiptView({
         className={
           "print-area " +
           (printerWidthMm === 58
-            ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface p-4 font-mono text-xs"
-            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface p-5 font-mono text-sm")
+            ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface px-4 pb-4 pt-2 font-mono text-xs"
+            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface px-5 pb-5 pt-3 font-mono text-sm")
         }
       >
         <div className="text-center">
           {logoUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="mx-auto mb-1 h-20 w-20 object-contain" />
+            <img src={logoUrl} alt="" className="mx-auto mb-0 h-28 w-28 object-contain" />
           )}
           <p className="font-semibold">{cafeName}</p>
           <p className="text-xs text-foreground-muted">

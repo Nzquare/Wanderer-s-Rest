@@ -29,11 +29,11 @@ export function StaffShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex items-center justify-between bg-brand-950 px-4 py-3 text-white">
+      <header className="pt-safe-header flex items-center justify-between bg-brand-950 px-4 py-3 text-white">
         <Link href="/staff" className="flex items-center gap-2 text-sm font-semibold text-teal-400">
           {logo && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logo} alt="" className="h-12 w-12 object-contain" />
+            <img src={logo} alt="" className="h-16 w-16 object-contain" />
           )}
           {cafe.nameEn}
         </Link>

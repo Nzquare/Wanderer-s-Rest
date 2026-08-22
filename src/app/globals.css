@@ -123,3 +123,31 @@ button,
     margin: 0;
   }
 }
+
+/* iOS "Add to Home Screen" launches the app with a translucent status
+   bar (appleWebApp.statusBarStyle: "black-translucent" + viewportFit:
+   "cover" in the root layout) so page content draws *underneath* the
+   status bar/notch instead of being pushed below it. Without this, the
+   very top of a staff app's header — where the logo and, on Staff
+   Mobile, the brand link live — sits under the status bar and isn't
+   tappable (§mobile app top margin). `max()` keeps each header's normal
+   padding on any browser/device with no inset (safe-area-inset-top
+   resolves to 0 there) while growing it just enough to clear the notch
+   on ones that do. */
+.pt-safe-header {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+/* iOS Safari auto-zooms the page when a focused form control's
+   computed font-size is under 16px — most of this app's inputs render
+   smaller than that for information density, which is fine on desktop
+   but means tapping nearly any field on a phone yanks the viewport in
+   (§do not zoom in). Bumping to 16px only below the desktop breakpoint
+   fixes that without touching how anything looks on a real screen. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

@@ -18,16 +18,16 @@ export default async function CustomerTablePage({
   if (!table || !table.active) notFound();
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-brand-950 via-brand-900 to-brand-800 px-4 py-8 text-white">
+    <main className="min-h-screen bg-gradient-to-b from-brand-950 via-brand-900 to-brand-800 px-4 py-5 text-white">
       <div className="mx-auto max-w-md">
-        <div className="mb-6 text-center">
+        <div className="mb-4 text-center">
           {cafe.logoUrl && (
             // Café's own logo (Back Office → Settings → Café) — falls back
             // to the plain text wordmark below if not set (§Receipt/website
             // logo). eslint-disable: staff-set URL, not a local asset Next
             // Image can validate ahead of time.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={cafe.logoUrl} alt="" className="mx-auto mb-3 h-40 w-40 object-contain" />
+            <img src={cafe.logoUrl} alt="" className="mx-auto mb-1 h-40 w-40 object-contain" />
           )}
           <p className="text-xs uppercase tracking-[0.35em] text-teal-400">{cafe.nameEn}</p>
           <h1 className="mt-1 text-2xl font-semibold">{table.name}</h1>
