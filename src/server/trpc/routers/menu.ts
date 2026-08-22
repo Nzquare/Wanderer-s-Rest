@@ -328,28 +328,41 @@ export const menuRouter = router({
     }),
 
   /**
-   * True delete — only for an item that's never actually been ordered.
-   * Anything with order history stays forever (§45) and gets deactivated
-   * instead, same pattern as tables/categories.
+   * True delete. Default is soft-blocked for anything with order history —
+   * staff are steered to Inactive instead, same pattern as
+   * tables/categories — but `force: true` (an explicit second
+   * confirmation in the UI, §Delete anyway) overrides that and deletes it
+   * regardless. Safe to do: OrderItem's menuItemId is nullable + SetNull
+   * (see schema comment), and every OrderItem already carries its own
+   * nameSnapshot/unitPriceSnapshot independent of the live row, so no
+   * receipt or report figure changes — only *display* niceties that join
+   * the live item (checkout bill grouping, Sales by Category/Product)
+   * lose the live category and fall back to "Other" for that line.
+   *
+   * The promotion-reward guard is never force-able, though — that's not
+   * historical data, it's a live promotion that would silently lose its
+   * reward item, so it must be unlinked from the promotion first.
    */
   deleteItem: permissionProcedure(Permission.MANAGE_MENU)
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), force: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const item = await ctx.prisma.menuItem.findUnique({
         where: { id: input.id },
         include: { _count: { select: { orderItems: true, redeemablePromotions: true } } },
       });
       if (!item) throw new TRPCError({ code: "NOT_FOUND" });
-      if (item._count.orderItems > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `"${item.nameEn}" has been ordered before and can't be deleted — mark it Inactive instead to take it off the menu.`,
-        });
-      }
       if (item._count.redeemablePromotions > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `"${item.nameEn}" is the reward item for a promotion and can't be deleted — remove it from that promotion first, or mark the item Inactive instead.`,
+        });
+      }
+      if (item._count.orderItems > 0 && !input.force) {
+        // CONFLICT (not BAD_REQUEST) so the UI can tell this apart from
+        // the promotion-reward block above and offer "Delete anyway".
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `"${item.nameEn}" has been ordered before and can't be deleted — mark it Inactive instead to take it off the menu, or delete it anyway if you're sure.`,
         });
       }
       await ctx.prisma.menuItem.delete({ where: { id: input.id } });
@@ -358,7 +371,10 @@ export const menuRouter = router({
         action: "MENU_ITEM_DELETED",
         entityType: "MenuItem",
         entityId: input.id,
-        previousValue: { nameEn: item.nameEn },
+        previousValue: {
+          nameEn: item.nameEn,
+          hadOrderHistory: item._count.orderItems > 0,
+        },
       });
       return { ok: true };
     }),

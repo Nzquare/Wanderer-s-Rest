@@ -801,7 +801,23 @@ function ItemEditor({
             Delete item
           </button>
         )}
-        {remove.error && <p className="text-xs text-status-danger">{remove.error.message}</p>}
+        {remove.error && (
+          <div className="text-right">
+            <p className="text-xs text-status-danger">{remove.error.message}</p>
+            {/* CONFLICT = "has order history" (§Delete anyway) — force-able.
+                Anything else (e.g. the promotion-reward block) isn't. */}
+            {remove.error.data?.code === "CONFLICT" && (
+              <button
+                onClick={() => remove.mutate({ id: item.id, force: true })}
+                disabled={remove.isPending}
+                className="mt-1 text-xs font-medium text-status-danger underline"
+              >
+                Delete anyway — its name/price stay on past receipts, but
+                it comes off the catalog entirely.
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

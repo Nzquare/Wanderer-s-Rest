@@ -215,9 +215,12 @@ export async function buildSalesByCategoryReport(prisma: PrismaClient, range: Da
 
   const byCategory = new Map<string, { categoryName: string; quantity: number; revenue: number }>();
   for (const item of items) {
-    const catId = item.menuItem.category.id;
+    // A hard-deleted menu item (§Delete anyway) has no live category
+    // anymore — its historical orders bucket under "Other" rather than
+    // being dropped from the report.
+    const catId = item.menuItem?.category.id ?? "__deleted__";
     const existing = byCategory.get(catId) ?? {
-      categoryName: item.menuItem.category.nameEn,
+      categoryName: item.menuItem?.category.nameEn ?? "Other",
       quantity: 0,
       revenue: 0,
     };
@@ -253,22 +256,27 @@ export async function buildSalesByProductReport(prisma: PrismaClient, range: Dat
 
   const byItem = new Map<
     string,
-    { name: string; categoryName: string; quantity: number; revenue: number }
+    { menuItemId: string | null; name: string; categoryName: string; quantity: number; revenue: number }
   >();
   for (const item of items) {
-    const existing = byItem.get(item.menuItemId) ?? {
+    // A deleted item has menuItemId: null forever after (§Delete anyway),
+    // so group by name instead in that case — otherwise every deleted
+    // item's history would collapse into one row under a null key.
+    const key = item.menuItemId ?? `deleted:${item.nameSnapshotEn}`;
+    const existing = byItem.get(key) ?? {
+      menuItemId: item.menuItemId,
       name: item.nameSnapshotEn,
-      categoryName: item.menuItem.category.nameEn,
+      categoryName: item.menuItem?.category.nameEn ?? "Other",
       quantity: 0,
       revenue: 0,
     };
     existing.quantity += item.quantity;
     existing.revenue += toNum(item.unitPriceSnapshot) * item.quantity;
-    byItem.set(item.menuItemId, existing);
+    byItem.set(key, existing);
   }
 
   return Array.from(byItem.entries())
-    .map(([menuItemId, v]) => ({ menuItemId, ...v }))
+    .map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => b.revenue - a.revenue);
 }
 

@@ -489,17 +489,24 @@ model Order {
 }
 
 model OrderItem {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   orderId           String
-  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItemId        String
-  menuItem          MenuItem @relation(fields: [menuItemId], references: [id])
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull (rather than the default Restrict) so a menu item
+  // that was ordered can still be hard-deleted later (§Delete anyway) —
+  // nameSnapshot/unitPriceSnapshot below are the receipt's source of
+  // truth regardless, this live link is only ever used for *display*
+  // conveniences (category grouping) that fall back to "Other" once it's
+  // gone. See groupItemsByCategory in checkout.ts and the Sales by
+  // Category/Product reports for the null-safe fallback.
+  menuItemId        String?
+  menuItem          MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
   nameSnapshotTh    String
   nameSnapshotEn    String
-  quantity          Int      @default(1)
-  unitPriceSnapshot Decimal  @db.Decimal(12, 2)
+  quantity          Int       @default(1)
+  unitPriceSnapshot Decimal   @db.Decimal(12, 2)
   notes             String?
-  createdAt         DateTime @default(now())
+  createdAt         DateTime  @default(now())
 
   modifiers       OrderItemModifier[]
   comboSelections OrderItemComboSelection[]

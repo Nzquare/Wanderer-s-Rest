@@ -78,6 +78,12 @@ async function loadSessionForCheckout(
  * price change on something the guest already ordered/paid for — see
  * computeBreakdown below.
  */
+// Used when an order item's menu item was hard-deleted (§Delete anyway) —
+// its live category is gone, so it falls into its own bucket at the end
+// rather than crashing the grouping or silently merging into a real
+// category. nameSnapshot still carries the item's name either way.
+const DELETED_ITEM_CATEGORY = { id: "__deleted__", nameEn: "Other", sortOrder: Infinity };
+
 function groupItemsByCategory(
   orders: Array<{
     items: Array<{
@@ -85,7 +91,7 @@ function groupItemsByCategory(
       nameSnapshotEn: string;
       quantity: number;
       unitPriceSnapshot: unknown;
-      menuItem: { category: { id: string; nameEn: string; sortOrder: number } };
+      menuItem: { category: { id: string; nameEn: string; sortOrder: number } } | null;
     }>;
   }>,
 ) {
@@ -101,7 +107,7 @@ function groupItemsByCategory(
   >();
   for (const order of orders) {
     for (const i of order.items) {
-      const cat = i.menuItem.category;
+      const cat = i.menuItem?.category ?? DELETED_ITEM_CATEGORY;
       const lineTotal = toNum(i.unitPriceSnapshot) * i.quantity;
       const group = groups.get(cat.id) ?? {
         categoryId: cat.id,
