@@ -6,70 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { ToggleButton } from "@/components/ui/toggle-button";
+import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { PhotoUpload } from "./photo-upload";
 import { ExcelImportButton } from "./excel-import-button";
 import { cn } from "@/lib/cn";
-
-/**
- * Native HTML5 drag-and-drop reordering for a flat list. Grabbing the
- * handle on any row and dropping it on another moves it to that position;
- * everything in between shifts accordingly. `onReorder` receives the full
- * new id order so the caller can persist it in one call
- * (menu.reorderCategories / menu.reorderItems both take a full
- * ordered-id list for exactly this).
- *
- * `draggable` only goes on the small grip handle, not the whole row — a
- * draggable row would make the browser treat any click-and-slightly-move
- * on the buttons inside it (Edit, toggles, Delete) as a drag gesture.
- * `onDragOver`/`onDrop` still go on the whole row so dropping anywhere on
- * it (not just the tiny handle) counts as a drop there.
- */
-function useDragReorder<T>(items: T[], getId: (item: T) => string, onReorder: (orderedIds: string[]) => void) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-
-  function getHandleProps(id: string) {
-    return {
-      draggable: true,
-      onDragStart: (e: React.DragEvent) => {
-        e.dataTransfer.effectAllowed = "move";
-        setDraggedId(id);
-      },
-      onDragEnd: () => {
-        setDraggedId(null);
-        setDropTargetId(null);
-      },
-    };
-  }
-
-  function getRowProps(id: string) {
-    return {
-      onDragOver: (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedId && draggedId !== id) setDropTargetId(id);
-      },
-      onDragLeave: () => {
-        setDropTargetId((current) => (current === id ? null : current));
-      },
-      onDrop: (e: React.DragEvent) => {
-        e.preventDefault();
-        setDropTargetId(null);
-        if (!draggedId || draggedId === id) return;
-        const ids = items.map(getId);
-        const fromIndex = ids.indexOf(draggedId);
-        const toIndex = ids.indexOf(id);
-        if (fromIndex === -1 || toIndex === -1) return;
-        const reordered = [...ids];
-        reordered.splice(fromIndex, 1);
-        reordered.splice(toIndex, 0, draggedId);
-        setDraggedId(null);
-        onReorder(reordered);
-      },
-    };
-  }
-
-  return { draggedId, dropTargetId, getHandleProps, getRowProps };
-}
+import { useDragReorder } from "@/lib/use-drag-reorder";
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -113,6 +54,10 @@ function CategoryRow({
   rowProps,
   isDragging,
   isDropTarget,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   category: CategoryListItem;
   selected: boolean;
@@ -129,6 +74,10 @@ function CategoryRow({
   };
   isDragging: boolean;
   isDropTarget: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -190,13 +139,14 @@ function CategoryRow({
       )}
     >
       <div className="flex items-start gap-2">
-        <span
-          {...handleProps}
-          title="Drag to reorder"
-          className="mt-0.5 cursor-grab select-none text-foreground-muted active:cursor-grabbing"
-        >
-          ⠿
-        </span>
+        <ReorderHandle
+          handleProps={handleProps}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          className="mt-0.5"
+        />
         {/* Only the name/count area is the "select" button — the action row
             below has its own buttons, and HTML doesn't allow nesting one
             button inside another. */}
@@ -314,6 +264,10 @@ function ItemRow({
   rowProps,
   isDragging,
   isDropTarget,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   item: OrderingItem;
   onEdit: () => void;
@@ -329,6 +283,10 @@ function ItemRow({
   };
   isDragging: boolean;
   isDropTarget: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
@@ -347,13 +305,13 @@ function ItemRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <span
-          {...handleProps}
-          title="Drag to reorder"
-          className="cursor-grab select-none text-foreground-muted active:cursor-grabbing"
-        >
-          ⠿
-        </span>
+        <ReorderHandle
+          handleProps={handleProps}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+        />
         <button onClick={onEdit} className="flex items-center gap-3 text-left">
           {item.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1162,6 +1120,10 @@ export function MenuManager() {
                 rowProps={categoryDrag.getRowProps(cat.id)}
                 isDragging={categoryDrag.draggedId === cat.id}
                 isDropTarget={categoryDrag.dropTargetId === cat.id}
+                onMoveUp={() => categoryDrag.moveUp(cat.id)}
+                onMoveDown={() => categoryDrag.moveDown(cat.id)}
+                canMoveUp={categoryDrag.canMoveUp(cat.id)}
+                canMoveDown={categoryDrag.canMoveDown(cat.id)}
               />
             ))}
           </div>
@@ -1182,6 +1144,10 @@ export function MenuManager() {
                       rowProps={itemDrag.getRowProps(item.id)}
                       isDragging={itemDrag.draggedId === item.id}
                       isDropTarget={itemDrag.dropTargetId === item.id}
+                      onMoveUp={() => itemDrag.moveUp(item.id)}
+                      onMoveDown={() => itemDrag.moveDown(item.id)}
+                      canMoveUp={itemDrag.canMoveUp(item.id)}
+                      canMoveDown={itemDrag.canMoveDown(item.id)}
                     />
                   ))}
                   {itemsForCategory.length === 0 && (

@@ -6,62 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { cn } from "@/lib/cn";
-
-/**
- * Native HTML5 drag-and-drop reordering for a flat list — same hook as
- * pricing-types-manager.tsx / menu-manager.tsx's category rail. Grabbing
- * the handle on any row and dropping it on another moves it there;
- * `onReorder` gets the full new id order (ranks.reorder takes exactly
- * that shape). Order here is the actual rank ladder — reorders change
- * which rank a member's level resolves into (§Rank management).
- */
-function useDragReorder<T>(items: T[], getId: (item: T) => string, onReorder: (orderedIds: string[]) => void) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-
-  function getHandleProps(id: string) {
-    return {
-      draggable: true,
-      onDragStart: (e: React.DragEvent) => {
-        e.dataTransfer.effectAllowed = "move";
-        setDraggedId(id);
-      },
-      onDragEnd: () => {
-        setDraggedId(null);
-        setDropTargetId(null);
-      },
-    };
-  }
-
-  function getRowProps(id: string) {
-    return {
-      onDragOver: (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedId && draggedId !== id) setDropTargetId(id);
-      },
-      onDragLeave: () => {
-        setDropTargetId((current) => (current === id ? null : current));
-      },
-      onDrop: (e: React.DragEvent) => {
-        e.preventDefault();
-        setDropTargetId(null);
-        if (!draggedId || draggedId === id) return;
-        const ids = items.map(getId);
-        const fromIndex = ids.indexOf(draggedId);
-        const toIndex = ids.indexOf(id);
-        if (fromIndex === -1 || toIndex === -1) return;
-        const reordered = [...ids];
-        reordered.splice(fromIndex, 1);
-        reordered.splice(toIndex, 0, draggedId);
-        setDraggedId(null);
-        onReorder(reordered);
-      },
-    };
-  }
-
-  return { draggedId, dropTargetId, getHandleProps, getRowProps };
-}
+import { useDragReorder } from "@/lib/use-drag-reorder";
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -240,6 +187,10 @@ function RankRow({
   rowProps,
   isDragging,
   isDropTarget,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   rank: Rank;
   levelRange: { start: number; end: number };
@@ -256,6 +207,10 @@ function RankRow({
   };
   isDragging: boolean;
   isDropTarget: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -272,13 +227,14 @@ function RankRow({
         )}
       >
         <div className="flex items-start gap-2">
-          <span
-            {...handleProps}
-            title="Drag to reorder"
-            className="mt-0.5 cursor-grab select-none text-foreground-muted active:cursor-grabbing"
-          >
-            ⠿
-          </span>
+          <ReorderHandle
+            handleProps={handleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            className="mt-0.5"
+          />
           <div>
             <p className="font-medium text-foreground">
               {r.icon ?? "🎖️"} {r.nameEn}{" "}
@@ -357,11 +313,12 @@ export function RanksManager() {
   const reorder = trpc.ranks.reorder.useMutation({
     onSuccess: () => Promise.all([utils.ranks.listAll.invalidate(), utils.ranks.list.invalidate()]),
   });
-  const { draggedId, dropTargetId, getHandleProps, getRowProps } = useDragReorder(
-    ranks ?? [],
-    (r) => r.id,
-    (orderedIds) => reorder.mutate({ orderedIds }),
-  );
+  const { draggedId, dropTargetId, getHandleProps, getRowProps, moveUp, moveDown, canMoveUp, canMoveDown } =
+    useDragReorder(
+      ranks ?? [],
+      (r) => r.id,
+      (orderedIds) => reorder.mutate({ orderedIds }),
+    );
   const levelRanges = computeLevelRanges(ranks ?? []);
 
   return (
@@ -375,7 +332,8 @@ export function RanksManager() {
         required&quot; is that span — how many levels this rank covers
         before the next one kicks in; the last rank absorbs every level
         beyond it, so a maxed-out member keeps leveling instead of getting
-        stuck. Drag the ⠿ handle to reorder. Open{" "}
+        stuck. Drag the ⠿ handle to reorder, or use the ▲▼ arrows on a
+        phone. Open{" "}
         <span className="font-medium text-foreground">Details</span> to
         rename, add a description, or delete a rank nobody currently holds.
         To move a specific member to a different rank, use{" "}
@@ -394,6 +352,10 @@ export function RanksManager() {
             rowProps={getRowProps(r.id)}
             isDragging={draggedId === r.id}
             isDropTarget={dropTargetId === r.id}
+            onMoveUp={() => moveUp(r.id)}
+            onMoveDown={() => moveDown(r.id)}
+            canMoveUp={canMoveUp(r.id)}
+            canMoveDown={canMoveDown(r.id)}
           />
         ))}
         {ranks?.length === 0 && (

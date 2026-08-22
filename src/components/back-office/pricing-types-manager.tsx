@@ -6,61 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { Modal } from "@/components/ui/modal";
+import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { cn } from "@/lib/cn";
-
-/**
- * Native HTML5 drag-and-drop reordering for a flat list — same hook as
- * menu-manager.tsx's category/item rail. Grabbing the handle on any row
- * and dropping it on another moves it there; `onReorder` gets the full
- * new id order to persist in one call (pricingTypes.reorder takes exactly
- * that shape).
- */
-function useDragReorder<T>(items: T[], getId: (item: T) => string, onReorder: (orderedIds: string[]) => void) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-
-  function getHandleProps(id: string) {
-    return {
-      draggable: true,
-      onDragStart: (e: React.DragEvent) => {
-        e.dataTransfer.effectAllowed = "move";
-        setDraggedId(id);
-      },
-      onDragEnd: () => {
-        setDraggedId(null);
-        setDropTargetId(null);
-      },
-    };
-  }
-
-  function getRowProps(id: string) {
-    return {
-      onDragOver: (e: React.DragEvent) => {
-        e.preventDefault();
-        if (draggedId && draggedId !== id) setDropTargetId(id);
-      },
-      onDragLeave: () => {
-        setDropTargetId((current) => (current === id ? null : current));
-      },
-      onDrop: (e: React.DragEvent) => {
-        e.preventDefault();
-        setDropTargetId(null);
-        if (!draggedId || draggedId === id) return;
-        const ids = items.map(getId);
-        const fromIndex = ids.indexOf(draggedId);
-        const toIndex = ids.indexOf(id);
-        if (fromIndex === -1 || toIndex === -1) return;
-        const reordered = [...ids];
-        reordered.splice(fromIndex, 1);
-        reordered.splice(toIndex, 0, draggedId);
-        setDraggedId(null);
-        onReorder(reordered);
-      },
-    };
-  }
-
-  return { draggedId, dropTargetId, getHandleProps, getRowProps };
-}
+import { useDragReorder } from "@/lib/use-drag-reorder";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MODEL_LABELS: Record<string, string> = {
@@ -349,6 +297,10 @@ function PricingTypeRow({
   rowProps,
   isDragging,
   isDropTarget,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   pricingType: PricingType;
   handleProps: {
@@ -363,6 +315,10 @@ function PricingTypeRow({
   };
   isDragging: boolean;
   isDropTarget: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
@@ -384,13 +340,14 @@ function PricingTypeRow({
         )}
       >
         <div className="flex items-start gap-2">
-          <span
-            {...handleProps}
-            title="Drag to reorder"
-            className="mt-0.5 cursor-grab select-none text-foreground-muted active:cursor-grabbing"
-          >
-            ⠿
-          </span>
+          <ReorderHandle
+            handleProps={handleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            className="mt-0.5"
+          />
           <div>
             <p className="font-medium text-foreground">
               {t.name} <span className="text-xs text-foreground-muted">({t.code})</span>
@@ -488,11 +445,12 @@ export function PricingTypesManager() {
     onSuccess: () =>
       Promise.all([utils.pricingTypes.listAll.invalidate(), utils.pricingTypes.list.invalidate()]),
   });
-  const { draggedId, dropTargetId, getHandleProps, getRowProps } = useDragReorder(
-    pricingTypes ?? [],
-    (t) => t.id,
-    (orderedIds) => reorder.mutate({ orderedIds }),
-  );
+  const { draggedId, dropTargetId, getHandleProps, getRowProps, moveUp, moveDown, canMoveUp, canMoveDown } =
+    useDragReorder(
+      pricingTypes ?? [],
+      (t) => t.id,
+      (orderedIds) => reorder.mutate({ orderedIds }),
+    );
 
   return (
     <div className="space-y-4">
@@ -501,8 +459,9 @@ export function PricingTypesManager() {
         Set up with a code/name/model/rate above, then open{" "}
         <span className="font-medium text-foreground">Details</span> on a pricing type below to
         fine-tune its daily cap, grace period, day/time window, and per-person vs per-table billing.
-        Drag the ⠿ handle to reorder — that&apos;s the order shown in the &quot;Open Table&quot; and
-        Reservation pricing pickers, and only Active ones show up there at all.
+        Drag the ⠿ handle to reorder (or use the ▲▼ arrows on a phone) — that&apos;s the order
+        shown in the &quot;Open Table&quot; and Reservation pricing pickers, and only Active ones
+        show up there at all.
       </p>
       <div className="space-y-2">
         {pricingTypes?.map((t) => (
@@ -513,6 +472,10 @@ export function PricingTypesManager() {
             rowProps={getRowProps(t.id)}
             isDragging={draggedId === t.id}
             isDropTarget={dropTargetId === t.id}
+            onMoveUp={() => moveUp(t.id)}
+            onMoveDown={() => moveDown(t.id)}
+            canMoveUp={canMoveUp(t.id)}
+            canMoveDown={canMoveDown(t.id)}
           />
         ))}
         {pricingTypes?.length === 0 && (
