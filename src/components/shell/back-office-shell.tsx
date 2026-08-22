@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
+import type { CafeSettings } from "@/server/settings/schema";
 import { canAccessCashier, canAccessStaffMobile, can } from "@/server/rbac/can";
 import { Permission } from "@/generated/prisma/enums";
+import { pickLogo } from "@/lib/pick-logo";
 
 // Each page's own data query is gated behind one of these (see the
 // matching router's `manage()`/permissionProcedure call) — canAccessBackOffice
@@ -32,18 +34,29 @@ const NAV_ITEMS: { href: string; label: string; permission?: Permission }[] = [
 
 export function BackOfficeShell({
   staff,
+  cafe,
   children,
 }: {
   staff: CurrentStaff;
+  cafe: CafeSettings;
   children: React.ReactNode;
 }) {
+  const darkLogo = pickLogo(cafe, "dark");
+  const lightLogo = pickLogo(cafe, "light");
+
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-64 shrink-0 flex-col bg-brand-950 text-white/90 md:flex">
         <div className="px-5 py-6">
-          <p className="text-xs uppercase tracking-[0.3em] text-teal-400">
-            Wanderer&apos;s Rest
-          </p>
+          <div className="flex items-center gap-2">
+            {darkLogo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={darkLogo} alt="" className="h-9 w-9 shrink-0 object-contain" />
+            )}
+            <p className="text-xs uppercase tracking-[0.3em] text-teal-400">
+              {cafe.nameEn}
+            </p>
+          </div>
           <p className="mt-1 text-lg font-semibold text-white">
             Back Office
           </p>
@@ -88,7 +101,11 @@ export function BackOfficeShell({
       </aside>
       <main className="flex-1 overflow-x-hidden">
         <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
-          <span className="text-sm font-semibold">
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            {lightLogo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={lightLogo} alt="" className="h-7 w-7 object-contain" />
+            )}
             Back Office
           </span>
           <Link href="/" className="text-sm text-teal-600">

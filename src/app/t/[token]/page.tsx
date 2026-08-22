@@ -27,7 +27,7 @@ export default async function CustomerTablePage({
             // logo). eslint-disable: staff-set URL, not a local asset Next
             // Image can validate ahead of time.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={cafe.logoUrl} alt="" className="mx-auto mb-2 h-16 w-16 object-contain" />
+            <img src={cafe.logoUrl} alt="" className="mx-auto mb-3 h-28 w-28 object-contain" />
           )}
           <p className="text-xs uppercase tracking-[0.35em] text-teal-400">{cafe.nameEn}</p>
           <h1 className="mt-1 text-2xl font-semibold">{table.name}</h1>

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { logoutAction } from "@/server/auth/actions";
 import type { CurrentStaff } from "@/server/auth/current-user";
+import type { CafeSettings } from "@/server/settings/schema";
 import { canAccessBackOffice } from "@/server/rbac/can";
+import { pickLogo } from "@/lib/pick-logo";
 import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
 
 const NAV_ITEMS = [
@@ -16,16 +18,24 @@ const NAV_ITEMS = [
 // styling. Big tappable nav, status/shift info always visible up top.
 export function CashierShell({
   staff,
+  cafe,
   children,
 }: {
   staff: CurrentStaff;
+  cafe: CafeSettings;
   children: React.ReactNode;
 }) {
+  const logo = pickLogo(cafe, "dark");
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="flex items-center justify-between gap-4 bg-brand-950 px-4 py-3 text-white">
         <div className="flex items-center gap-6">
-          <span className="text-sm font-semibold tracking-wide text-teal-400">
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-wide text-teal-400">
+            {logo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logo} alt="" className="h-8 w-8 object-contain" />
+            )}
             Cashier
           </span>
           <nav className="hidden gap-1 sm:flex">
