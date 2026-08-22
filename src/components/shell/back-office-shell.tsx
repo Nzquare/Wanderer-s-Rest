@@ -5,6 +5,7 @@ import type { CafeSettings } from "@/server/settings/schema";
 import { canAccessCashier, canAccessStaffMobile, can } from "@/server/rbac/can";
 import { Permission } from "@/generated/prisma/enums";
 import { pickLogo } from "@/lib/pick-logo";
+import { BackOfficeMobileNav } from "./back-office-mobile-nav";
 
 // Each page's own data query is gated behind one of these (see the
 // matching router's `manage()`/permissionProcedure call) — canAccessBackOffice
@@ -43,6 +44,9 @@ export function BackOfficeShell({
 }) {
   const darkLogo = pickLogo(cafe, "dark");
   const lightLogo = pickLogo(cafe, "light");
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !item.permission || can(staff, item.permission),
+  );
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -77,17 +81,15 @@ export function BackOfficeShell({
           )}
         </div>
         <nav className="flex-1 space-y-0.5 px-3">
-          {NAV_ITEMS.filter((item) => !item.permission || can(staff, item.permission)).map(
-            (item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block rounded-lg px-3 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                {item.label}
-              </Link>
-            ),
-          )}
+          {visibleNavItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="block rounded-lg px-3 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
         <div className="border-t border-white/10 px-3 py-4">
           <p className="px-3 text-xs text-white/50">
@@ -109,9 +111,13 @@ export function BackOfficeShell({
             )}
             Back Office
           </span>
-          <Link href="/" className="text-sm text-teal-600">
-            Menu
-          </Link>
+          <BackOfficeMobileNav
+            items={visibleNavItems}
+            staffLabel={`${staff.displayName ?? staff.name} · ${staff.roleName}`}
+            showCashier={canAccessCashier(staff)}
+            showStaffMobile={canAccessStaffMobile(staff)}
+            logoutAction={logoutAction}
+          />
         </header>
         <div className="p-4 md:p-8">{children}</div>
       </main>
