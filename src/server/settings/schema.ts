@@ -9,7 +9,10 @@ import { z } from "zod";
 export const cafeSettingsSchema = z.object({
   nameTh: z.string().default("โรงเตี๊ยมวันเดอเรอร์"),
   nameEn: z.string().default("Wanderer's Rest"),
-  logoUrl: z.string().nullable().default(null),
+  // Defaults to the brand logo already shipped in /public — editable in
+  // case a different logo image is ever wanted; blank clears it (no logo
+  // shown, name-only, same as before this field had any real use).
+  logoUrl: z.string().nullable().default("/brand/logo-source.png"),
   address: z.string().default(""),
   phone: z.string().default(""),
   openingHours: z.string().default("11:00–22:00"),

@@ -101,6 +101,30 @@ function SettingsForm({ data }: { data: AllSettings }) {
             />
           </Field>
         </div>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <Field label="Logo URL">
+              <input
+                className={inputCls}
+                value={cafe.logoUrl ?? ""}
+                onChange={(e) => setCafe({ ...cafe, logoUrl: e.target.value || null })}
+                placeholder="https://… or /brand/logo-source.png"
+              />
+            </Field>
+            <p className="mt-1 text-xs text-foreground-muted">
+              Shown on printed receipts and the customer-facing ordering/member
+              pages. Leave blank to show the café name as text instead.
+            </p>
+          </div>
+          {cafe.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={cafe.logoUrl}
+              alt="Logo preview"
+              className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
+            />
+          )}
+        </div>
         <Button size="md" disabled={saveCafe.isPending} onClick={() => saveCafe.mutate(cafe)}>
           Save
         </Button>

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/server/db";
+import { getSettings } from "@/server/settings/service";
 import { CustomerOrderApp } from "@/components/customer/customer-order-app";
 
 export default async function CustomerTablePage({
@@ -9,9 +10,10 @@ export default async function CustomerTablePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const table = await prisma.restaurantTable.findUnique({
-    where: { qrToken: token },
-  });
+  const [table, cafe] = await Promise.all([
+    prisma.restaurantTable.findUnique({ where: { qrToken: token } }),
+    getSettings("cafe"),
+  ]);
 
   if (!table || !table.active) notFound();
 
@@ -19,9 +21,15 @@ export default async function CustomerTablePage({
     <main className="min-h-screen bg-gradient-to-b from-brand-950 via-brand-900 to-brand-800 px-4 py-8 text-white">
       <div className="mx-auto max-w-md">
         <div className="mb-6 text-center">
-          <p className="text-xs uppercase tracking-[0.35em] text-teal-400">
-            Wanderer&apos;s Rest
-          </p>
+          {cafe.logoUrl && (
+            // Café's own logo (Back Office → Settings → Café) — falls back
+            // to the plain text wordmark below if not set (§Receipt/website
+            // logo). eslint-disable: staff-set URL, not a local asset Next
+            // Image can validate ahead of time.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cafe.logoUrl} alt="" className="mx-auto mb-2 h-16 w-16 object-contain" />
+          )}
+          <p className="text-xs uppercase tracking-[0.35em] text-teal-400">{cafe.nameEn}</p>
           <h1 className="mt-1 text-2xl font-semibold">{table.name}</h1>
         </div>
         <CustomerOrderApp qrToken={token} />

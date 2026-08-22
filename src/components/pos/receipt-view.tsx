@@ -90,6 +90,10 @@ export function ReceiptView({
   // brand-new install prints exactly what it did before this.
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
   const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
+  // Optional logo (Back Office → Settings → Café → Logo URL, §Receipt/
+  // website logo) — shown above the name instead of replacing it, so the
+  // café name still prints even if the image fails to load/print.
+  const logoUrl = cafeSettings?.logoUrl;
 
   // Once every fee line hit the daily cap, the bill was pinned flat for the
   // rest of the day just like FIXED/PACKAGE pricing — show "All day"
@@ -155,6 +159,10 @@ export function ReceiptView({
         }
       >
         <div className="text-center">
+          {logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="mx-auto mb-1 h-12 w-12 object-contain" />
+          )}
           <p className="font-semibold">{cafeName}</p>
           <p className="text-xs text-foreground-muted">
             Receipt #{snapshot.receiptNumber}
