@@ -11,8 +11,17 @@ export const cafeSettingsSchema = z.object({
   nameEn: z.string().default("Wanderer's Rest"),
   // Defaults to the brand logo already shipped in /public — editable in
   // case a different logo image is ever wanted; blank clears it (no logo
-  // shown, name-only, same as before this field had any real use).
+  // shown, name-only, same as before this field had any real use). Used
+  // on the two dark-background customer-facing pages (QR ordering,
+  // Member portal) — a light/white-on-color logo reads fine there.
   logoUrl: z.string().nullable().default("/brand/logo-source.png"),
+  // A separate dark/black version for light backgrounds (§Receipt/light-
+  // background logo) — the printed receipt is white paper, so the
+  // light-background logoUrl above would print as a filled block rather
+  // than clean line art. Optional: falls back to logoUrl if never set, so
+  // a café that only ever uploads one logo still gets *something* on the
+  // receipt rather than nothing.
+  receiptLogoUrl: z.string().nullable().default(null),
   address: z.string().default(""),
   phone: z.string().default(""),
   openingHours: z.string().default("11:00–22:00"),

@@ -30,28 +30,44 @@ const inputCls =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm";
 
 /**
- * Café logo upload (§Logo upload) — no file-storage service is set up for
+ * One logo upload field (§Logo upload / §Receipt/light-background logo) —
+ * used twice below for the two logo slots (dark-background "Logo" and
+ * light-background "Receipt logo"). No file-storage service is set up for
  * this project, so there's nowhere to POST a file to. Instead the picked
  * image is resized in the browser and turned into a data URI
- * (fileToResizedDataUrl), stored as the same plain `logoUrl` string every
- * consumer already reads via `<img src>` — works immediately, no new
- * infrastructure, no upload endpoint.
+ * (fileToResizedDataUrl), stored as a plain string on `cafe[field]` — the
+ * same shape every consumer already reads via `<img src>` — works
+ * immediately, no new infrastructure, no upload endpoint.
+ *
+ * `previewOnDark` swaps the preview swatch to a dark background so a
+ * white/light logo (meant for the app's dark-themed customer pages) is
+ * actually visible while editing, instead of looking blank against this
+ * form's own light card.
  */
 function LogoField({
   cafe,
   setCafe,
+  field,
+  label,
+  hint,
+  previewOnDark,
 }: {
   cafe: CafeSettings;
   setCafe: (next: CafeSettings) => void;
+  field: "logoUrl" | "receiptLogoUrl";
+  label: string;
+  hint: string;
+  previewOnDark?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const value = cafe[field];
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
     try {
       const dataUrl = await fileToResizedDataUrl(file);
-      setCafe({ ...cafe, logoUrl: dataUrl });
+      setCafe({ ...cafe, [field]: dataUrl });
     } catch {
       setError("Couldn't read that image — try a different file.");
     }
@@ -59,15 +75,19 @@ function LogoField({
 
   return (
     <div>
-      <label className="text-xs text-foreground-muted">Logo</label>
+      <label className="text-xs text-foreground-muted">{label}</label>
       <div className="mt-1 flex items-center gap-3">
-        {cafe.logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cafe.logoUrl}
-            alt="Logo preview"
-            className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover"
-          />
+        {value && (
+          <div
+            className={
+              previewOnDark
+                ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-brand-950 p-1"
+                : "flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-white p-1"
+            }
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={value} alt="Logo preview" className="max-h-full max-w-full object-contain" />
+          </div>
         )}
         <div className="space-y-1">
           <input
@@ -76,23 +96,19 @@ function LogoField({
             onChange={(e) => handleFile(e.target.files?.[0])}
             className="text-sm"
           />
-          {cafe.logoUrl && (
+          {value && (
             <button
               type="button"
-              onClick={() => setCafe({ ...cafe, logoUrl: null })}
+              onClick={() => setCafe({ ...cafe, [field]: null })}
               className="block text-xs text-status-danger underline"
             >
-              Remove logo
+              Remove
             </button>
           )}
         </div>
       </div>
       {error && <p className="mt-1 text-xs text-status-danger">{error}</p>}
-      <p className="mt-1 text-xs text-foreground-muted">
-        Shown on printed receipts and the customer-facing ordering/member
-        pages. Leave unset to show the café name as text instead. Uploading
-        a new file replaces this immediately (don&apos;t forget Save below).
-      </p>
+      <p className="mt-1 text-xs text-foreground-muted">{hint}</p>
     </div>
   );
 }
@@ -171,7 +187,28 @@ function SettingsForm({ data }: { data: AllSettings }) {
             />
           </Field>
         </div>
-        <LogoField cafe={cafe} setCafe={setCafe} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <LogoField
+            cafe={cafe}
+            setCafe={setCafe}
+            field="logoUrl"
+            label="Logo (for dark backgrounds)"
+            hint="Shown on the customer ordering page and Member portal — both have a dark purple/teal background, so a white or light-colored logo reads best here."
+            previewOnDark
+          />
+          <LogoField
+            cafe={cafe}
+            setCafe={setCafe}
+            field="receiptLogoUrl"
+            label="Receipt logo (for light backgrounds)"
+            hint="Shown on the printed receipt — white paper, so a black or dark logo (ideally on a transparent background) prints cleanest. Falls back to the logo above if left unset."
+          />
+        </div>
+        <p className="text-xs text-foreground-muted">
+          Either can be left unset to show the café name as text instead.
+          Uploading a new file replaces it immediately (don&apos;t forget
+          Save below).
+        </p>
         <Button size="md" disabled={saveCafe.isPending} onClick={() => saveCafe.mutate(cafe)}>
           Save
         </Button>

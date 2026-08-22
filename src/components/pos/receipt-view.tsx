@@ -90,10 +90,15 @@ export function ReceiptView({
   // brand-new install prints exactly what it did before this.
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
   const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
-  // Optional logo (Back Office → Settings → Café → Logo URL, §Receipt/
-  // website logo) — shown above the name instead of replacing it, so the
-  // café name still prints even if the image fails to load/print.
-  const logoUrl = cafeSettings?.logoUrl;
+  // Optional logo (Back Office → Settings → Café, §Receipt/light-
+  // background logo) — shown above the name instead of replacing it, so
+  // the café name still prints even if the image fails to load/print.
+  // Receipt paper is white, so this prefers the dedicated
+  // dark/black-on-transparent receiptLogoUrl over the light-background
+  // logoUrl (which is meant for the dark customer-facing pages, and would
+  // print as a filled block rather than clean line art here); falls back
+  // to logoUrl only if a receipt-specific one was never uploaded.
+  const logoUrl = cafeSettings?.receiptLogoUrl ?? cafeSettings?.logoUrl;
 
   // Once every fee line hit the daily cap, the bill was pinned flat for the
   // rest of the day just like FIXED/PACKAGE pricing — show "All day"
