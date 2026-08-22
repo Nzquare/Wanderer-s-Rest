@@ -33,7 +33,7 @@ export function StaffShell({
         <Link href="/staff" className="flex items-center gap-2 text-sm font-semibold text-teal-400">
           {logo && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logo} alt="" className="h-8 w-8 object-contain" />
+            <img src={logo} alt="" className="h-12 w-12 object-contain" />
           )}
           {cafe.nameEn}
         </Link>

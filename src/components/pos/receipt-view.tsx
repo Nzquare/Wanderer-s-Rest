@@ -166,7 +166,7 @@ export function ReceiptView({
         <div className="text-center">
           {logoUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="mx-auto mb-1 h-12 w-12 object-contain" />
+            <img src={logoUrl} alt="" className="mx-auto mb-1 h-20 w-20 object-contain" />
           )}
           <p className="font-semibold">{cafeName}</p>
           <p className="text-xs text-foreground-muted">

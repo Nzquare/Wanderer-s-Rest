@@ -21,7 +21,7 @@ export default async function MemberProfilePage() {
             // See src/app/t/[token]/page.tsx's own comment — same logo,
             // same fallback (§Receipt/website logo).
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={cafe.logoUrl} alt="" className="mx-auto mb-3 h-28 w-28 object-contain" />
+            <img src={cafe.logoUrl} alt="" className="mx-auto mb-3 h-40 w-40 object-contain" />
           )}
           <p className="text-xs uppercase tracking-[0.35em] text-teal-400">{cafe.nameEn}</p>
           <h1 className="mt-1 text-2xl font-semibold">My Profile</h1>

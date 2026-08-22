@@ -34,7 +34,7 @@ export function CashierShell({
           <span className="flex items-center gap-2 text-sm font-semibold tracking-wide text-teal-400">
             {logo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logo} alt="" className="h-8 w-8 object-contain" />
+              <img src={logo} alt="" className="h-12 w-12 object-contain" />
             )}
             Cashier
           </span>
