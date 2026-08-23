@@ -350,7 +350,7 @@ function GamesPlayedTable({ from, to }: { from: string; to: string }) {
           </thead>
           <tbody>
             {data.map((row) => (
-              <tr key={row.gameId} className="border-b border-border last:border-0">
+              <tr key={row.id} className="border-b border-border last:border-0">
                 <td className="px-3 py-2 text-foreground">{row.name}</td>
                 <td className="px-3 py-2 text-foreground-muted">{row.categoryName}</td>
                 <td className="px-3 py-2 text-right text-foreground-muted">{row.plays}</td>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
+import { logAudit } from "@/server/audit";
 
 export const gamesRouter = router({
   listAll: staffProcedure.query(({ ctx }) => {
@@ -74,6 +75,45 @@ export const gamesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       return ctx.prisma.game.update({ where: { id }, data });
+    }),
+
+  /**
+   * True delete. Default is soft-blocked for a game that's ever been
+   * recorded as played — steered to Inactive instead, same pattern as
+   * menu items/categories/tables — but `force: true` (an explicit second
+   * confirmation in the UI, §Delete a game) overrides that. Safe to do:
+   * GameSession.gameId is nullable + SetNull (see schema comment), so a
+   * deleted game's past plays stay on record, just no longer attributable
+   * to a specific game (shown as "Deleted game" / "Unknown" instead of
+   * losing the play).
+   */
+  delete: permissionProcedure(Permission.MANAGE_GAMES)
+    .input(z.object({ id: z.string(), force: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const game = await ctx.prisma.game.findUnique({
+        where: { id: input.id },
+        include: { _count: { select: { gameSessions: true } } },
+      });
+      if (!game) throw new TRPCError({ code: "NOT_FOUND" });
+      if (game._count.gameSessions > 0 && !input.force) {
+        // CONFLICT (not BAD_REQUEST) so the UI can offer "Delete anyway".
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `"${game.nameEn}" has been recorded as played and can't be deleted — mark it Inactive instead to take it off the library, or delete it anyway if you're sure.`,
+        });
+      }
+      await ctx.prisma.game.delete({ where: { id: input.id } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "GAME_DELETED",
+        entityType: "Game",
+        entityId: input.id,
+        previousValue: {
+          nameEn: game.nameEn,
+          hadPlayHistory: game._count.gameSessions > 0,
+        },
+      });
+      return { ok: true };
     }),
 
   // --- Categories (§34) --------------------------------------------------

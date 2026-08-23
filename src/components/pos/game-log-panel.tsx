@@ -32,8 +32,8 @@ export function GameLogPanel({ sessionId }: { sessionId: string }) {
           className="flex items-center justify-between rounded-lg bg-background px-3 py-2 text-sm"
         >
           <span className="text-foreground">
-            {gs.game.nameEn}
-            {gs.game.category ? ` · ${gs.game.category.nameEn}` : ""}
+            {gs.game?.nameEn ?? "Deleted game"}
+            {gs.game?.category ? ` · ${gs.game.category.nameEn}` : ""}
           </span>
           <button
             onClick={() => remove.mutate({ gameSessionId: gs.id })}

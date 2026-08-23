@@ -100,7 +100,10 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
     }),
   ]);
 
-  const gameIds = topGames.map((g) => g.gameId);
+  // A play of a since-deleted game (§Delete a game) groups under
+  // gameId: null — never a real Game id, so it's filtered out here and
+  // just falls back to "Unknown" below via the games.find() miss.
+  const gameIds = topGames.map((g) => g.gameId).filter((id): id is string => id != null);
   const games = gameIds.length
     ? await prisma.game.findMany({ where: { id: { in: gameIds } } })
     : [];
@@ -292,7 +295,9 @@ export async function buildGamesPlayedReport(prisma: PrismaClient, range: DateRa
     orderBy: { _count: { gameId: "desc" } },
   });
 
-  const gameIds = grouped.map((g) => g.gameId);
+  // Same null-filtering as the Overview's topGames above — a deleted
+  // game's plays group under gameId: null.
+  const gameIds = grouped.map((g) => g.gameId).filter((id): id is string => id != null);
   const games = gameIds.length
     ? await prisma.game.findMany({
         where: { id: { in: gameIds } },
@@ -300,9 +305,14 @@ export async function buildGamesPlayedReport(prisma: PrismaClient, range: DateRa
       })
     : [];
 
-  return grouped.map((g) => {
-    const game = games.find((x) => x.id === g.gameId);
+  return grouped.map((g, i) => {
+    const game = g.gameId ? games.find((x) => x.id === g.gameId) : undefined;
     return {
+      // gameId is null for deleted games, and every deleted game's plays
+      // land in the *same* null-keyed group — `id` gives the row a
+      // unique React key regardless (index is fine here since this list
+      // is regenerated fresh per query, never reordered in place).
+      id: g.gameId ?? `deleted-${i}`,
       gameId: g.gameId,
       name: game?.nameEn ?? "Unknown",
       categoryName: game?.category?.nameEn ?? "—",

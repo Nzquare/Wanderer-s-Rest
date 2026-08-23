@@ -946,8 +946,14 @@ model GameSession {
   id        String       @id @default(cuid())
   sessionId String
   session   TableSession @relation(fields: [sessionId], references: [id])
-  gameId    String
-  game      Game         @relation(fields: [gameId], references: [id])
+  // Nullable + SetNull (rather than the default Restrict) so a game that
+  // was played can still be hard-deleted from the library later
+  // (§Delete a game). There's no name snapshot here the way OrderItem has
+  // for menu items — a deleted game's past plays just show as "Deleted
+  // game" (see game-log-panel.tsx) / "Unknown" (Games Played report)
+  // instead of losing the play record entirely.
+  gameId    String?
+  game      Game?        @relation(fields: [gameId], references: [id], onDelete: SetNull)
   memberId  String?
   member    Member?      @relation(fields: [memberId], references: [id])
   staffId   String

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 /** Return type of getHandleProps(id) — spread onto the grip element. */
 export type ReorderHandleProps = {
   onPointerDown: (e: React.PointerEvent) => void;
-  style: { touchAction: "none" };
+  style: React.CSSProperties;
 };
 
 /** Return type of getRowProps(id) — spread onto the row's container element. */
@@ -91,7 +91,7 @@ export function useDragReorder<T>(
     onReorderRef.current(reordered);
   }
 
-  function getHandleProps(id: string) {
+  function getHandleProps(id: string): ReorderHandleProps {
     return {
       onPointerDown: (e: React.PointerEvent) => {
         // Ignore a non-primary mouse button (right/middle click) — touch
@@ -108,11 +108,24 @@ export function useDragReorder<T>(
         document.addEventListener("pointerup", endDrag);
         document.addEventListener("pointercancel", endDrag);
       },
-      // touchAction: "none" is what stops iOS/Android from treating the
-      // press-and-move on this handle as a page-scroll gesture instead of
-      // a drag — without it, touchmove events past a short threshold get
-      // hijacked by the browser's own scrolling and this never fires.
-      style: { touchAction: "none" as const },
+      style: {
+        // Stops iOS/Android from treating the press-and-move on this
+        // handle as a page-scroll gesture instead of a drag — without
+        // it, touchmove events past a short threshold get hijacked by
+        // the browser's own scrolling and this never fires.
+        touchAction: "none",
+        // touchAction alone isn't enough on iOS Safari specifically: a
+        // press-and-hold on a plain text/emoji glyph like the grip
+        // triggers its text-selection callout (the "Copy" bubble +
+        // magnifier) before our own pointer handlers ever get a clean
+        // gesture, which is what "still can't drag on iPad" actually
+        // was — touch-action only governs pan/zoom, not that long-press
+        // selection UI. These three (WebKit-specific + the standard
+        // property) are what actually suppress it.
+        WebkitTouchCallout: "none",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+      },
     };
   }
 

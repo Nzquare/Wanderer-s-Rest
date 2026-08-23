@@ -304,14 +304,20 @@ function EditGameForm({
   const [difficulty, setDifficulty] = useState(game.difficulty ?? "");
   const [ageRecommendation, setAgeRecommendation] = useState(game.ageRecommendation ?? "");
   const [totalQuantity, setTotalQuantity] = useState(String(game.totalQuantity));
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const utils = trpc.useUtils();
+  const invalidate = () =>
+    Promise.all([utils.games.listAll.invalidate(), utils.games.listForRecording.invalidate()]);
   const update = trpc.games.update.useMutation({
     onSuccess: async () => {
-      await Promise.all([
-        utils.games.listAll.invalidate(),
-        utils.games.listForRecording.invalidate(),
-      ]);
+      await invalidate();
+      onDone();
+    },
+  });
+  const remove = trpc.games.delete.useMutation({
+    onSuccess: async () => {
+      await invalidate();
       onDone();
     },
   });
@@ -414,33 +420,80 @@ function EditGameForm({
           />
         </div>
       </div>
+      <ToggleButton
+        on={game.active}
+        onLabel="Active"
+        offLabel="Inactive"
+        onClick={() => update.mutate({ id: game.id, active: !game.active })}
+      />
       {update.error && <p className="text-xs text-status-danger">{update.error.message}</p>}
-      <div className="flex gap-2">
-        <Button
-          size="md"
-          disabled={!nameEn.trim() || !nameTh.trim() || update.isPending}
-          onClick={() =>
-            update.mutate({
-              id: game.id,
-              nameEn: nameEn.trim(),
-              nameTh: nameTh.trim(),
-              categoryId: categoryId || null,
-              genre: genre.trim() || null,
-              minPlayers: minPlayers ? Number(minPlayers) : null,
-              maxPlayers: maxPlayers ? Number(maxPlayers) : null,
-              estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : null,
-              difficulty: difficulty.trim() || null,
-              ageRecommendation: ageRecommendation.trim() || null,
-              totalQuantity: totalQuantity ? Number(totalQuantity) : 0,
-            })
-          }
-        >
-          {update.isPending ? "Saving…" : "Save"}
-        </Button>
-        <Button size="md" variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <Button
+            size="md"
+            disabled={!nameEn.trim() || !nameTh.trim() || update.isPending}
+            onClick={() =>
+              update.mutate({
+                id: game.id,
+                nameEn: nameEn.trim(),
+                nameTh: nameTh.trim(),
+                categoryId: categoryId || null,
+                genre: genre.trim() || null,
+                minPlayers: minPlayers ? Number(minPlayers) : null,
+                maxPlayers: maxPlayers ? Number(maxPlayers) : null,
+                estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : null,
+                difficulty: difficulty.trim() || null,
+                ageRecommendation: ageRecommendation.trim() || null,
+                totalQuantity: totalQuantity ? Number(totalQuantity) : 0,
+              })
+            }
+          >
+            {update.isPending ? "Saving…" : "Save"}
+          </Button>
+          <Button size="md" variant="ghost" onClick={onDone}>
+            Cancel
+          </Button>
+        </div>
+        {confirmingDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-status-danger">Delete this game for good?</span>
+            <Button
+              size="md"
+              variant="danger"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: game.id })}
+            >
+              Confirm delete
+            </Button>
+            <Button size="md" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-xs text-status-danger underline"
+          >
+            Delete game
+          </button>
+        )}
       </div>
+      {remove.error && (
+        <div className="text-right">
+          <p className="text-xs text-status-danger">{remove.error.message}</p>
+          {/* CONFLICT = "has been played" (§Delete a game) — force-able. */}
+          {remove.error.data?.code === "CONFLICT" && (
+            <button
+              onClick={() => remove.mutate({ id: game.id, force: true })}
+              disabled={remove.isPending}
+              className="mt-1 text-xs font-medium text-status-danger underline"
+            >
+              Delete anyway — its past plays stay on record as
+              &quot;Deleted game&quot;, but it comes off the library entirely.
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -479,7 +532,14 @@ function GameRow({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
       <div className="min-w-0">
-        <p className="font-medium text-foreground">{game.nameEn}</p>
+        <p className="flex items-center gap-2 font-medium text-foreground">
+          {game.nameEn}
+          {!game.active && (
+            <span className="rounded-full bg-status-neutral/15 px-2 py-0.5 text-[11px] text-status-neutral">
+              Inactive
+            </span>
+          )}
+        </p>
         <p className="text-xs text-foreground-muted">{details || "No details set"}</p>
       </div>
       <div className="flex items-center gap-2">

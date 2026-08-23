@@ -212,16 +212,23 @@ function toPromotionConfig(p: {
 
 /** Feeds the game-based achievement triggers (§36) now that the Game Library exists. */
 async function getMemberGameStats(tx: Prisma.TransactionClient, memberId: string) {
+  // A play of a since-deleted game (§Delete a game — GameSession.gameId
+  // is nullable) still counts toward totalGamesCount, but can't count
+  // toward unique-game/category/specific-game triggers since there's no
+  // game left to attribute it to.
   const played = await tx.gameSession.findMany({
     where: { memberId },
     include: { game: { select: { categoryId: true } } },
   });
-  const uniqueGameIds = new Set(played.map((p) => p.gameId));
+  const withGame = played.filter(
+    (p): p is typeof p & { gameId: string } => p.gameId != null,
+  );
+  const uniqueGameIds = new Set(withGame.map((p) => p.gameId));
   const categories = new Set(
-    played.map((p) => p.game.categoryId).filter((c): c is string => !!c),
+    withGame.map((p) => p.game?.categoryId).filter((c): c is string => !!c),
   );
   const gamePlayCounts: Record<string, number> = {};
-  for (const p of played) {
+  for (const p of withGame) {
     gamePlayCounts[p.gameId] = (gamePlayCounts[p.gameId] ?? 0) + 1;
   }
   return {

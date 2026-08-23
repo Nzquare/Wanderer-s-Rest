@@ -233,7 +233,9 @@ export const membersRouter = router({
         gameSessions: member.gameSessions.map((g) => ({
           id: g.id,
           playedAt: g.playedAt,
-          gameNameEn: g.game.nameEn,
+          // A deleted game (§Delete a game) has no live row left to read
+          // the name from — GameSession never had a name snapshot.
+          gameNameEn: g.game?.nameEn ?? "Deleted game",
         })),
       };
     }),
