@@ -393,13 +393,30 @@ function SettingsForm({ data }: { data: AllSettings }) {
             />
             Auto-print kitchen ticket
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={notifications.autoPrintReceipt}
+              onChange={(e) =>
+                setNotifications({
+                  ...notifications,
+                  autoPrintReceipt: e.target.checked,
+                })
+              }
+            />
+            Auto-print receipt
+          </label>
         </div>
         <p className="text-xs text-foreground-muted">
           Auto-print opens the print dialog for a kitchen ticket the moment a
-          new customer/staff order comes in (uses the same printer as
-          receipts — Checkout → printer width above). Every order also gets
-          its own manual print button in the order alert, whether or not
-          this is on.
+          new customer/staff order comes in, and/or for the receipt the
+          moment checkout finishes (uses the same printer — Checkout →
+          printer width above). Either way, a manual Print button stays
+          available for reprints or when its toggle is off. Note this still
+          opens the browser&apos;s print dialog — a fully silent print
+          straight to the printer needs the POS device&apos;s browser set up
+          for kiosk printing, which is a one-time setup on that device, not
+          a setting here.
         </p>
         <Button
           size="md"

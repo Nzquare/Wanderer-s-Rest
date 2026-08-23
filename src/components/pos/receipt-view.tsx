@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/client";
 import { formatMinutesShort } from "./live-timer";
@@ -81,7 +82,23 @@ export function ReceiptView({
 
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
+  const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
+
+  // Fires once per checkout, right when this view mounts (§auto print) —
+  // same idea as the kitchen ticket's autoPrintKitchenTicket, opening the
+  // print dialog automatically instead of making the cashier click "Print
+  // Receipt" every time. The ref guards against firing again if
+  // notificationSettings refetches in the background (e.g. on window
+  // focus) after already printing once.
+  const autoPrinted = useRef(false);
+  useEffect(() => {
+    if (autoPrinted.current || !notificationSettings) return;
+    if (notificationSettings.autoPrintReceipt) {
+      autoPrinted.current = true;
+      window.print();
+    }
+  }, [notificationSettings]);
   // Back Office → Settings has real inputs for both of these (café name,
   // receipt footer) — the printed receipt used to ignore them entirely and
   // print a hardcoded "Wanderer's Rest" / "Thank you for visiting..." no

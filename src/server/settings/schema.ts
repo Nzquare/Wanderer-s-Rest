@@ -62,6 +62,11 @@ export const notificationSettingsSchema = z.object({
    * trigger it. A manual print button on each order stays available
    * regardless, for reprints or when this is off. */
   autoPrintKitchenTicket: z.boolean().default(true),
+  /** Same idea as autoPrintKitchenTicket, for the receipt: opens the print
+   * dialog the moment checkout finishes instead of making the cashier
+   * click "Print Receipt" every time. The manual button stays available
+   * either way (reprints, or when this is off). */
+  autoPrintReceipt: z.boolean().default(true),
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
