@@ -10,7 +10,7 @@ import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { PhotoUpload } from "./photo-upload";
 import { ExcelImportButton } from "./excel-import-button";
 import { cn } from "@/lib/cn";
-import { useDragReorder } from "@/lib/use-drag-reorder";
+import { useDragReorder, type ReorderHandleProps, type ReorderRowProps } from "@/lib/use-drag-reorder";
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -54,30 +54,14 @@ function CategoryRow({
   rowProps,
   isDragging,
   isDropTarget,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
 }: {
   category: CategoryListItem;
   selected: boolean;
   onSelect: () => void;
-  handleProps: {
-    draggable: boolean;
-    onDragStart: (e: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
-  rowProps: {
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
+  handleProps: ReorderHandleProps;
+  rowProps: ReorderRowProps;
   isDragging: boolean;
   isDropTarget: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -125,9 +109,7 @@ function CategoryRow({
 
   return (
     <div
-      onDragOver={rowProps.onDragOver}
-      onDragLeave={rowProps.onDragLeave}
-      onDrop={rowProps.onDrop}
+      {...rowProps}
       className={cn(
         "flex w-full flex-col gap-1 rounded-xl border p-3 text-left transition-colors",
         isDragging && "opacity-40",
@@ -139,14 +121,7 @@ function CategoryRow({
       )}
     >
       <div className="flex items-start gap-2">
-        <ReorderHandle
-          handleProps={handleProps}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          className="mt-0.5"
-        />
+        <ReorderHandle handleProps={handleProps} className="mt-0.5" />
         {/* Only the name/count area is the "select" button — the action row
             below has its own buttons, and HTML doesn't allow nesting one
             button inside another. */}
@@ -264,29 +239,13 @@ function ItemRow({
   rowProps,
   isDragging,
   isDropTarget,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
 }: {
   item: OrderingItem;
   onEdit: () => void;
-  handleProps: {
-    draggable: boolean;
-    onDragStart: (e: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
-  rowProps: {
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
+  handleProps: ReorderHandleProps;
+  rowProps: ReorderRowProps;
   isDragging: boolean;
   isDropTarget: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const toggleSoldOut = trpc.menu.toggleSoldOut.useMutation({
@@ -295,9 +254,7 @@ function ItemRow({
 
   return (
     <div
-      onDragOver={rowProps.onDragOver}
-      onDragLeave={rowProps.onDragLeave}
-      onDrop={rowProps.onDrop}
+      {...rowProps}
       className={cn(
         "flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm transition-colors",
         isDragging && "opacity-40",
@@ -305,13 +262,7 @@ function ItemRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <ReorderHandle
-          handleProps={handleProps}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-        />
+        <ReorderHandle handleProps={handleProps} />
         <button onClick={onEdit} className="flex items-center gap-3 text-left">
           {item.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1120,10 +1071,6 @@ export function MenuManager() {
                 rowProps={categoryDrag.getRowProps(cat.id)}
                 isDragging={categoryDrag.draggedId === cat.id}
                 isDropTarget={categoryDrag.dropTargetId === cat.id}
-                onMoveUp={() => categoryDrag.moveUp(cat.id)}
-                onMoveDown={() => categoryDrag.moveDown(cat.id)}
-                canMoveUp={categoryDrag.canMoveUp(cat.id)}
-                canMoveDown={categoryDrag.canMoveDown(cat.id)}
               />
             ))}
           </div>
@@ -1144,10 +1091,6 @@ export function MenuManager() {
                       rowProps={itemDrag.getRowProps(item.id)}
                       isDragging={itemDrag.draggedId === item.id}
                       isDropTarget={itemDrag.dropTargetId === item.id}
-                      onMoveUp={() => itemDrag.moveUp(item.id)}
-                      onMoveDown={() => itemDrag.moveDown(item.id)}
-                      canMoveUp={itemDrag.canMoveUp(item.id)}
-                      canMoveDown={itemDrag.canMoveDown(item.id)}
                     />
                   ))}
                   {itemsForCategory.length === 0 && (

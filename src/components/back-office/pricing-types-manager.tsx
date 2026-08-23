@@ -8,7 +8,7 @@ import { ToggleButton } from "@/components/ui/toggle-button";
 import { Modal } from "@/components/ui/modal";
 import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { cn } from "@/lib/cn";
-import { useDragReorder } from "@/lib/use-drag-reorder";
+import { useDragReorder, type ReorderHandleProps, type ReorderRowProps } from "@/lib/use-drag-reorder";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MODEL_LABELS: Record<string, string> = {
@@ -297,28 +297,12 @@ function PricingTypeRow({
   rowProps,
   isDragging,
   isDropTarget,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
 }: {
   pricingType: PricingType;
-  handleProps: {
-    draggable: boolean;
-    onDragStart: (e: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
-  rowProps: {
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
+  handleProps: ReorderHandleProps;
+  rowProps: ReorderRowProps;
   isDragging: boolean;
   isDropTarget: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
@@ -330,9 +314,7 @@ function PricingTypeRow({
   return (
     <>
       <Card
-        onDragOver={rowProps.onDragOver}
-        onDragLeave={rowProps.onDragLeave}
-        onDrop={rowProps.onDrop}
+        {...rowProps}
         className={cn(
           "flex flex-wrap items-center justify-between gap-2 transition-colors",
           isDragging && "opacity-40",
@@ -340,14 +322,7 @@ function PricingTypeRow({
         )}
       >
         <div className="flex items-start gap-2">
-          <ReorderHandle
-            handleProps={handleProps}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            className="mt-0.5"
-          />
+          <ReorderHandle handleProps={handleProps} className="mt-0.5" />
           <div>
             <p className="font-medium text-foreground">
               {t.name} <span className="text-xs text-foreground-muted">({t.code})</span>
@@ -445,12 +420,11 @@ export function PricingTypesManager() {
     onSuccess: () =>
       Promise.all([utils.pricingTypes.listAll.invalidate(), utils.pricingTypes.list.invalidate()]),
   });
-  const { draggedId, dropTargetId, getHandleProps, getRowProps, moveUp, moveDown, canMoveUp, canMoveDown } =
-    useDragReorder(
-      pricingTypes ?? [],
-      (t) => t.id,
-      (orderedIds) => reorder.mutate({ orderedIds }),
-    );
+  const { draggedId, dropTargetId, getHandleProps, getRowProps } = useDragReorder(
+    pricingTypes ?? [],
+    (t) => t.id,
+    (orderedIds) => reorder.mutate({ orderedIds }),
+  );
 
   return (
     <div className="space-y-4">
@@ -459,9 +433,9 @@ export function PricingTypesManager() {
         Set up with a code/name/model/rate above, then open{" "}
         <span className="font-medium text-foreground">Details</span> on a pricing type below to
         fine-tune its daily cap, grace period, day/time window, and per-person vs per-table billing.
-        Drag the ⠿ handle to reorder (or use the ▲▼ arrows on a phone) — that&apos;s the order
-        shown in the &quot;Open Table&quot; and Reservation pricing pickers, and only Active ones
-        show up there at all.
+        Drag the ⠿ handle to reorder — works with a finger on phone/tablet too — that&apos;s the
+        order shown in the &quot;Open Table&quot; and Reservation pricing pickers, and only Active
+        ones show up there at all.
       </p>
       <div className="space-y-2">
         {pricingTypes?.map((t) => (
@@ -472,10 +446,6 @@ export function PricingTypesManager() {
             rowProps={getRowProps(t.id)}
             isDragging={draggedId === t.id}
             isDropTarget={dropTargetId === t.id}
-            onMoveUp={() => moveUp(t.id)}
-            onMoveDown={() => moveDown(t.id)}
-            canMoveUp={canMoveUp(t.id)}
-            canMoveDown={canMoveDown(t.id)}
           />
         ))}
         {pricingTypes?.length === 0 && (

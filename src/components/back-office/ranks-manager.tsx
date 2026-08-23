@@ -8,7 +8,7 @@ import { Modal } from "@/components/ui/modal";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { ReorderHandle } from "@/components/ui/reorder-handle";
 import { cn } from "@/lib/cn";
-import { useDragReorder } from "@/lib/use-drag-reorder";
+import { useDragReorder, type ReorderHandleProps, type ReorderRowProps } from "@/lib/use-drag-reorder";
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -187,39 +187,21 @@ function RankRow({
   rowProps,
   isDragging,
   isDropTarget,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
 }: {
   rank: Rank;
   levelRange: { start: number; end: number };
   isLast: boolean;
-  handleProps: {
-    draggable: boolean;
-    onDragStart: (e: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
-  rowProps: {
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
+  handleProps: ReorderHandleProps;
+  rowProps: ReorderRowProps;
   isDragging: boolean;
   isDropTarget: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
       <Card
-        onDragOver={rowProps.onDragOver}
-        onDragLeave={rowProps.onDragLeave}
-        onDrop={rowProps.onDrop}
+        {...rowProps}
         className={cn(
           "flex flex-wrap items-center justify-between gap-2 transition-colors",
           isDragging && "opacity-40",
@@ -227,14 +209,7 @@ function RankRow({
         )}
       >
         <div className="flex items-start gap-2">
-          <ReorderHandle
-            handleProps={handleProps}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            className="mt-0.5"
-          />
+          <ReorderHandle handleProps={handleProps} className="mt-0.5" />
           <div>
             <p className="font-medium text-foreground">
               {r.icon ?? "🎖️"} {r.nameEn}{" "}
@@ -313,12 +288,11 @@ export function RanksManager() {
   const reorder = trpc.ranks.reorder.useMutation({
     onSuccess: () => Promise.all([utils.ranks.listAll.invalidate(), utils.ranks.list.invalidate()]),
   });
-  const { draggedId, dropTargetId, getHandleProps, getRowProps, moveUp, moveDown, canMoveUp, canMoveDown } =
-    useDragReorder(
-      ranks ?? [],
-      (r) => r.id,
-      (orderedIds) => reorder.mutate({ orderedIds }),
-    );
+  const { draggedId, dropTargetId, getHandleProps, getRowProps } = useDragReorder(
+    ranks ?? [],
+    (r) => r.id,
+    (orderedIds) => reorder.mutate({ orderedIds }),
+  );
   const levelRanges = computeLevelRanges(ranks ?? []);
 
   return (
@@ -332,8 +306,8 @@ export function RanksManager() {
         required&quot; is that span — how many levels this rank covers
         before the next one kicks in; the last rank absorbs every level
         beyond it, so a maxed-out member keeps leveling instead of getting
-        stuck. Drag the ⠿ handle to reorder, or use the ▲▼ arrows on a
-        phone. Open{" "}
+        stuck. Drag the ⠿ handle to reorder — works with a finger on
+        phone/tablet too. Open{" "}
         <span className="font-medium text-foreground">Details</span> to
         rename, add a description, or delete a rank nobody currently holds.
         To move a specific member to a different rank, use{" "}
@@ -352,10 +326,6 @@ export function RanksManager() {
             rowProps={getRowProps(r.id)}
             isDragging={draggedId === r.id}
             isDropTarget={dropTargetId === r.id}
-            onMoveUp={() => moveUp(r.id)}
-            onMoveDown={() => moveDown(r.id)}
-            canMoveUp={canMoveUp(r.id)}
-            canMoveDown={canMoveDown(r.id)}
           />
         ))}
         {ranks?.length === 0 && (

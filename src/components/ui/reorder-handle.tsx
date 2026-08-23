@@ -1,53 +1,24 @@
+import type { ReorderHandleProps } from "@/lib/use-drag-reorder";
+
 /**
- * Pairs with useDragReorder: the grip drives desktop mouse drag, the two
- * arrow buttons are the touch-friendly fallback since HTML5 drag-and-drop
- * doesn't fire on phones at all — without them, reordering silently does
- * nothing on any touch device (§mobile audit).
+ * Pairs with useDragReorder (Pointer Events under the hood) — drags
+ * correctly with a mouse, a finger, or a pen, all through the same
+ * handler, so there's no separate touch fallback needed.
  */
 export function ReorderHandle({
   handleProps,
-  onMoveUp,
-  onMoveDown,
-  canMoveUp,
-  canMoveDown,
   className,
 }: {
-  handleProps: React.HTMLAttributes<HTMLSpanElement>;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
+  handleProps: ReorderHandleProps;
   className?: string;
 }) {
   return (
-    <span className={`flex items-center gap-1 ${className ?? ""}`}>
-      <span
-        {...handleProps}
-        title="Drag to reorder"
-        className="cursor-grab select-none text-foreground-muted active:cursor-grabbing"
-      >
-        ⠿
-      </span>
-      <span className="flex flex-col">
-        <button
-          type="button"
-          onClick={onMoveUp}
-          disabled={!canMoveUp}
-          aria-label="Move up"
-          className="leading-none text-foreground-muted hover:text-foreground disabled:opacity-30"
-        >
-          ▲
-        </button>
-        <button
-          type="button"
-          onClick={onMoveDown}
-          disabled={!canMoveDown}
-          aria-label="Move down"
-          className="leading-none text-foreground-muted hover:text-foreground disabled:opacity-30"
-        >
-          ▼
-        </button>
-      </span>
+    <span
+      {...handleProps}
+      title="Drag to reorder"
+      className={`cursor-grab select-none px-1 text-foreground-muted active:cursor-grabbing ${className ?? ""}`}
+    >
+      ⠿
     </span>
   );
 }
