@@ -50,7 +50,12 @@ export function BackOfficeShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="hidden w-64 shrink-0 flex-col bg-brand-950 text-white/90 md:flex">
+      {/* Sticky + full viewport height so Sign out always stays reachable
+          at the bottom of the sidebar — without this, `align-items:
+          stretch` on the parent row makes the sidebar match whatever
+          height `main`'s content grows to, pushing Sign out far below the
+          fold on any page taller than one screen (§no sign out visible). */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-brand-950 text-white/90 md:flex">
         <div className="px-5 py-4">
           {darkLogo && (
             // Stacked above the name (rather than inline) so the logo can
@@ -80,7 +85,7 @@ export function BackOfficeShell({
             </div>
           )}
         </div>
-        <nav className="flex-1 space-y-0.5 px-3">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
           {visibleNavItems.map((item) => (
             <Link
               key={item.href}
