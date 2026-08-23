@@ -728,10 +728,10 @@ export function TableDetail({
                 <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                   <div className="space-y-4">
                     {billCard}
+                    {voidPanel}
                     {startPlayingPanel}
                     {memberSection}
                     {promotionsSection}
-                    {voidPanel}
                     {playersSection}
                     {gameLogSection}
                     {notesSection}
@@ -750,10 +750,10 @@ export function TableDetail({
             <>
               <div className="space-y-4">
                 {billCard}
+                {voidPanel}
                 {startPlayingPanel}
                 {memberSection}
                 {promotionsSection}
-                {voidPanel}
                 {playersSection}
                 {ordersSection}
                 {addOrderSection}
