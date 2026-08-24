@@ -79,11 +79,14 @@ body {
 }
 
 /* Themed scrollbar (§scrollbar doesn't match theme) — the default OS/
-   browser scrollbar is grey regardless of the rest of the page. Uses the
-   same tokens as everything else here, so it automatically follows the
-   light/dark swap above instead of needing its own colors. */
+   browser scrollbar is grey regardless of the rest of the page. Track is
+   transparent rather than a fixed color on purpose: this one rule has to
+   sit correctly over a light page, a white card, AND the Back Office
+   sidebar's dark bg-brand-950 (which scrolls internally too) — a solid
+   --surface track looked like a stray white bar cutting through the dark
+   sidebar (§bg is white). Only the thumb carries color. */
 * {
-  scrollbar-color: var(--brand-600) var(--surface);
+  scrollbar-color: var(--brand-600) transparent;
   scrollbar-width: thin;
 }
 ::-webkit-scrollbar {
@@ -91,12 +94,13 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--surface);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background-color: var(--brand-600);
   border-radius: 8px;
-  border: 2px solid var(--surface);
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--teal-600);
