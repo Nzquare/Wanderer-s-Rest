@@ -40,11 +40,17 @@ export const CASHIER_PERMISSIONS: Permission[] = [
   Permission.MANAGE_RESERVATIONS,
 ];
 
-export function canAccessBackOffice(staff: Pick<CurrentStaff, "permissions"> | null) {
+export function canAccessBackOffice(
+  staff: Pick<CurrentStaff, "permissions" | "denyBackOfficeAccess"> | null,
+) {
+  if (staff?.denyBackOfficeAccess) return false;
   return canAny(staff, BACK_OFFICE_PERMISSIONS);
 }
 
-export function canAccessCashier(staff: Pick<CurrentStaff, "permissions"> | null) {
+export function canAccessCashier(
+  staff: Pick<CurrentStaff, "permissions" | "denyCashierAccess"> | null,
+) {
+  if (staff?.denyCashierAccess) return false;
   return canAny(staff, CASHIER_PERMISSIONS);
 }
 

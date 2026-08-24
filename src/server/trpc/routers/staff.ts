@@ -175,4 +175,38 @@ export const staffRouter = router({
       });
       return { ok: true };
     }),
+
+  /**
+   * Hard overrides on which apps a role can open, independent of its
+   * permissions (§GM restricted to Staff Mobile) — some permissions
+   * (Manage games, Manage members, Manage reservations, ...) are needed
+   * for legitimate Staff Mobile actions but would otherwise also open
+   * Back Office/Cashier just by being present on the role. See
+   * canAccessBackOffice/canAccessCashier.
+   */
+  updateAppAccess: manageStaff()
+    .input(
+      z.object({
+        roleId: z.string(),
+        denyBackOfficeAccess: z.boolean(),
+        denyCashierAccess: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { roleId, ...data } = input;
+      const before = await ctx.prisma.role.findUnique({ where: { id: roleId } });
+      const updated = await ctx.prisma.role.update({ where: { id: roleId }, data });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "ROLE_APP_ACCESS_CHANGE",
+        entityType: "Role",
+        entityId: roleId,
+        previousValue: {
+          denyBackOfficeAccess: before?.denyBackOfficeAccess,
+          denyCashierAccess: before?.denyCashierAccess,
+        },
+        newValue: data,
+      });
+      return updated;
+    }),
 });

@@ -179,17 +179,32 @@ function RoleEditor({
   role,
   allPermissions,
 }: {
-  role: { id: string; name: string; permissions: { permission: Permission }[] };
+  role: {
+    id: string;
+    name: string;
+    permissions: { permission: Permission }[];
+    denyBackOfficeAccess: boolean;
+    denyCashierAccess: boolean;
+  };
   allPermissions: Permission[];
 }) {
   const [selected, setSelected] = useState<Set<Permission>>(
     new Set(role.permissions.map((p) => p.permission)),
   );
   const [dirty, setDirty] = useState(false);
+  const [allowBackOffice, setAllowBackOffice] = useState(!role.denyBackOfficeAccess);
+  const [allowCashier, setAllowCashier] = useState(!role.denyCashierAccess);
+  const [appAccessDirty, setAppAccessDirty] = useState(false);
   const utils = trpc.useUtils();
   const save = trpc.staff.updateRolePermissions.useMutation({
     onSuccess: async () => {
       setDirty(false);
+      await utils.staff.listRoles.invalidate();
+    },
+  });
+  const saveAppAccess = trpc.staff.updateAppAccess.useMutation({
+    onSuccess: async () => {
+      setAppAccessDirty(false);
       await utils.staff.listRoles.invalidate();
     },
   });
@@ -230,6 +245,55 @@ function RoleEditor({
           Save permissions
         </Button>
       )}
+
+      <div className="space-y-2 border-t border-border pt-2">
+        <p className="text-xs font-medium text-foreground-muted">
+          App access — overrides the permissions above. Staff Mobile is
+          always reachable; some permissions here (Manage games, Manage
+          members, Manage reservations, ...) are also needed for actions
+          on Staff Mobile, so unchecking a box below is the only way to
+          keep those while still locking this role out of that app.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-xs text-foreground-muted">
+            <input
+              type="checkbox"
+              checked={allowBackOffice}
+              onChange={(e) => {
+                setAllowBackOffice(e.target.checked);
+                setAppAccessDirty(true);
+              }}
+            />
+            Allow Back Office access
+          </label>
+          <label className="flex items-center gap-2 text-xs text-foreground-muted">
+            <input
+              type="checkbox"
+              checked={allowCashier}
+              onChange={(e) => {
+                setAllowCashier(e.target.checked);
+                setAppAccessDirty(true);
+              }}
+            />
+            Allow Cashier POS access
+          </label>
+        </div>
+        {appAccessDirty && (
+          <Button
+            size="md"
+            disabled={saveAppAccess.isPending}
+            onClick={() =>
+              saveAppAccess.mutate({
+                roleId: role.id,
+                denyBackOfficeAccess: !allowBackOffice,
+                denyCashierAccess: !allowCashier,
+              })
+            }
+          >
+            Save app access
+          </Button>
+        )}
+      </div>
     </Card>
   );
 }

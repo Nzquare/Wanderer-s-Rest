@@ -12,6 +12,10 @@ export interface CurrentStaff {
   roleId: string;
   roleName: string;
   permissions: Permission[];
+  // Hard overrides on the role, independent of permissions — see
+  // canAccessBackOffice/canAccessCashier (§GM restricted to Staff Mobile).
+  denyBackOfficeAccess: boolean;
+  denyCashierAccess: boolean;
 }
 
 /**
@@ -40,6 +44,8 @@ export const getCurrentStaff = cache(
       roleId: staff.roleId,
       roleName: staff.role.name,
       permissions: staff.role.permissions.map((p) => p.permission),
+      denyBackOfficeAccess: staff.role.denyBackOfficeAccess,
+      denyCashierAccess: staff.role.denyCashierAccess,
     };
   },
 );

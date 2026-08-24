@@ -80,13 +80,22 @@ enum Permission {
 }
 
 model Role {
-  id          String           @id @default(cuid())
-  name        String           @unique
-  isSystem    Boolean          @default(false)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  permissions RolePermission[]
-  staff       Staff[]
+  id                   String           @id @default(cuid())
+  name                 String           @unique
+  isSystem             Boolean          @default(false)
+  // Hard overrides on top of the usual permission-based app access
+  // (§2 canAccessBackOffice/canAccessCashier) — some permissions
+  // (Manage games, Manage members, Manage reservations, ...) are needed
+  // for legitimate Staff Mobile actions but would otherwise also open
+  // Back Office/Cashier just by being present on the role. Default false
+  // everywhere so no existing role's access changes just from this
+  // column existing (§GM restricted to Staff Mobile).
+  denyBackOfficeAccess Boolean          @default(false)
+  denyCashierAccess    Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  permissions          RolePermission[]
+  staff                Staff[]
 }
 
 model RolePermission {
