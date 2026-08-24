@@ -280,7 +280,22 @@ function PromotionDetailsModal({
           </Button>
         </div>
         {remove.error && confirmingDelete && (
-          <p className="text-xs text-status-danger">{remove.error.message}</p>
+          <div className="text-right">
+            <p className="text-xs text-status-danger">{remove.error.message}</p>
+            {/* CONFLICT = "already applied to a bill" — force-able, unlike
+                the achievement/benefit-redemption blocks (BAD_REQUEST). */}
+            {remove.error.data?.code === "CONFLICT" && (
+              <button
+                onClick={() => remove.mutate({ id: promotion.id, force: true })}
+                disabled={remove.isPending}
+                className="mt-1 text-xs font-medium text-status-danger underline"
+              >
+                Delete anyway — its past usage stays on record as
+                &quot;Manual / custom discount&quot;, but it comes off
+                Promotions entirely.
+              </button>
+            )}
+          </div>
         )}
       </div>
     </Modal>

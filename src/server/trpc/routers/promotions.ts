@@ -172,22 +172,58 @@ export const promotionsRouter = router({
     }),
 
   /**
-   * True delete — only for a promotion that's never actually been applied
-   * to a bill. One that has stays forever via AppliedDiscount history
-   * (§45) and gets deactivated instead, same pattern as menu/tables.
+   * True delete. Default is soft-blocked once a promotion has actually been
+   * applied to a bill — staff are steered to Inactive instead — but
+   * `force: true` (an explicit "Delete anyway" in the UI, same pattern as
+   * menu/games) overrides that. Safe to force: AppliedDiscount.promotionId
+   * is nullable + ON DELETE SET NULL, and every AppliedDiscount already
+   * carries its own `label` snapshot of the promotion's name independent of
+   * the live row (see checkout.ts), so no past bill's discount line
+   * changes — only report grouping (buildPromotionUsageReport) folds a
+   * deleted promotion's old usage into the generic "Manual / custom
+   * discount" bucket, same as a deleted game's plays show as "Unknown".
+   *
+   * Two other links are never force-able, though — both are live config,
+   * not historical data:
+   * - An Achievement still configured to grant this promotion as its
+   *   reward (§Benefits) — must be unlinked from the achievement first,
+   *   same reasoning as MenuItem's redeemablePromotions guard.
+   * - Any BenefitRedemption (an achievement-earned or directly-granted
+   *   member reward, claimed or not) — promotionId there is required at
+   *   the DB level (ON DELETE RESTRICT), since a redemption has no
+   *   snapshot of its own and needs the live promotion to know what it's
+   *   actually worth, even after it's been used.
    */
   remove: manage()
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), force: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const promotion = await ctx.prisma.promotion.findUnique({
         where: { id: input.id },
-        include: { _count: { select: { appliedDiscounts: true } } },
+        include: {
+          _count: {
+            select: { appliedDiscounts: true, grantedByAchievements: true, benefitRedemptions: true },
+          },
+        },
       });
       if (!promotion) throw new TRPCError({ code: "NOT_FOUND" });
-      if (promotion._count.appliedDiscounts > 0) {
+      if (promotion._count.grantedByAchievements > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `"${promotion.name}" has already been applied to a bill and can't be deleted — mark it Inactive instead.`,
+          message: `"${promotion.name}" is the reward for an achievement and can't be deleted — remove it from that achievement first, or mark the promotion Inactive instead.`,
+        });
+      }
+      if (promotion._count.benefitRedemptions > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${promotion.name}" has member benefit redemptions tied to it and can't be deleted — mark it Inactive instead.`,
+        });
+      }
+      if (promotion._count.appliedDiscounts > 0 && !input.force) {
+        // CONFLICT (not BAD_REQUEST) so the UI can tell this apart from
+        // the two hard blocks above and offer "Delete anyway".
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `"${promotion.name}" has already been applied to a bill and can't be deleted — mark it Inactive instead, or delete it anyway if you're sure.`,
         });
       }
       await ctx.prisma.promotion.delete({ where: { id: input.id } });
@@ -196,7 +232,7 @@ export const promotionsRouter = router({
         action: "PROMOTION_DELETED",
         entityType: "Promotion",
         entityId: input.id,
-        previousValue: { name: promotion.name },
+        previousValue: { name: promotion.name, hadUsageHistory: promotion._count.appliedDiscounts > 0 },
       });
       return { ok: true };
     }),
