@@ -183,11 +183,15 @@ async function main() {
     ["T6", "Table 6", 2, "Window Nook"],
   ];
   for (const [index, [code, name, capacity, area]] of tables.entries()) {
-    await prisma.restaurantTable.upsert({
-      where: { code },
-      create: { code, name, capacity, area, sortOrder: index },
-      update: {},
-    });
+    // code is no longer a unique selector (see RestaurantTable.code's
+    // schema comment), so upsert-by-code isn't available — find-then-
+    // create is the same idempotency this loop always wanted.
+    const existing = await prisma.restaurantTable.findFirst({ where: { code } });
+    if (!existing) {
+      await prisma.restaurantTable.create({
+        data: { code, name, capacity, area, sortOrder: index },
+      });
+    }
   }
 
   // ── Demo menu (§10, §11) ─────────────────────────────────────────────

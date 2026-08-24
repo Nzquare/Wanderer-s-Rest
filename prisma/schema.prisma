@@ -157,7 +157,15 @@ enum TableKind {
 
 model RestaurantTable {
   id            String            @id @default(cuid())
-  code          String            @unique
+  // Not @unique in the Prisma schema on purpose — real uniqueness is
+  // enforced by a partial unique index (code, WHERE active) added by hand
+  // in migration.sql, which Prisma's schema DSL can't express. Quick Sale
+  // tables (walk-in/delivery) are retired — active: false — rather than
+  // deleted once closed, and their code is reused by the next one once
+  // freed up instead of climbing forever (§walk-in number not
+  // resetting) — a real STANDARD table's code effectively stays unique
+  // forever in practice since those are essentially never deactivated.
+  code          String
   name          String
   capacity      Int
   area          String?
@@ -180,6 +188,7 @@ model RestaurantTable {
   reservations Reservation[]
 
   @@index([kind])
+  @@index([code])
 }
 
 enum PricingModel {

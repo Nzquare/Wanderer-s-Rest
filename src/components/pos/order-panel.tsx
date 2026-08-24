@@ -215,6 +215,118 @@ export function OrderPanel({
     <div className="space-y-3 rounded-2xl border border-border bg-surface p-4">
       <p className="text-sm font-medium text-foreground-muted">Add order</p>
 
+      {cart.length > 0 && (
+        <div className="space-y-2 border-b border-border pb-3">
+          {cart.map((line) => (
+            <div key={line.key} className="flex items-center justify-between text-sm">
+              <div>
+                <span className="font-medium text-foreground">{line.nameEn}</span>
+                {(line.modifierLabel || line.comboSelections.length > 0) && (
+                  <span className="text-foreground-muted">
+                    {" "}
+                    (
+                    {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
+                      .filter(Boolean)
+                      .join(", ")}
+                    )
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    setCart((c) =>
+                      c
+                        .map((l) =>
+                          l.key === line.key
+                            ? { ...l, quantity: l.quantity - 1 }
+                            : l,
+                        )
+                        .filter((l) => l.quantity > 0),
+                    )
+                  }
+                  className="h-7 w-7 rounded-full border border-border"
+                >
+                  −
+                </button>
+                <span className="w-4 text-center">{line.quantity}</span>
+                <button
+                  onClick={() =>
+                    setCart((c) =>
+                      c.map((l) =>
+                        l.key === line.key
+                          ? { ...l, quantity: l.quantity + 1 }
+                          : l,
+                      ),
+                    )
+                  }
+                  className="h-7 w-7 rounded-full border border-border"
+                >
+                  +
+                </button>
+                <span className="w-14 text-right tabular-nums">
+                  ฿{line.unitPrice * line.quantity}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-2">
+            <span className="font-medium text-foreground">Order total</span>
+            <span className="font-semibold text-foreground">฿{cartTotal}</span>
+          </div>
+          {submit.error && (
+            <p className="text-sm text-status-danger">{submit.error.message}</p>
+          )}
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={submit.isPending}
+            onClick={() => {
+              // Only a Cashier-placed order needs its own immediate
+              // chime + print — a Staff-phone order still gets picked up
+              // by the Cashier screen's own alert banner/auto-print (§17),
+              // and a phone has no kitchen printer to open a dialog on.
+              if (source === "CASHIER") {
+                pendingTicket.current = {
+                  id: `local-${Date.now()}`,
+                  tableCode,
+                  source,
+                  staffName: null,
+                  createdAt: new Date(),
+                  notes: null,
+                  items: cart.map((l) => ({
+                    id: l.key,
+                    nameEn: l.nameEn,
+                    quantity: l.quantity,
+                    notes: null,
+                    modifierNames: [
+                      ...(l.modifierLabel ? l.modifierLabel.split(", ") : []),
+                      ...l.comboSelections.map((cs) => cs.label),
+                    ],
+                    comboSelections: [],
+                  })),
+                };
+              }
+              submit.mutate({
+                sessionId,
+                source,
+                items: cart.map((l) => ({
+                  menuItemId: l.menuItemId,
+                  quantity: l.quantity,
+                  modifierOptionIds: l.modifierOptionIds,
+                  comboSelections: l.comboSelections.map((cs) => ({
+                    comboSlotId: cs.comboSlotId,
+                    selectedMenuItemId: cs.selectedMenuItemId,
+                  })),
+                })),
+              });
+            }}
+          >
+            {submit.isPending ? "Sending…" : "Submit Order"}
+          </Button>
+        </div>
+      )}
+
       <div className="flex gap-2 overflow-x-auto pb-1">
         {categories?.map((cat) => (
           <button
@@ -358,117 +470,6 @@ export function OrderPanel({
         </div>
       )}
 
-      {cart.length > 0 && (
-        <div className="space-y-2 border-t border-border pt-3">
-          {cart.map((line) => (
-            <div key={line.key} className="flex items-center justify-between text-sm">
-              <div>
-                <span className="font-medium text-foreground">{line.nameEn}</span>
-                {(line.modifierLabel || line.comboSelections.length > 0) && (
-                  <span className="text-foreground-muted">
-                    {" "}
-                    (
-                    {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
-                      .filter(Boolean)
-                      .join(", ")}
-                    )
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() =>
-                    setCart((c) =>
-                      c
-                        .map((l) =>
-                          l.key === line.key
-                            ? { ...l, quantity: l.quantity - 1 }
-                            : l,
-                        )
-                        .filter((l) => l.quantity > 0),
-                    )
-                  }
-                  className="h-7 w-7 rounded-full border border-border"
-                >
-                  −
-                </button>
-                <span className="w-4 text-center">{line.quantity}</span>
-                <button
-                  onClick={() =>
-                    setCart((c) =>
-                      c.map((l) =>
-                        l.key === line.key
-                          ? { ...l, quantity: l.quantity + 1 }
-                          : l,
-                      ),
-                    )
-                  }
-                  className="h-7 w-7 rounded-full border border-border"
-                >
-                  +
-                </button>
-                <span className="w-14 text-right tabular-nums">
-                  ฿{line.unitPrice * line.quantity}
-                </span>
-              </div>
-            </div>
-          ))}
-          <div className="flex items-center justify-between pt-2">
-            <span className="font-medium text-foreground">Order total</span>
-            <span className="font-semibold text-foreground">฿{cartTotal}</span>
-          </div>
-          {submit.error && (
-            <p className="text-sm text-status-danger">{submit.error.message}</p>
-          )}
-          <Button
-            size="lg"
-            className="w-full"
-            disabled={submit.isPending}
-            onClick={() => {
-              // Only a Cashier-placed order needs its own immediate
-              // chime + print — a Staff-phone order still gets picked up
-              // by the Cashier screen's own alert banner/auto-print (§17),
-              // and a phone has no kitchen printer to open a dialog on.
-              if (source === "CASHIER") {
-                pendingTicket.current = {
-                  id: `local-${Date.now()}`,
-                  tableCode,
-                  source,
-                  staffName: null,
-                  createdAt: new Date(),
-                  notes: null,
-                  items: cart.map((l) => ({
-                    id: l.key,
-                    nameEn: l.nameEn,
-                    quantity: l.quantity,
-                    notes: null,
-                    modifierNames: [
-                      ...(l.modifierLabel ? l.modifierLabel.split(", ") : []),
-                      ...l.comboSelections.map((cs) => cs.label),
-                    ],
-                    comboSelections: [],
-                  })),
-                };
-              }
-              submit.mutate({
-                sessionId,
-                source,
-                items: cart.map((l) => ({
-                  menuItemId: l.menuItemId,
-                  quantity: l.quantity,
-                  modifierOptionIds: l.modifierOptionIds,
-                  comboSelections: l.comboSelections.map((cs) => ({
-                    comboSlotId: cs.comboSlotId,
-                    selectedMenuItemId: cs.selectedMenuItemId,
-                  })),
-                })),
-              });
-            }}
-          >
-            {submit.isPending ? "Sending…" : "Submit Order"}
-          </Button>
-        </div>
-      )}
       {printOrder && (
         <KitchenTicket
           order={printOrder}

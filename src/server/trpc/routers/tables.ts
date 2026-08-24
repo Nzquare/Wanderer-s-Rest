@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@/generated/prisma/client";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
@@ -34,7 +35,11 @@ export const tablesRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.restaurantTable.findUnique({
+      // code is no longer globally @unique (see schema comment) — a
+      // Standard table's code effectively stays unique forever in
+      // practice anyway, so findFirst covers the same "is this taken"
+      // check findUnique used to.
+      const existing = await ctx.prisma.restaurantTable.findFirst({
         where: { code: input.code },
       });
       if (existing) {
@@ -61,32 +66,59 @@ export const tablesRouter = router({
    * through the exact same OpenTableForm/openTable/checkout path a real
    * table does; the only difference is `kind`, which keeps it off the
    * floor-plan grid and Back Office's table manager and puts it on the
-   * Quick Sale list instead. Codes count up per kind, e.g. W1, W2, D1 —
-   * counted across all-time (never reused, tables are never deleted) so
-   * two staff creating one at the same moment can still collide only in
-   * the (harmless) rare case of a duplicate label, never a duplicate code
-   * conflict silently overwriting one row's data.
+   * Quick Sale list instead.
+   *
+   * Numbers e.g. W1, W2, D1 fill the smallest one not currently used by
+   * an *active* table of that kind, instead of counting up all-time —
+   * closed Quick Sale tables are retired (active: false), never deleted,
+   * so an all-time count would climb forever and never come back down
+   * (§walk-in number not resetting). code is only unique among active
+   * rows (see schema comment) so this reuse is safe at the DB level; the
+   * retry below just covers the rare case of two staff creating one for
+   * the same kind in the same instant and computing the same number.
    */
   createQuickSale: permissionProcedure(Permission.MANAGE_TABLES)
     .input(z.object({ kind: z.enum(["WALK_IN", "DELIVERY"]) }))
     .mutation(async ({ ctx, input }) => {
       const prefix = input.kind === "WALK_IN" ? "W" : "D";
       const label = input.kind === "WALK_IN" ? "Walk-in" : "Delivery";
-      const count = await ctx.prisma.restaurantTable.count({
-        where: { kind: input.kind },
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const active = await ctx.prisma.restaurantTable.findMany({
+          where: { kind: input.kind, active: true },
+          select: { code: true },
+        });
+        const used = new Set(
+          active
+            .map((t) => Number(t.code.slice(prefix.length)))
+            .filter((n) => Number.isFinite(n)),
+        );
+        let n = 1;
+        while (used.has(n)) n++;
+
+        try {
+          return await ctx.prisma.restaurantTable.create({
+            data: {
+              code: `${prefix}${n}`,
+              name: `${label} ${n}`,
+              capacity: 8,
+              kind: input.kind,
+              qrEnabled: false,
+              sortOrder: 0,
+            },
+          });
+        } catch (err) {
+          const isUniqueConflict =
+            err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+          if (!isUniqueConflict || attempt === 4) throw err;
+          // Someone else just took this number — loop around and pick
+          // the next free one.
+        }
+      }
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Couldn't find a free number — try again.",
       });
-      const n = count + 1;
-      const table = await ctx.prisma.restaurantTable.create({
-        data: {
-          code: `${prefix}${n}`,
-          name: `${label} ${n}`,
-          capacity: 8,
-          kind: input.kind,
-          qrEnabled: false,
-          sortOrder: 0,
-        },
-      });
-      return table;
     }),
 
   update: permissionProcedure(Permission.MANAGE_TABLES)
