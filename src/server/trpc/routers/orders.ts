@@ -233,24 +233,16 @@ export const ordersRouter = router({
     }));
   }),
 
+  // The only way to clear a pending order from the alert banner —
+  // opening the table used to also silently acknowledge it (via a
+  // now-removed acknowledgeAllForTable), so a glance at the table lost
+  // the notification before staff had actually confirmed they'd seen it
+  // (§notification shouldn't disappear on view).
   acknowledge: cashierProcedure
     .input(z.object({ orderId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.prisma.order.update({
         where: { id: input.orderId },
-        data: { acknowledgedAt: new Date() },
-      });
-      return { ok: true };
-    }),
-
-  acknowledgeAllForTable: cashierProcedure
-    .input(z.object({ tableId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.order.updateMany({
-        where: {
-          acknowledgedAt: null,
-          session: { tableId: input.tableId },
-        },
         data: { acknowledgedAt: new Date() },
       });
       return { ok: true };

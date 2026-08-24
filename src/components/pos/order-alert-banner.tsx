@@ -116,18 +116,22 @@ export function OrderAlertBanner() {
                 >
                   🖨️ Print
                 </button>
+                {/* Just navigates — viewing the table used to also silently
+                    acknowledge (and so remove) the notification, so a
+                    glance at the table lost it before staff had actually
+                    dealt with the order (§notification shouldn't
+                    disappear on view). Only Confirm below does that now. */}
                 <Link
                   href={`/cashier/tables/${order.tableId}`}
-                  onClick={() => acknowledge.mutate({ orderId: order.id })}
                   className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-medium text-white"
                 >
                   View
                 </Link>
                 <button
                   onClick={() => acknowledge.mutate({ orderId: order.id })}
-                  className="text-xs text-foreground-muted underline"
+                  className="rounded-lg border border-border px-2 py-1.5 text-xs font-medium text-foreground-muted"
                 >
-                  Dismiss
+                  Confirm
                 </button>
               </div>
             </div>

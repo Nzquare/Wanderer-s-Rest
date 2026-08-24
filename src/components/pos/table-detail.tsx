@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
@@ -288,13 +288,17 @@ export function TableDetail({
   const updateNotes = trpc.sessions.updateNotes.useMutation({
     onSuccess: invalidate,
   });
-  const acknowledgeAllForTable = trpc.orders.acknowledgeAllForTable.useMutation({
-    onSuccess: () => utils.orders.listUnacknowledged.invalidate(),
-  });
   // Collapsible so a table with many players (6-8) doesn't dominate the
   // left column — expanded by default since most tables are 1-2 players
   // and staff usually want the pause/stop controls visible at a glance.
   const [playersOpen, setPlayersOpen] = useState(true);
+  // Staff Mobile only (§scroll to order) — the single-column layout stacks
+  // bill/players/games/notes above the actual order-taking panel, so
+  // reaching it meant scrolling past all of that first. Splits the page
+  // into two local tabs there instead; the two-column Cashier layout
+  // doesn't have this problem (ordering is already its own column) so it
+  // ignores this entirely.
+  const [staffTab, setStaffTab] = useState<"table" | "order">("table");
   const [splitOpen, setSplitOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
@@ -310,15 +314,6 @@ export function TableDetail({
       utils.sessions.listTables.invalidate();
     },
   });
-
-  // Opening a table's detail page counts as the cashier having seen its
-  // orders — clears it from the alert banner (§17).
-  useEffect(() => {
-    if (basePath === "/cashier") {
-      acknowledgeAllForTable.mutate({ tableId });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId, basePath]);
 
   if (isLoading || !data) {
     return <p className="text-sm text-foreground-muted">Loading table…</p>;
@@ -748,17 +743,48 @@ export function TableDetail({
 
           return (
             <>
-              <div className="space-y-4">
-                {billCard}
-                {voidPanel}
-                {startPlayingPanel}
-                {memberSection}
-                {promotionsSection}
-                {playersSection}
-                {ordersSection}
-                {addOrderSection}
-                {gameLogSection}
-                {notesSection}
+              <div className="flex gap-2 rounded-full border border-border bg-surface p-1">
+                <button
+                  onClick={() => setStaffTab("table")}
+                  className={cn(
+                    "flex-1 rounded-full py-2 text-sm font-medium",
+                    staffTab === "table"
+                      ? "bg-teal-500 text-brand-950"
+                      : "text-foreground-muted",
+                  )}
+                >
+                  Table
+                </button>
+                <button
+                  onClick={() => setStaffTab("order")}
+                  className={cn(
+                    "flex-1 rounded-full py-2 text-sm font-medium",
+                    staffTab === "order"
+                      ? "bg-teal-500 text-brand-950"
+                      : "text-foreground-muted",
+                  )}
+                >
+                  Order
+                </button>
+              </div>
+              <div className="mt-4 space-y-4">
+                {staffTab === "table" ? (
+                  <>
+                    {billCard}
+                    {voidPanel}
+                    {startPlayingPanel}
+                    {memberSection}
+                    {promotionsSection}
+                    {playersSection}
+                    {gameLogSection}
+                    {notesSection}
+                  </>
+                ) : (
+                  <>
+                    {ordersSection}
+                    {addOrderSection}
+                  </>
+                )}
               </div>
               {splitBillModal}
             </>
