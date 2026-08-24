@@ -62,11 +62,14 @@ export const tablesRouter = router({
   /**
    * "+ New" on the Quick Sale tab (§Quick Sale) — a walk-in counter sale or
    * a delivery order, neither tied to a physical table. Creates a bare
-   * AVAILABLE RestaurantTable with no QR (nothing to scan) so it flows
-   * through the exact same OpenTableForm/openTable/checkout path a real
-   * table does; the only difference is `kind`, which keeps it off the
-   * floor-plan grid and Back Office's table manager and puts it on the
-   * Quick Sale list instead.
+   * AVAILABLE RestaurantTable that flows through the exact same
+   * OpenTableForm/openTable/checkout path a real table does; the main
+   * difference is `kind`, which keeps it off the floor-plan grid and Back
+   * Office's table manager and puts it on the Quick Sale list instead.
+   * qrEnabled starts on, same as a Standard table — a walk-in group or a
+   * delivery order can self-order from their phone the same way a table
+   * guest does (§QR print for walk-in), printable from the table detail
+   * page like any other table.
    *
    * Numbers e.g. W1, W2, D1 fill the smallest one not currently used by
    * an *active* table of that kind, instead of counting up all-time —
@@ -103,7 +106,6 @@ export const tablesRouter = router({
               name: `${label} ${n}`,
               capacity: 8,
               kind: input.kind,
-              qrEnabled: false,
               sortOrder: 0,
             },
           });
