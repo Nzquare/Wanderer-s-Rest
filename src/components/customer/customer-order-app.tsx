@@ -84,11 +84,17 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
   const [comboSelection, setComboSelection] = useState<Record<string, string>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
   const [confirmed, setConfirmed] = useState(false);
+  // The basket used to be an always-visible block stacked under the menu
+  // grid — easy to lose track of while scrolling a long menu. It's now a
+  // floating bar + popup instead (§pop up basket), same cart state and
+  // same single submitOrder call for the whole thing at once underneath.
+  const [basketOpen, setBasketOpen] = useState(false);
 
   const submit = trpc.customer.submitOrder.useMutation({
     onSuccess: () => {
       setCart([]);
       setConfirmed(true);
+      setBasketOpen(false);
       setView("orders");
     },
   });
@@ -210,8 +216,10 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
     );
   }
 
+  const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
+
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", cartCount > 0 && "pb-20")}>
       <div className="flex gap-2 rounded-full bg-white/10 p-1">
         <button
           onClick={() => setView("menu")}
@@ -393,86 +401,128 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
             </div>
           )}
 
-          {cart.length > 0 && (
-            <div className="space-y-2 rounded-2xl bg-white/10 p-4">
-              {cart.map((line) => (
-                <div key={line.key} className="flex items-center justify-between text-sm text-white">
-                  <div>
-                    <span>{line.nameEn}</span>
-                    {(line.modifierLabel || line.comboSelections.length > 0) && (
-                      <span className="text-white/60">
-                        {" "}
-                        (
-                        {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
-                          .filter(Boolean)
-                          .join(", ")}
-                        )
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        setCart((c) =>
-                          c
-                            .map((l) =>
-                              l.key === line.key ? { ...l, quantity: l.quantity - 1 } : l,
-                            )
-                            .filter((l) => l.quantity > 0),
-                        )
-                      }
-                      className="h-7 w-7 rounded-full border border-white/20"
-                    >
-                      −
-                    </button>
-                    <span className="w-4 text-center">{line.quantity}</span>
-                    <button
-                      onClick={() =>
-                        setCart((c) =>
-                          c.map((l) =>
-                            l.key === line.key ? { ...l, quantity: l.quantity + 1 } : l,
-                          ),
-                        )
-                      }
-                      className="h-7 w-7 rounded-full border border-white/20"
-                    >
-                      +
-                    </button>
-                    <span className="w-14 text-right">฿{line.unitPrice * line.quantity}</span>
-                  </div>
-                </div>
-              ))}
-              <div className="flex items-center justify-between border-t border-white/10 pt-2 font-semibold text-white">
-                <span>Total</span>
-                <span>฿{cartTotal}</span>
-              </div>
-              {submit.error && (
-                <p className="text-sm text-red-300">{submit.error.message}</p>
-              )}
+        </>
+      )}
+
+      {/* Floating trigger — only while there's something to order and the
+          popup itself isn't already covering it. */}
+      {cartCount > 0 && !basketOpen && (
+        <button
+          onClick={() => setBasketOpen(true)}
+          className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-2xl bg-teal-500 px-5 py-3.5 text-brand-950 shadow-lg shadow-black/30"
+        >
+          <span className="font-semibold">
+            🧺 {cartCount} item{cartCount === 1 ? "" : "s"}
+          </span>
+          <span className="font-semibold">View basket · ฿{cartTotal} →</span>
+        </button>
+      )}
+
+      {basketOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+          onClick={() => setBasketOpen(false)}
+        >
+          {/* Stop the backdrop's onClick from closing when tapping inside the sheet itself. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-t-3xl bg-brand-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-3xl"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-lg font-semibold text-white">Your Basket</p>
               <button
-                disabled={submit.isPending}
-                onClick={() => {
-                  setConfirmed(false);
-                  submit.mutate({
-                    qrToken,
-                    items: cart.map((l) => ({
-                      menuItemId: l.menuItemId,
-                      quantity: l.quantity,
-                      modifierOptionIds: l.modifierOptionIds,
-                      comboSelections: l.comboSelections.map((cs) => ({
-                        comboSlotId: cs.comboSlotId,
-                        selectedMenuItemId: cs.selectedMenuItemId,
-                      })),
-                    })),
-                  });
-                }}
-                className="w-full rounded-xl bg-teal-500 py-3 font-semibold text-brand-950 disabled:opacity-50"
+                onClick={() => setBasketOpen(false)}
+                aria-label="Close basket"
+                className="text-white/60 hover:text-white"
               >
-                {submit.isPending ? "Sending…" : "Submit Order"}
+                ✕
               </button>
             </div>
-          )}
-        </>
+            {cart.length === 0 ? (
+              <p className="py-6 text-center text-white/60">
+                Your basket is empty — add something from the menu.
+              </p>
+            ) : (
+              <>
+                {cart.map((line) => (
+                  <div key={line.key} className="flex items-center justify-between text-sm text-white">
+                    <div>
+                      <span>{line.nameEn}</span>
+                      {(line.modifierLabel || line.comboSelections.length > 0) && (
+                        <span className="text-white/60">
+                          {" "}
+                          (
+                          {[line.modifierLabel, ...line.comboSelections.map((cs) => cs.label)]
+                            .filter(Boolean)
+                            .join(", ")}
+                          )
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          setCart((c) =>
+                            c
+                              .map((l) =>
+                                l.key === line.key ? { ...l, quantity: l.quantity - 1 } : l,
+                              )
+                              .filter((l) => l.quantity > 0),
+                          )
+                        }
+                        className="h-7 w-7 rounded-full border border-white/20"
+                      >
+                        −
+                      </button>
+                      <span className="w-4 text-center">{line.quantity}</span>
+                      <button
+                        onClick={() =>
+                          setCart((c) =>
+                            c.map((l) =>
+                              l.key === line.key ? { ...l, quantity: l.quantity + 1 } : l,
+                            ),
+                          )
+                        }
+                        className="h-7 w-7 rounded-full border border-white/20"
+                      >
+                        +
+                      </button>
+                      <span className="w-14 text-right">฿{line.unitPrice * line.quantity}</span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-t border-white/10 pt-2 font-semibold text-white">
+                  <span>Total</span>
+                  <span>฿{cartTotal}</span>
+                </div>
+                {submit.error && (
+                  <p className="text-sm text-red-300">{submit.error.message}</p>
+                )}
+                <button
+                  disabled={submit.isPending}
+                  onClick={() => {
+                    setConfirmed(false);
+                    submit.mutate({
+                      qrToken,
+                      items: cart.map((l) => ({
+                        menuItemId: l.menuItemId,
+                        quantity: l.quantity,
+                        modifierOptionIds: l.modifierOptionIds,
+                        comboSelections: l.comboSelections.map((cs) => ({
+                          comboSlotId: cs.comboSlotId,
+                          selectedMenuItemId: cs.selectedMenuItemId,
+                        })),
+                      })),
+                    });
+                  }}
+                  className="w-full rounded-xl bg-teal-500 py-3 font-semibold text-brand-950 disabled:opacity-50"
+                >
+                  {submit.isPending ? "Sending…" : "Submit Order"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
