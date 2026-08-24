@@ -109,13 +109,8 @@ export function BackOfficeShell({
       </aside>
       <main className="flex-1 overflow-x-hidden">
         <header className="pt-safe-header flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            {lightLogo && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={lightLogo} alt="" className="h-12 w-12 object-contain" />
-            )}
-            Back Office
-          </span>
+          {/* Menu button on the left, matching the drawer it opens
+              (§Back Office mobile menu on the left). */}
           <BackOfficeMobileNav
             items={visibleNavItems}
             staffLabel={`${staff.displayName ?? staff.name} · ${staff.roleName}`}
@@ -123,6 +118,13 @@ export function BackOfficeShell({
             showStaffMobile={canAccessStaffMobile(staff)}
             logoutAction={logoutAction}
           />
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            {lightLogo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={lightLogo} alt="" className="h-12 w-12 object-contain" />
+            )}
+            Back Office
+          </span>
         </header>
         <div className="p-4 md:p-8">{children}</div>
       </main>
