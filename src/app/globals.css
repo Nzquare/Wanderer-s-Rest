@@ -78,6 +78,30 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Themed scrollbar (§scrollbar doesn't match theme) — the default OS/
+   browser scrollbar is grey regardless of the rest of the page. Uses the
+   same tokens as everything else here, so it automatically follows the
+   light/dark swap above instead of needing its own colors. */
+* {
+  scrollbar-color: var(--brand-600) var(--surface);
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--brand-600);
+  border-radius: 8px;
+  border: 2px solid var(--surface);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--teal-600);
+}
+
 /* Large-touch-target baseline for operational screens (§47). */
 button,
 [role="button"] {
