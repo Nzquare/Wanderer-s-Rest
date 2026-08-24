@@ -86,19 +86,17 @@ function CategoryRow({ category }: { category: GameCategory }) {
 
 function CreateCategoryForm() {
   const [nameEn, setNameEn] = useState("");
-  const [nameTh, setNameTh] = useState("");
   const utils = trpc.useUtils();
   const create = trpc.games.createCategory.useMutation({
     onSuccess: async () => {
       setNameEn("");
-      setNameTh("");
       await utils.games.listCategories.invalidate();
     },
   });
   return (
     <Card className="flex flex-wrap items-end gap-2">
       <div className="w-40">
-        <label className="text-xs text-foreground-muted">English name</label>
+        <label className="text-xs text-foreground-muted">Name</label>
         <input
           value={nameEn}
           onChange={(e) => setNameEn(e.target.value)}
@@ -106,20 +104,15 @@ function CreateCategoryForm() {
           className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
         />
       </div>
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">Thai name</label>
-        <input
-          value={nameTh}
-          onChange={(e) => setNameTh(e.target.value)}
-          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
-        />
-      </div>
       {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button
         size="md"
         variant="outline"
-        disabled={!nameEn || !nameTh || create.isPending}
-        onClick={() => create.mutate({ nameEn, nameTh })}
+        disabled={!nameEn || create.isPending}
+        // The category still has a nameTh column (shared with Menu's
+        // category model), just no separate UI for it here — mirrors
+        // nameEn so it's never blank (§no Thai name field for games).
+        onClick={() => create.mutate({ nameEn, nameTh: nameEn })}
       >
         Add category
       </Button>
@@ -133,7 +126,6 @@ function CreateCategoryForm() {
 
 function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   const [nameEn, setNameEn] = useState("");
-  const [nameTh, setNameTh] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [genre, setGenre] = useState("");
   const [minPlayers, setMinPlayers] = useState("");
@@ -146,7 +138,6 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   const create = trpc.games.create.useMutation({
     onSuccess: async () => {
       setNameEn("");
-      setNameTh("");
       setGenre("");
       setMinPlayers("");
       setMaxPlayers("");
@@ -162,18 +153,10 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
   return (
     <Card className="flex flex-wrap items-end gap-2">
       <div className="w-40">
-        <label className="text-xs text-foreground-muted">English name</label>
+        <label className="text-xs text-foreground-muted">Name</label>
         <input
           value={nameEn}
           onChange={(e) => setNameEn(e.target.value)}
-          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
-        />
-      </div>
-      <div className="w-40">
-        <label className="text-xs text-foreground-muted">Thai name</label>
-        <input
-          value={nameTh}
-          onChange={(e) => setNameTh(e.target.value)}
           className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
         />
       </div>
@@ -257,11 +240,14 @@ function CreateGameForm({ categories }: { categories: GameCategory[] }) {
       </div>
       <Button
         size="md"
-        disabled={!nameEn || !nameTh || create.isPending}
+        disabled={!nameEn || create.isPending}
         onClick={() =>
           create.mutate({
             nameEn,
-            nameTh,
+            // No separate Thai-name field for games (§no Thai name field
+            // for games) — nameTh is still a required column, just
+            // mirrors nameEn instead of asking for it twice.
+            nameTh: nameEn,
             categoryId: categoryId || undefined,
             genre: genre.trim() || undefined,
             minPlayers: minPlayers ? Number(minPlayers) : undefined,
@@ -295,7 +281,6 @@ function EditGameForm({
   onDone: () => void;
 }) {
   const [nameEn, setNameEn] = useState(game.nameEn);
-  const [nameTh, setNameTh] = useState(game.nameTh);
   const [categoryId, setCategoryId] = useState(game.categoryId ?? "");
   const [genre, setGenre] = useState(game.genre ?? "");
   const [minPlayers, setMinPlayers] = useState(game.minPlayers?.toString() ?? "");
@@ -326,18 +311,10 @@ function EditGameForm({
     <div className="space-y-2 rounded-lg border border-teal-500 bg-background p-3">
       <div className="flex flex-wrap gap-2">
         <div className="w-40">
-          <label className="text-xs text-foreground-muted">English name</label>
+          <label className="text-xs text-foreground-muted">Name</label>
           <input
             value={nameEn}
             onChange={(e) => setNameEn(e.target.value)}
-            className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
-          />
-        </div>
-        <div className="w-40">
-          <label className="text-xs text-foreground-muted">Thai name</label>
-          <input
-            value={nameTh}
-            onChange={(e) => setNameTh(e.target.value)}
             className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
           />
         </div>
@@ -431,12 +408,14 @@ function EditGameForm({
         <div className="flex gap-2">
           <Button
             size="md"
-            disabled={!nameEn.trim() || !nameTh.trim() || update.isPending}
+            disabled={!nameEn.trim() || update.isPending}
             onClick={() =>
               update.mutate({
                 id: game.id,
                 nameEn: nameEn.trim(),
-                nameTh: nameTh.trim(),
+                // No separate Thai-name field for games — keep it in
+                // sync with nameEn rather than leaving it stale.
+                nameTh: nameEn.trim(),
                 categoryId: categoryId || null,
                 genre: genre.trim() || null,
                 minPlayers: minPlayers ? Number(minPlayers) : null,

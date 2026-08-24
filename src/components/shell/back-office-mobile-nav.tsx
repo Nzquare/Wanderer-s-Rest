@@ -45,7 +45,7 @@ export function BackOfficeMobileNav({
         <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
           {/* Backdrop tap-to-close, not a control. */}
           <div className="absolute inset-0 bg-black/40" onClick={close} />
-          <nav className="pt-safe-header relative ml-auto flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto bg-brand-950 p-4 text-white/90 shadow-xl">
+          <nav className="pt-safe-header relative flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto bg-brand-950 p-4 text-white/90 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-white">Menu</p>
               <button
