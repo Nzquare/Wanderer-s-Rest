@@ -65,6 +65,189 @@ interface ReceiptSnapshot {
   closedAt: string;
 }
 
+/**
+ * The receipt's own content — factored out so it can be rendered twice
+ * (see ReceiptView below): once as the always-visible on-screen
+ * confirmation, once as a separate hidden print-only copy. Pure display,
+ * no state/hooks of its own.
+ */
+function ReceiptBody({
+  snapshot,
+  cafeName,
+  logoUrl,
+  receiptFooter,
+  isHourly,
+  showAllDay,
+}: {
+  snapshot: ReceiptSnapshot;
+  cafeName: string;
+  logoUrl: string | null | undefined;
+  receiptFooter: string;
+  isHourly: boolean;
+  showAllDay: boolean;
+}) {
+  return (
+    <>
+      <div className="text-center">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt="" className="mx-auto mb-0 h-28 w-28 object-contain" />
+        )}
+        <p className="font-semibold">{cafeName}</p>
+        <p className="text-xs text-foreground-muted">
+          Receipt #{snapshot.receiptNumber}
+        </p>
+        <p className="text-xs text-foreground-muted">
+          {new Date(snapshot.closedAt).toLocaleString()}
+        </p>
+      </div>
+      <div className="border-t border-dashed border-border pt-2">
+        <p>
+          Table {snapshot.table.code} · {snapshot.players} player(s)
+        </p>
+        <p className="text-xs text-foreground-muted">Staff: {snapshot.staff}</p>
+        {snapshot.member && (
+          <>
+            <p>Member: {snapshot.member.adventurerName}</p>
+            {snapshot.member.classNameEn && (
+              <p className="text-xs text-foreground-muted">
+                Class: {snapshot.member.classIcon ?? ""} {snapshot.member.classNameEn}
+              </p>
+            )}
+            <p className="font-semibold text-foreground">+{snapshot.expAwarded} EXP</p>
+            {snapshot.lifetimeExpAfter != null && snapshot.levelAfter != null && (
+              <p className="text-xs text-foreground-muted">
+                Total {snapshot.lifetimeExpAfter} EXP · Level {snapshot.levelAfter}
+                {snapshot.rankNameAfter &&
+                  ` · ${snapshot.rankIconAfter ?? "🎖️"} ${snapshot.rankNameAfter}`}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+      <div className="border-t border-dashed border-border pt-2 space-y-1">
+        <div className="flex justify-between">
+          <span>{showAllDay ? "All day" : "Playtime"}</span>
+          <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
+        </div>
+        {isHourly &&
+          snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
+          snapshot.tableFeeLines.map((line, i) => (
+            <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+              <span>
+                P{i + 1} {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
+              </span>
+              <span>฿{line.fee.toFixed(0)}</span>
+            </div>
+          ))}
+        {snapshot.itemsByCategory ? (
+          snapshot.itemsByCategory.map((group) => (
+            <div key={group.categoryId} className="space-y-1">
+              <div className="flex justify-between">
+                <span>{group.categoryName}</span>
+                <span>฿{group.subtotal.toFixed(0)}</span>
+              </div>
+              {group.items.map((item) => (
+                <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                  <span>
+                    {item.quantity}× {item.nameEn}
+                  </span>
+                  <span>฿{item.lineTotal.toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <>
+            <div className="flex justify-between">
+              <span>Food/drink</span>
+              <span>฿{snapshot.bill.subtotalFoodDrink.toFixed(0)}</span>
+            </div>
+            {snapshot.foodDrinkItems?.map((item) => (
+              <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                <span>
+                  {item.quantity}× {item.nameEn}
+                </span>
+                <span>฿{item.lineTotal.toFixed(0)}</span>
+              </div>
+            ))}
+          </>
+        )}
+        {/* A redeemed free item is a separate gift (§Free item
+            redemptions), and an EXP_BONUS grants EXP not money (§Award
+            EXP as promotion) — neither is a discount, no ฿ figure for
+            either, just what the guest received. */}
+        {snapshot.discounts
+          .filter((d) => d.isFreeItem)
+          .map((d, i) => (
+            <div key={i} className="flex justify-between">
+              <span>🎁 {d.label}</span>
+            </div>
+          ))}
+        {snapshot.discounts
+          .filter((d) => d.isExpBonus)
+          .map((d, i) => (
+            <div key={i} className="flex justify-between">
+              <span>⭐ {d.label}</span>
+            </div>
+          ))}
+        {snapshot.discounts
+          .filter((d) => !d.isFreeItem && !d.isExpBonus)
+          .map((d, i) => (
+            <div key={i} className="flex justify-between text-status-danger">
+              <span>{d.label}</span>
+              <span>-฿{d.amount.toFixed(0)}</span>
+            </div>
+          ))}
+        {snapshot.bill.serviceChargeAmount > 0 && (
+          <div className="flex justify-between">
+            <span>Service charge</span>
+            <span>฿{snapshot.bill.serviceChargeAmount.toFixed(0)}</span>
+          </div>
+        )}
+        {snapshot.bill.taxAmount > 0 && (
+          <div className="flex justify-between">
+            <span>Tax</span>
+            <span>฿{snapshot.bill.taxAmount.toFixed(0)}</span>
+          </div>
+        )}
+      </div>
+      <div className="border-t border-dashed border-border pt-2 flex justify-between font-semibold">
+        <span>Total</span>
+        <span>฿{snapshot.bill.total.toFixed(0)}</span>
+      </div>
+      <div className="border-t border-dashed border-border pt-2 space-y-1">
+        {snapshot.payments.map((p, i) => (
+          <div key={i}>
+            <div className="flex justify-between">
+              <span>{p.method}</span>
+              <span>฿{p.amount.toFixed(0)}</span>
+            </div>
+            {p.cashReceived != null && (
+              <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                <span>Received</span>
+                <span>฿{p.cashReceived.toFixed(0)}</span>
+              </div>
+            )}
+            {p.change != null && p.change > 0 && (
+              <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
+                <span>Change</span>
+                <span>฿{p.change.toFixed(0)}</span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {snapshot.member && (
+        <div className="border-t border-dashed border-border pt-2 text-center text-xs">
+          EXP earned: +{snapshot.expAwarded}
+        </div>
+      )}
+      <p className="pt-2 text-center text-xs text-foreground-muted">{receiptFooter}</p>
+    </>
+  );
+}
+
 export function ReceiptView({
   snapshot,
   progression,
@@ -87,17 +270,23 @@ export function ReceiptView({
   const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
 
-  // Whether the receipt card currently carries the print-area class —
-  // separate from it being on screen at all, which it always is here
-  // (this view doubles as the on-screen checkout-success confirmation).
-  // Used to be unconditionally `print-area`, which meant it was eligible
-  // to print the instant this view mounted, for the rest of the time the
-  // cashier stayed on this screen — the Cashier shell's OrderAlertBanner
-  // stays mounted here too and can auto-print an unrelated kitchen ticket
-  // in the background, and that print job would pull this receipt in
-  // right along with it (§sometimes wrong thing printed). Now it's only
-  // print-area while a print triggered from *this* view (auto-print below,
-  // or the button) is actually in flight.
+  // Gates a dedicated print-only copy of the receipt (see ReceiptBody
+  // above), separate from the always-visible on-screen confirmation card.
+  // Used to just toggle a `print-area` class directly on the on-screen
+  // card instead of using a separate copy — but that meant the one thing
+  // making the card print-eligible was a state flip on an element that's
+  // already mounted and visible, landed via flushSync right before
+  // window.print(). That's the same trick every other print area in this
+  // app relies on too, but every one of those is otherwise-hidden markup
+  // being mounted for the first time — here it was a class toggle on an
+  // already-rendered, already-on-screen node, and in practice that
+  // one-tick window didn't always survive to when the browser actually
+  // captured the page: the print dialog would open but come back blank
+  // (§confirm PromptPay payment, nothing prints). A dedicated hidden
+  // print-only copy, gated the exact same `hidden` → `print-area hidden
+  // print:block` way as the kitchen ticket and QR slip, doesn't depend on
+  // that timing at all — it's just plain content sitting there the whole
+  // time, already off-screen, waiting to be revealed.
   const [printArmed, setPrintArmed] = useState(false);
 
   // Fires once per checkout, right when this view mounts (§auto print) —
@@ -148,6 +337,12 @@ export function ReceiptView({
     snapshot.tableFeeLines.every((l) => l.cappedAtDailyCap);
   const showAllDay = !isHourly || allCapped;
 
+  const bodyProps = { snapshot, cafeName, logoUrl, receiptFooter, isHourly, showAllDay };
+  const sizeClasses =
+    printerWidthMm === 58
+      ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface px-4 pb-4 pt-2 font-mono text-xs"
+      : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface px-5 pb-5 pt-3 font-mono text-sm";
+
   return (
     <div className="space-y-4">
       {snapshot.member && (
@@ -190,172 +385,27 @@ export function ReceiptView({
         </div>
       )}
 
+      {/* On-screen confirmation — always visible, plain page content, no
+          print classes of its own (print:hidden is belt-and-suspenders on
+          top of the global @media print rule already hiding anything
+          that isn't .print-area). The printed copy is the separate node
+          below. */}
+      <div className={`print:hidden ${sizeClasses}`}>
+        <ReceiptBody {...bodyProps} />
+      </div>
+
+      {/* Print-only copy — hidden on screen, shown only by @media print
+          and only while printArmed (see the comment on that state above).
+          Same otherwise-hidden-markup pattern as the kitchen ticket and
+          QR slip elsewhere in this app. */}
       <div
         id="receipt-print-area"
         style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-        className={
-          (printArmed ? "print-area " : "") +
-          (printerWidthMm === 58
-            ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface px-4 pb-4 pt-2 font-mono text-xs"
-            : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface px-5 pb-5 pt-3 font-mono text-sm")
-        }
+        className={printArmed ? "print-area hidden print:block" : "hidden"}
       >
-        <div className="text-center">
-          {logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="mx-auto mb-0 h-28 w-28 object-contain" />
-          )}
-          <p className="font-semibold">{cafeName}</p>
-          <p className="text-xs text-foreground-muted">
-            Receipt #{snapshot.receiptNumber}
-          </p>
-          <p className="text-xs text-foreground-muted">
-            {new Date(snapshot.closedAt).toLocaleString()}
-          </p>
+        <div className={sizeClasses}>
+          <ReceiptBody {...bodyProps} />
         </div>
-        <div className="border-t border-dashed border-border pt-2">
-          <p>
-            Table {snapshot.table.code} · {snapshot.players} player(s)
-          </p>
-          <p className="text-xs text-foreground-muted">Staff: {snapshot.staff}</p>
-          {snapshot.member && (
-            <>
-              <p>Member: {snapshot.member.adventurerName}</p>
-              {snapshot.member.classNameEn && (
-                <p className="text-xs text-foreground-muted">
-                  Class: {snapshot.member.classIcon ?? ""} {snapshot.member.classNameEn}
-                </p>
-              )}
-              <p className="font-semibold text-foreground">+{snapshot.expAwarded} EXP</p>
-              {snapshot.lifetimeExpAfter != null && snapshot.levelAfter != null && (
-                <p className="text-xs text-foreground-muted">
-                  Total {snapshot.lifetimeExpAfter} EXP · Level {snapshot.levelAfter}
-                  {snapshot.rankNameAfter &&
-                    ` · ${snapshot.rankIconAfter ?? "🎖️"} ${snapshot.rankNameAfter}`}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-        <div className="border-t border-dashed border-border pt-2 space-y-1">
-          <div className="flex justify-between">
-            <span>{showAllDay ? "All day" : "Playtime"}</span>
-            <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
-          </div>
-          {isHourly &&
-            snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1 &&
-            snapshot.tableFeeLines.map((line, i) => (
-              <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-                <span>
-                  P{i + 1} {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
-                </span>
-                <span>฿{line.fee.toFixed(0)}</span>
-              </div>
-            ))}
-          {snapshot.itemsByCategory ? (
-            snapshot.itemsByCategory.map((group) => (
-              <div key={group.categoryId} className="space-y-1">
-                <div className="flex justify-between">
-                  <span>{group.categoryName}</span>
-                  <span>฿{group.subtotal.toFixed(0)}</span>
-                </div>
-                {group.items.map((item) => (
-                  <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-                    <span>
-                      {item.quantity}× {item.nameEn}
-                    </span>
-                    <span>฿{item.lineTotal.toFixed(0)}</span>
-                  </div>
-                ))}
-              </div>
-            ))
-          ) : (
-            <>
-              <div className="flex justify-between">
-                <span>Food/drink</span>
-                <span>฿{snapshot.bill.subtotalFoodDrink.toFixed(0)}</span>
-              </div>
-              {snapshot.foodDrinkItems?.map((item) => (
-                <div key={item.id} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-                  <span>
-                    {item.quantity}× {item.nameEn}
-                  </span>
-                  <span>฿{item.lineTotal.toFixed(0)}</span>
-                </div>
-              ))}
-            </>
-          )}
-          {/* A redeemed free item is a separate gift (§Free item
-              redemptions), and an EXP_BONUS grants EXP not money (§Award
-              EXP as promotion) — neither is a discount, no ฿ figure for
-              either, just what the guest received. */}
-          {snapshot.discounts
-            .filter((d) => d.isFreeItem)
-            .map((d, i) => (
-              <div key={i} className="flex justify-between">
-                <span>🎁 {d.label}</span>
-              </div>
-            ))}
-          {snapshot.discounts
-            .filter((d) => d.isExpBonus)
-            .map((d, i) => (
-              <div key={i} className="flex justify-between">
-                <span>⭐ {d.label}</span>
-              </div>
-            ))}
-          {snapshot.discounts
-            .filter((d) => !d.isFreeItem && !d.isExpBonus)
-            .map((d, i) => (
-              <div key={i} className="flex justify-between text-status-danger">
-                <span>{d.label}</span>
-                <span>-฿{d.amount.toFixed(0)}</span>
-              </div>
-            ))}
-          {snapshot.bill.serviceChargeAmount > 0 && (
-            <div className="flex justify-between">
-              <span>Service charge</span>
-              <span>฿{snapshot.bill.serviceChargeAmount.toFixed(0)}</span>
-            </div>
-          )}
-          {snapshot.bill.taxAmount > 0 && (
-            <div className="flex justify-between">
-              <span>Tax</span>
-              <span>฿{snapshot.bill.taxAmount.toFixed(0)}</span>
-            </div>
-          )}
-        </div>
-        <div className="border-t border-dashed border-border pt-2 flex justify-between font-semibold">
-          <span>Total</span>
-          <span>฿{snapshot.bill.total.toFixed(0)}</span>
-        </div>
-        <div className="border-t border-dashed border-border pt-2 space-y-1">
-          {snapshot.payments.map((p, i) => (
-            <div key={i}>
-              <div className="flex justify-between">
-                <span>{p.method}</span>
-                <span>฿{p.amount.toFixed(0)}</span>
-              </div>
-              {p.cashReceived != null && (
-                <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-                  <span>Received</span>
-                  <span>฿{p.cashReceived.toFixed(0)}</span>
-                </div>
-              )}
-              {p.change != null && p.change > 0 && (
-                <div className="flex justify-between pl-2 text-[11px] text-foreground-muted">
-                  <span>Change</span>
-                  <span>฿{p.change.toFixed(0)}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        {snapshot.member && (
-          <div className="border-t border-dashed border-border pt-2 text-center text-xs">
-            EXP earned: +{snapshot.expAwarded}
-          </div>
-        )}
-        <p className="pt-2 text-center text-xs text-foreground-muted">{receiptFooter}</p>
       </div>
 
       <div className="flex gap-2 print:hidden">
