@@ -74,7 +74,12 @@ export const achievementsRouter = router({
         hasReward: z.boolean().default(false),
         // A real Promotion (Back Office → Promotions), reused rather than
         // configured inline — see Achievement.promotionId in schema.prisma.
-        promotionId: z.string().optional(),
+        // Nullable (not just optional) since the Back Office form now
+        // sends an explicit null whenever "Has reward" is off, same as
+        // update below — harmless here (there's nothing to clear on a
+        // brand-new achievement), but the client sends the same payload
+        // shape to both.
+        promotionId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

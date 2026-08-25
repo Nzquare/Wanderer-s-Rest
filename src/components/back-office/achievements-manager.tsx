@@ -440,7 +440,18 @@ function buildPayload(form: FormState) {
     triggerType: form.type === "AUTOMATIC" ? form.triggerType : undefined,
     triggerValue,
     hasReward: form.hasReward,
-    promotionId: form.hasReward ? form.promotionId || undefined : undefined,
+    // null (not undefined) when hasReward is off — undefined tells
+    // achievements.update "leave promotionId as it is", which used to
+    // leave a stale link in place any time someone unchecked "Has
+    // reward" without separately clearing the promotion picker: the
+    // achievement then showed as having no reward at all (the picker
+    // itself is hidden whenever hasReward is off, so there was no way to
+    // even see the leftover selection), while Promotion still counted it
+    // as a live grantedByAchievements link and refused to be deleted —
+    // "remove it from that achievement first" pointing at an achievement
+    // that looked, from the Back Office list, like it wasn't involved at
+    // all (§no achievement tied to it). null actually clears it.
+    promotionId: form.hasReward ? form.promotionId || undefined : null,
   };
 }
 
@@ -581,6 +592,20 @@ function AchievementCard({
           {achievement.hasReward ? ` · ${benefitSummary(achievement.promotion)}` : ""}
           {achievement.hidden ? " · secret" : ""}
         </p>
+        {/* hasReward off but a promotion link is still on the row underneath
+            (a stale link from before this was cleared properly — see
+            buildPayload) — otherwise invisible here since the line above
+            only shows a promotion when hasReward is on, yet Promotion
+            still counts it as a live grantedByAchievements link and
+            refuses to be deleted, pointing back at an achievement that
+            looks, from this list, like it isn't involved at all. Open Edit
+            and Save (hasReward can stay off) to clear it. */}
+        {!achievement.hasReward && achievement.promotion && (
+          <p className="text-xs text-status-warning">
+            ⚠ still linked to &quot;{achievement.promotion.name}&quot; even though Has reward is
+            off — open Edit and Save to clear it.
+          </p>
+        )}
         <div className="mt-1 flex flex-wrap gap-3 text-xs">
           <button onClick={() => setEditing(true)} className="text-teal-600 underline">
             Edit
