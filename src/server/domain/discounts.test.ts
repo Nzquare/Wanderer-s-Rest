@@ -59,6 +59,17 @@ describe("isPromotionEligible", () => {
       expect(isPromotionEligible(p, baseCtx)).toBe(true);
     });
   });
+
+  describe("EXP_BONUS", () => {
+    // §Award EXP as promotion — meaningless with no member to credit, so
+    // this is a hard requirement regardless of the memberOnly flag, same
+    // as FREE_ITEM's reward-item requirement above.
+    it("is ineligible with no member linked, even if memberOnly is off", () => {
+      const p = promo({ type: "EXP_BONUS", value: 50, memberOnly: false });
+      expect(isPromotionEligible(p, baseCtx)).toBe(false);
+      expect(isPromotionEligible(p, { ...baseCtx, hasMember: true })).toBe(true);
+    });
+  });
 });
 
 describe("computeDiscountAmount", () => {
@@ -78,5 +89,12 @@ describe("computeDiscountAmount", () => {
     expect(computeDiscountAmount({ type: "FREE_ITEM", value: 150 }, 500)).toBe(150);
     // ...and never more than what's actually left on the bill.
     expect(computeDiscountAmount({ type: "FREE_ITEM", value: 150 }, 80)).toBe(80);
+  });
+
+  it("EXP_BONUS never discounts the bill — checkout.ts awards it separately", () => {
+    expect(computeDiscountAmount({ type: "EXP_BONUS", value: 50 }, 500)).toBe(0);
+    // Still 0 even against a ฿0 bill (§Award EXP as promotion) — the
+    // baseAmount<=0 short-circuit above this switch doesn't apply to it.
+    expect(computeDiscountAmount({ type: "EXP_BONUS", value: 50 }, 0)).toBe(0);
   });
 });

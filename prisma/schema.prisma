@@ -615,6 +615,13 @@ enum DiscountType {
   FREE_ITEM
   ACHIEVEMENT_BENEFIT
   SPECIAL_PRICE
+  // Grants the member flat bonus EXP instead of discounting the bill
+  // (§Award EXP as promotion) — `value` is read as a raw EXP amount, not
+  // money. Applies through the exact same checkout.applyPromotion flow as
+  // every other promotion type (manual pick, achievement reward, or a
+  // direct benefit grant), so it needed no new apply path — just this
+  // type plus the checkout-side handling for what "applying" it means.
+  EXP_BONUS
 }
 
 model Promotion {

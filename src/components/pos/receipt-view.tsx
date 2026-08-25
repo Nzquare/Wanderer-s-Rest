@@ -29,9 +29,10 @@ interface ReceiptSnapshot {
     subtotal: number;
     items: { id: string; nameEn: string; quantity: number; lineTotal: number }[];
   }[];
-  // isFreeItem is absent on receipts printed before this field existed —
-  // falls back to falsy, same as any other pre-existing snapshot field.
-  discounts: { label: string; amount: number; isFreeItem?: boolean }[];
+  // isFreeItem/isExpBonus are absent on receipts printed before those
+  // fields existed — falls back to falsy, same as any other pre-existing
+  // snapshot field.
+  discounts: { label: string; amount: number; isFreeItem?: boolean; isExpBonus?: boolean }[];
   bill: {
     subtotalTableFee: number;
     subtotalFoodDrink: number;
@@ -285,8 +286,9 @@ export function ReceiptView({
             </>
           )}
           {/* A redeemed free item is a separate gift (§Free item
-              redemptions), not a discount — no ฿ figure, just what the
-              guest received. */}
+              redemptions), and an EXP_BONUS grants EXP not money (§Award
+              EXP as promotion) — neither is a discount, no ฿ figure for
+              either, just what the guest received. */}
           {snapshot.discounts
             .filter((d) => d.isFreeItem)
             .map((d, i) => (
@@ -295,7 +297,14 @@ export function ReceiptView({
               </div>
             ))}
           {snapshot.discounts
-            .filter((d) => !d.isFreeItem)
+            .filter((d) => d.isExpBonus)
+            .map((d, i) => (
+              <div key={i} className="flex justify-between">
+                <span>⭐ {d.label}</span>
+              </div>
+            ))}
+          {snapshot.discounts
+            .filter((d) => !d.isFreeItem && !d.isExpBonus)
             .map((d, i) => (
               <div key={i} className="flex justify-between text-status-danger">
                 <span>{d.label}</span>

@@ -21,6 +21,8 @@ export function describeBenefit(
       return `${value}% off`;
     case "FIXED_AMOUNT":
       return `฿${value} off`;
+    case "EXP_BONUS":
+      return `+${value} EXP`;
     default:
       return "Reward — ask staff";
   }

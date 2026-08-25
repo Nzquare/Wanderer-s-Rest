@@ -97,12 +97,14 @@ export function PromotionPicker({
               ? `${p.value}% off`
               : p.type === "FIXED_AMOUNT"
                 ? `฿${p.value} off`
-                : `free: ${p.rewardMenuItemName ?? "item"}`}
-            {/* FREE_ITEM already reads "free: Potion" above — a
-                "save ฿80" suffix on top of that frames it as a
-                discount, which it isn't, it's just free. Only
-                PERCENTAGE/FIXED_AMOUNT get the savings preview. */}
-            {eligible && eligibleInfo && p.type !== "FREE_ITEM" && (
+                : p.type === "EXP_BONUS"
+                  ? `+${p.value} EXP`
+                  : `free: ${p.rewardMenuItemName ?? "item"}`}
+            {/* FREE_ITEM already reads "free: Potion" above, and EXP_BONUS
+                already reads "+50 EXP" — a "save ฿80" suffix on top of
+                either frames it as a money discount, which neither is.
+                Only PERCENTAGE/FIXED_AMOUNT get the savings preview. */}
+            {eligible && eligibleInfo && p.type !== "FREE_ITEM" && p.type !== "EXP_BONUS" && (
               <span className="text-teal-600">
                 {" "}
                 · save ฿{eligibleInfo.previewAmount.toFixed(0)}

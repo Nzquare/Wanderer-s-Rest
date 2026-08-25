@@ -46,7 +46,7 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
       }),
       prisma.appliedDiscount.findMany({
         where: { createdAt: { gte: from, lte: to } },
-        select: { amount: true, label: true },
+        select: { amount: true, label: true, promotion: { select: { type: true } } },
       }),
       prisma.tableSession.findMany({
         where: { ...closedInRange, memberId: { not: null } },
@@ -125,7 +125,12 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
     payments: byMethod,
     discounts: {
       count: discounts.length,
-      total: discounts.reduce((s, d) => s + toNum(d.amount), 0),
+      // EXP_BONUS's amount is a raw EXP number, not money (§Award EXP as
+      // promotion) — excluded here for the same reason
+      // buildPromotionUsageReport keeps it out of totalDiscount.
+      total: discounts
+        .filter((d) => d.promotion?.type !== "EXP_BONUS")
+        .reduce((s, d) => s + toNum(d.amount), 0),
     },
     table: {
       totalSessions: paidSessions.length,
@@ -333,20 +338,33 @@ export async function buildPromotionUsageReport(prisma: PrismaClient, range: Dat
   const { from, to } = range;
   const discounts = await prisma.appliedDiscount.findMany({
     where: { createdAt: { gte: from, lte: to } },
-    select: { promotionId: true, amount: true, promotion: { select: { name: true } } },
+    select: { promotionId: true, amount: true, promotion: { select: { name: true, type: true } } },
   });
 
   const MANUAL_KEY = "__manual__";
-  const byPromo = new Map<string, { name: string; usageCount: number; totalDiscount: number }>();
+  const byPromo = new Map<
+    string,
+    { name: string; usageCount: number; totalDiscount: number; totalExpAwarded: number }
+  >();
   for (const d of discounts) {
     const key = d.promotionId ?? MANUAL_KEY;
     const existing = byPromo.get(key) ?? {
       name: d.promotion?.name ?? "Manual / custom discount",
       usageCount: 0,
       totalDiscount: 0,
+      totalExpAwarded: 0,
     };
     existing.usageCount += 1;
-    existing.totalDiscount += toNum(d.amount);
+    // EXP_BONUS's amount is a raw EXP number, not money (§Award EXP as
+    // promotion) — summing it into totalDiscount alongside real ฿
+    // amounts would be meaningless, so it gets its own running total
+    // instead. A given promotion is always exactly one type, so a row
+    // never needs both totals populated at once.
+    if (d.promotion?.type === "EXP_BONUS") {
+      existing.totalExpAwarded += Math.round(toNum(d.amount));
+    } else {
+      existing.totalDiscount += toNum(d.amount);
+    }
     byPromo.set(key, existing);
   }
 

@@ -12,7 +12,8 @@ export type DiscountType =
   | "PACKAGE_DISCOUNT"
   | "FREE_ITEM"
   | "ACHIEVEMENT_BENEFIT"
-  | "SPECIAL_PRICE";
+  | "SPECIAL_PRICE"
+  | "EXP_BONUS";
 
 export interface PromotionConfig {
   id: string;
@@ -79,6 +80,10 @@ export function isPromotionEligible(
   // whatever they did or didn't separately order, so there's no "was it
   // actually ordered" check here.
   if (promo.type === "FREE_ITEM" && !promo.rewardMenuItemId) return false;
+  // EXP_BONUS (§Award EXP as promotion) is meaningless with no member to
+  // credit — hard requirement regardless of whether Members only happens
+  // to be checked, same reasoning as FREE_ITEM's reward-item check above.
+  if (promo.type === "EXP_BONUS" && !ctx.hasMember) return false;
   return true;
 }
 
@@ -91,6 +96,14 @@ export function computeDiscountAmount(
   promo: Pick<PromotionConfig, "type" | "value">,
   baseAmount: number,
 ): number {
+  // EXP_BONUS (§Award EXP as promotion) never discounts the bill — it's
+  // handled entirely outside this function, the same way the caller
+  // (checkout.ts) treats FREE_ITEM as "a separate gift, not a bill
+  // deduction": `promo.value` there is an EXP amount, not money, so it
+  // must never reach the money-shaped math below. Checked before the
+  // baseAmount<=0 short-circuit too, since an EXP bonus is still real
+  // even against a ฿0 bill (a walk-in that only redeemed a free item, say).
+  if (promo.type === "EXP_BONUS") return 0;
   if (baseAmount <= 0) return 0;
   switch (promo.type) {
     case "PERCENTAGE":

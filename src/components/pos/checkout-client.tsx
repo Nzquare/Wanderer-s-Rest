@@ -294,8 +294,25 @@ export function CheckoutClient({
               </button>
             </div>
           ))}
+        {/* EXP_BONUS (§Award EXP as promotion) is bonus EXP, not a ฿
+            discount — its label already reads "Name (+50 EXP)" (see
+            checkout.ts's applyPromotion), so no ฿ figure here either,
+            same reasoning as the free-item gift line above. */}
         {preview.appliedDiscounts
-          .filter((d) => !d.isFreeItem)
+          .filter((d) => d.isExpBonus)
+          .map((d) => (
+            <div key={d.id} className="flex justify-between text-xs text-teal-600">
+              <span>⭐ {d.label}</span>
+              <button
+                onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                className="underline"
+              >
+                remove
+              </button>
+            </div>
+          ))}
+        {preview.appliedDiscounts
+          .filter((d) => !d.isFreeItem && !d.isExpBonus)
           .map((d) => (
             <div key={d.id} className="flex justify-between text-sm text-status-danger">
               <span>{d.label}</span>
@@ -364,7 +381,8 @@ export function CheckoutClient({
               ))}
             <ItemsByCategoryLines groups={preview.itemsByCategory} compact />
             {/* A redeemed free item is a separate gift (§Free item
-                redemptions), not a discount — no ฿ figure. */}
+                redemptions), and an EXP_BONUS grants EXP not money
+                (§Award EXP as promotion) — neither gets a ฿ figure. */}
             {preview.appliedDiscounts
               .filter((d) => d.isFreeItem)
               .map((d) => (
@@ -373,7 +391,14 @@ export function CheckoutClient({
                 </div>
               ))}
             {preview.appliedDiscounts
-              .filter((d) => !d.isFreeItem)
+              .filter((d) => d.isExpBonus)
+              .map((d) => (
+                <div key={d.id} className="flex justify-between">
+                  <span>⭐ {d.label}</span>
+                </div>
+              ))}
+            {preview.appliedDiscounts
+              .filter((d) => !d.isFreeItem && !d.isExpBonus)
               .map((d) => (
                 <div key={d.id} className="flex justify-between">
                   <span>{d.label}</span>

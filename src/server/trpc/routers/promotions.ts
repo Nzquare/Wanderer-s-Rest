@@ -15,24 +15,26 @@ function jsonOrNull<T>(v: T[] | null | undefined) {
 const manage = () => permissionProcedure(Permission.MANAGE_PROMOTIONS);
 
 /**
- * V1 keeps promotion types to the three checkout understands how to apply:
+ * V1 keeps promotion types to the ones checkout understands how to apply:
  * PERCENTAGE / FIXED_AMOUNT (off the whole bill, same pair manual discounts
- * use) and FREE_ITEM (redeems one specific menu item the guest actually
+ * use), FREE_ITEM (redeems one specific menu item the guest actually
  * ordered — see checkout.ts's toPromotionConfig, which resolves the
- * discount live from that item's current price). The schema/domain layer
- * supports a few more (MENU_ITEM_DISCOUNT, TABLE_FEE_DISCOUNT, ...) but
- * those need item/table-fee-level targeting checkout doesn't compute yet;
- * adding them here would create promotions the bill can't actually apply.
+ * discount live from that item's current price), and EXP_BONUS (grants the
+ * member flat bonus EXP instead of discounting the bill — §Award EXP as
+ * promotion). The schema/domain layer supports a few more
+ * (MENU_ITEM_DISCOUNT, TABLE_FEE_DISCOUNT, ...) but those need item/
+ * table-fee-level targeting checkout doesn't compute yet; adding them here
+ * would create promotions the bill can't actually apply.
  */
-const typeEnum = z.enum(["PERCENTAGE", "FIXED_AMOUNT", "FREE_ITEM"]);
+const typeEnum = z.enum(["PERCENTAGE", "FIXED_AMOUNT", "FREE_ITEM", "EXP_BONUS"]);
 
 /** Base shape shared by create (fully validated) and update (partial, no cross-field checks — see below). */
 const promotionShape = z.object({
   name: z.string().min(1),
   type: typeEnum,
   // FREE_ITEM ignores this (the discount is resolved live from the
-  // reward item's price) — 0 is fine there; PERCENTAGE/FIXED_AMOUNT need
-  // a real positive value.
+  // reward item's price) — 0 is fine there; PERCENTAGE/FIXED_AMOUNT/
+  // EXP_BONUS need a real positive value (an EXP amount, for the last one).
   value: z.number().min(0),
   rewardMenuItemId: z.string().optional().nullable(),
   startDate: z.string().datetime().optional().nullable(),
@@ -80,9 +82,9 @@ function serialize(p: {
   return {
     id: p.id,
     name: p.name,
-    // V1 promotions are only ever created as one of these three (see
-    // typeEnum above) — narrowing here just reflects that at the type level.
-    type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
+    // V1 promotions are only ever created as one of these (see typeEnum
+    // above) — narrowing here just reflects that at the type level.
+    type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM" | "EXP_BONUS",
     value: toNum(p.value),
     rewardMenuItemId: p.rewardMenuItemId,
     rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,

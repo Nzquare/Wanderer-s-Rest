@@ -21,7 +21,7 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 type Promotion = {
   id: string;
   name: string;
-  type: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM";
+  type: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM" | "EXP_BONUS";
   value: number;
   rewardMenuItemId: string | null;
   rewardMenuItemName: string | null;
@@ -47,7 +47,9 @@ function summaryLine(promotion: Promotion): string {
     ? `${promotion.value}% off`
     : promotion.type === "FIXED_AMOUNT"
       ? `฿${promotion.value} off`
-      : `Free: ${promotion.rewardMenuItemName ?? "no item chosen"}`;
+      : promotion.type === "EXP_BONUS"
+        ? `+${promotion.value} EXP`
+        : `Free: ${promotion.rewardMenuItemName ?? "no item chosen"}`;
 }
 
 /** Flat "Category — Item" dropdown built from the same data the order screen uses. */
@@ -147,6 +149,7 @@ function PromotionDetailsModal({
               <option value="PERCENTAGE">% off</option>
               <option value="FIXED_AMOUNT">฿ fixed off</option>
               <option value="FREE_ITEM">Free item / goods</option>
+              <option value="EXP_BONUS">Award EXP</option>
             </select>
           </div>
           {promotion.type === "FREE_ITEM" ? (
@@ -161,7 +164,9 @@ function PromotionDetailsModal({
             </div>
           ) : (
             <div>
-              <label className="text-xs text-foreground-muted">Value</label>
+              <label className="text-xs text-foreground-muted">
+                {promotion.type === "EXP_BONUS" ? "EXP amount" : "Value"}
+              </label>
               <TextInput
                 type="number"
                 defaultValue={promotion.value}
@@ -170,6 +175,12 @@ function PromotionDetailsModal({
                   if (!Number.isNaN(n) && n !== promotion.value) update.mutate({ id: promotion.id, value: n });
                 }}
               />
+              {promotion.type === "EXP_BONUS" && (
+                <p className="mt-1 text-xs text-foreground-muted">
+                  Requires a member linked to the table — there&apos;s no one to credit
+                  otherwise.
+                </p>
+              )}
             </div>
           )}
           <div>
@@ -374,6 +385,7 @@ function CreatePromotionForm() {
           <option value="PERCENTAGE">% off</option>
           <option value="FIXED_AMOUNT">฿ fixed off</option>
           <option value="FREE_ITEM">Free item / goods</option>
+          <option value="EXP_BONUS">Award EXP</option>
         </select>
       </div>
       {isFreeItem ? (
@@ -383,9 +395,16 @@ function CreatePromotionForm() {
         </div>
       ) : (
         <div className="w-24">
-          <label className="text-xs text-foreground-muted">Value</label>
+          <label className="text-xs text-foreground-muted">
+            {type === "EXP_BONUS" ? "EXP amount" : "Value"}
+          </label>
           <TextInput type="number" value={value} onChange={(e) => setValue(e.target.value)} />
         </div>
+      )}
+      {type === "EXP_BONUS" && (
+        <p className="w-full text-xs text-foreground-muted">
+          Requires a member linked to the table — there&apos;s no one to credit otherwise.
+        </p>
       )}
       {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button

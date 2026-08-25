@@ -198,10 +198,20 @@ function buildPromotionUsageSheet(workbook: ExcelJS.Workbook, rows: PromotionUsa
     { header: "Promotion", key: "name", width: 28 },
     { header: "Times used", key: "usageCount", width: 14 },
     { header: "Total discount (฿)", key: "totalDiscount", width: 18 },
+    // Separate column, not folded into "Total discount" — an EXP_BONUS
+    // promotion's total is a raw EXP number, not money (§Award EXP as
+    // promotion), and a given promotion row only ever has one or the
+    // other populated.
+    { header: "Total EXP awarded", key: "totalExpAwarded", width: 18 },
   ];
   sheet.getRow(1).font = { bold: true };
   for (const row of rows) {
-    sheet.addRow({ name: row.name, usageCount: row.usageCount, totalDiscount: row.totalDiscount.toFixed(2) });
+    sheet.addRow({
+      name: row.name,
+      usageCount: row.usageCount,
+      totalDiscount: row.totalDiscount.toFixed(2),
+      totalExpAwarded: row.totalExpAwarded,
+    });
   }
 }
 

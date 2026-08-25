@@ -154,14 +154,15 @@ async function computeBreakdown(
     tableFeeTotal: tableFee.total,
     foodDrinkSubtotal,
     // A redeemed FREE_ITEM promotion is a separate gift (§Free item
-    // redemptions), not a discount on the bill — it never touches the
-    // order above and never subtracts from the total either. Its
-    // AppliedDiscount row still exists (audit trail, benefit redemption
-    // linkage, undo) but plays no part in this sum. Only genuine
+    // redemptions), and an EXP_BONUS one grants bonus EXP rather than
+    // money (§Award EXP as promotion) — neither is a discount on the
+    // bill, so neither ever touches the order above or subtracts from the
+    // total. Their AppliedDiscount rows still exist (audit trail, benefit
+    // redemption linkage, undo) but play no part in this sum. Only genuine
     // discounts (manual, percentage, fixed-amount) count toward
     // discountTotal.
     discounts: session.appliedDiscounts
-      .filter((d) => d.promotion?.type !== "FREE_ITEM")
+      .filter((d) => d.promotion?.type !== "FREE_ITEM" && d.promotion?.type !== "EXP_BONUS")
       .map((d) => ({ promotionId: d.promotionId, label: d.label, amount: toNum(d.amount) })),
     taxEnabled: checkoutSettings.taxEnabled,
     taxPercent: checkoutSettings.taxPercent,
@@ -170,6 +171,23 @@ async function computeBreakdown(
   });
 
   return { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill, checkoutSettings };
+}
+
+/**
+ * Sums bonus EXP from a session's currently-applied EXP_BONUS promotions
+ * (§Award EXP as promotion) — each one's AppliedDiscount.amount holds the
+ * raw EXP value it grants (see applyPromotion), same reused-field idea as
+ * FREE_ITEM storing the reward item's price there. Used both for the
+ * pre-payment preview (getPreview's projectedExp) and the real award at
+ * recordPayment, so what staff sees before charging always matches what
+ * actually lands on the member's account.
+ */
+function sumExpBonus(
+  appliedDiscounts: { amount: unknown; promotion: { type: string } | null }[],
+): number {
+  return appliedDiscounts
+    .filter((d) => d.promotion?.type === "EXP_BONUS")
+    .reduce((sum, d) => sum + Math.round(toNum(d.amount)), 0);
 }
 
 function toPromotionConfig(p: {
@@ -252,7 +270,13 @@ export const checkoutRouter = router({
       let memberPreview = null;
       if (session.member) {
         const eligible = eligibleExpSpending(bill);
-        const projectedExp = expFromSpending(eligible, membershipSettings.bahtPerExp);
+        // Spend-based EXP plus any already-applied EXP_BONUS promotions
+        // (§Award EXP as promotion) — so the preview matches what
+        // recordPayment will actually credit, not just the purchase
+        // portion.
+        const projectedExp =
+          expFromSpending(eligible, membershipSettings.bahtPerExp) +
+          sumExpBonus(session.appliedDiscounts);
         const ranks = await ctx.prisma.rank.findMany({ orderBy: { order: "asc" } });
         const before = computeProgression(
           session.member.lifetimeExp,
@@ -300,6 +324,10 @@ export const checkoutRouter = router({
           // next to something labeled "free" reads as a deduction rather
           // than what it actually is, so the bill shows "Free" instead.
           isFreeItem: d.promotion?.type === "FREE_ITEM",
+          // Same idea for EXP_BONUS (§Award EXP as promotion) — "amount"
+          // there is a raw EXP number, not money, so the bill shows
+          // "+X EXP" instead of a ฿ figure.
+          isExpBonus: d.promotion?.type === "EXP_BONUS",
         })),
         bill,
         memberPreview,
@@ -519,15 +547,21 @@ export const checkoutRouter = router({
           message: `"${promotion.name}" isn't eligible for this bill right now.`,
         });
       }
-      // FREE_ITEM is a separate gift, not a discount on the bill (see
-      // computeBreakdown) — its `amount` here is purely a record of what
-      // was given away, so it's the item's own price, not clamped against
-      // whatever happens to be left of the bill right now.
-      const amount = config.type === "FREE_ITEM" ? config.value : computeDiscountAmount(config, base);
+      // FREE_ITEM and EXP_BONUS are both a separate gift, not a discount
+      // on the bill (see computeBreakdown) — `amount` here is purely a
+      // record of what was given away (the item's price, or the raw EXP
+      // amount), not clamped against whatever happens to be left of the
+      // bill right now.
+      const amount =
+        config.type === "FREE_ITEM" || config.type === "EXP_BONUS"
+          ? config.value
+          : computeDiscountAmount(config, base);
       const label =
         promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
           ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
-          : promotion.name;
+          : promotion.type === "EXP_BONUS"
+            ? `${promotion.name} (+${config.value} EXP)`
+            : promotion.name;
 
       // One transaction — an earned reward is marked USED in the same
       // write as the discount that redeems it. These used to be two
@@ -626,7 +660,7 @@ export const checkoutRouter = router({
       return promotions.map((p) => ({
         id: p.id,
         name: p.name,
-        type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM",
+        type: p.type as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_ITEM" | "EXP_BONUS",
         value: toNum(p.value),
         rewardMenuItemName: p.rewardMenuItem?.nameEn ?? null,
         stackable: p.stackable,
@@ -660,6 +694,7 @@ export const checkoutRouter = router({
         amount: toNum(d.amount),
         appliedByName: d.appliedBy.name,
         isFreeItem: d.promotion?.type === "FREE_ITEM",
+        isExpBonus: d.promotion?.type === "EXP_BONUS",
       }));
     }),
 
@@ -667,12 +702,15 @@ export const checkoutRouter = router({
    * Manually apply a specific Back Office promotion with a required reason,
    * skipping the date/day/time/minimum-spend/member-only eligibility
    * checks listEligiblePromotions/applyPromotion enforce — this is the
-   * override path for "manager approved Happy Hour early" type cases. The
-   * one eligibility check that still applies is FREE_ITEM's: you can't
-   * give away an item that isn't actually in the order, override or not.
-   * Unlike applyManualDiscount's free-typed amount, this always links back
-   * to a real Promotion row (promotionId on the resulting AppliedDiscount)
-   * so it's traceable to what was actually approved.
+   * override path for "manager approved Happy Hour early" type cases. Two
+   * checks still apply regardless: FREE_ITEM's (you can't give away an
+   * item that isn't actually in the order, override or not) and
+   * EXP_BONUS's (§Award EXP as promotion — there has to be a member on
+   * the session to credit, override or not; unlike the other checks this
+   * one isn't a "when/how much" judgment call a manager could reasonably
+   * waive). Unlike applyManualDiscount's free-typed amount, this always
+   * links back to a real Promotion row (promotionId on the resulting
+   * AppliedDiscount) so it's traceable to what was actually approved.
    */
   applyPromotionOverride: permissionProcedure(Permission.APPLY_DISCOUNTS)
     .input(
@@ -700,19 +738,32 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 
+      if (promotion.type === "EXP_BONUS" && !session.member) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This table has no member linked — link one first to award EXP.",
+        });
+      }
+
       const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
       const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const config = toPromotionConfig(promotion);
 
-      // See applyPromotion's own comment — FREE_ITEM is a separate gift,
-      // not a discount on the bill, so its amount here is just the item's
-      // own price, and there's no "was it actually ordered" check (it
-      // doesn't need to have been).
-      const amount = config.type === "FREE_ITEM" ? config.value : computeDiscountAmount(config, base);
+      // See applyPromotion's own comment — FREE_ITEM and EXP_BONUS are
+      // both a separate gift, not a discount on the bill, so amount here
+      // is just the item's price / the raw EXP amount, and there's no
+      // "was it actually ordered" check for FREE_ITEM (it doesn't need to
+      // have been).
+      const amount =
+        config.type === "FREE_ITEM" || config.type === "EXP_BONUS"
+          ? config.value
+          : computeDiscountAmount(config, base);
       const baseLabel =
         promotion.type === "FREE_ITEM" && promotion.rewardMenuItem
           ? `${promotion.name} (free: ${promotion.rewardMenuItem.nameEn})`
-          : promotion.name;
+          : promotion.type === "EXP_BONUS"
+            ? `${promotion.name} (+${config.value} EXP)`
+            : promotion.name;
       const label = `${baseLabel} — override: ${input.reason}`;
 
       await ctx.prisma.appliedDiscount.create({
@@ -873,7 +924,16 @@ export const checkoutRouter = router({
         if (session.member) {
           const membershipSettings = await getSettings("membership", tx);
           const eligible = eligibleExpSpending(bill);
-          const expAwarded = expFromSpending(eligible, membershipSettings.bahtPerExp);
+          const purchaseExp = expFromSpending(eligible, membershipSettings.bahtPerExp);
+          // EXP_BONUS promotions applied to this session (§Award EXP as
+          // promotion) — each is its own separate grant, recorded as its
+          // own ExpHistory row (reason BONUS, noting which promotion) so
+          // the audit trail shows exactly what came from a purchase versus
+          // what came from a promotion, rather than one lump PURCHASE sum.
+          const expBonusDiscounts = session.appliedDiscounts.filter(
+            (d) => d.promotion?.type === "EXP_BONUS",
+          );
+          const expAwarded = purchaseExp + sumExpBonus(session.appliedDiscounts);
           const ranks = await tx.rank.findMany({ orderBy: { order: "asc" } });
           const before = computeProgression(
             session.member.lifetimeExp,
@@ -897,16 +957,37 @@ export const checkoutRouter = router({
               rankId: after.rank.id,
             },
           });
+          // Running total across every row below — each one's
+          // lifetimeExpAfter reflects the member's balance right after
+          // that specific grant, in the order they're applied, same as
+          // any other multi-step ledger.
+          let runningExp = session.member.lifetimeExp;
+          runningExp += purchaseExp;
           await tx.expHistory.create({
             data: {
               memberId: session.member.id,
               sessionId: session.id,
-              amount: expAwarded,
+              amount: purchaseExp,
               reason: "PURCHASE",
               staffId: ctx.staff.id,
-              lifetimeExpAfter: newLifetimeExp,
+              lifetimeExpAfter: runningExp,
             },
           });
+          for (const d of expBonusDiscounts) {
+            const bonusAmount = Math.round(toNum(d.amount));
+            runningExp += bonusAmount;
+            await tx.expHistory.create({
+              data: {
+                memberId: session.member.id,
+                sessionId: session.id,
+                amount: bonusAmount,
+                reason: "BONUS",
+                note: d.label,
+                staffId: ctx.staff.id,
+                lifetimeExpAfter: runningExp,
+              },
+            });
+          }
 
           expSummary = {
             expAwarded,
@@ -995,6 +1076,7 @@ export const checkoutRouter = router({
             label: d.label,
             amount: toNum(d.amount),
             isFreeItem: d.promotion?.type === "FREE_ITEM",
+            isExpBonus: d.promotion?.type === "EXP_BONUS",
           })),
           bill,
           payments: input.payments.map((p) => ({

@@ -203,8 +203,9 @@ function PromotionsSection({ sessionId }: { sessionId: string }) {
       </div>
       {appliedDiscounts && appliedDiscounts.length > 0 && (
         <div className="space-y-1">
-          {/* Free item redemptions aren't a discount — no ฿ figure, just
-              what got redeemed and a way to undo it (see checkout-client's
+          {/* Free item redemptions and EXP bonuses (§Award EXP as
+              promotion) aren't a discount — no ฿ figure, just what got
+              redeemed/granted and a way to undo it (see checkout-client's
               matching treatment on the Checkout screen). */}
           {appliedDiscounts
             .filter((d) => d.isFreeItem)
@@ -220,7 +221,20 @@ function PromotionsSection({ sessionId }: { sessionId: string }) {
               </div>
             ))}
           {appliedDiscounts
-            .filter((d) => !d.isFreeItem)
+            .filter((d) => d.isExpBonus)
+            .map((d) => (
+              <div key={d.id} className="flex justify-between text-xs text-teal-600">
+                <span>⭐ {d.label}</span>
+                <button
+                  onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                  className="underline"
+                >
+                  remove
+                </button>
+              </div>
+            ))}
+          {appliedDiscounts
+            .filter((d) => !d.isFreeItem && !d.isExpBonus)
             .map((d) => (
               <div key={d.id} className="flex justify-between text-sm text-status-danger">
                 <span>{d.label}</span>

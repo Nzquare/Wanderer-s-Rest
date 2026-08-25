@@ -389,8 +389,13 @@ function PromotionUsageTable({ from, to }: { from: string; to: string }) {
               <tr key={row.promotionId ?? "manual"} className="border-b border-border last:border-0">
                 <td className="px-3 py-2 text-foreground">{row.name}</td>
                 <td className="px-3 py-2 text-right text-foreground-muted">{row.usageCount}</td>
+                {/* A row is always exactly one type — EXP_BONUS promotions
+                    (§Award EXP as promotion) show what they awarded
+                    instead of a ฿ figure, never both. */}
                 <td className="px-3 py-2 text-right text-status-danger">
-                  -฿{row.totalDiscount.toFixed(0)}
+                  {row.totalExpAwarded > 0
+                    ? <span className="text-teal-600">+{row.totalExpAwarded} EXP</span>
+                    : `-฿${row.totalDiscount.toFixed(0)}`}
                 </td>
               </tr>
             ))}
