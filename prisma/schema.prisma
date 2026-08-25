@@ -704,6 +704,16 @@ model Rank {
   descriptionTh    String?
   descriptionEn    String?
   levelsRequired   Int      @default(20)
+  // Automatic %-off every bill for a member currently holding this rank
+  // (§Rank discount) — applied at checkout with no staff action needed,
+  // computed fresh from the bill's base each time rather than stored as
+  // its own AppliedDiscount row (see checkout.ts's computeBreakdown).
+  // Competes with any non-stackable promotion already applied to the
+  // same bill — only the bigger of the two ever counts, never both; a
+  // stackable promotion or a manual discount always adds on top
+  // regardless, since neither is competing for the same "one discount"
+  // slot a rank tier and a regular promotion both occupy.
+  discountPercent  Decimal  @default(0) @db.Decimal(5, 2)
   extraRequirement Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

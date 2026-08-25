@@ -28,7 +28,9 @@ const checkoutInclude = {
   // class included so the receipt (§Receipt member details) can show it
   // alongside the member's name — nothing else in checkout.ts needed the
   // nested relation, member's own scalar fields were enough before this.
-  member: { include: { class: true } },
+  // rank included for its discountPercent (§Rank discount) — see
+  // computeBreakdown.
+  member: { include: { class: true, rank: { select: { nameEn: true, icon: true, discountPercent: true } } } },
   // A reservation's deposit isn't auto-credited against the bill (§
   // Reservation deposit reminder) — staff apply it themselves via the
   // existing manual-discount flow. This is just enough to remind them
@@ -45,7 +47,7 @@ const checkoutInclude = {
   appliedDiscounts: {
     include: {
       appliedBy: { select: { name: true } },
-      promotion: { select: { type: true, rewardMenuItemId: true } },
+      promotion: { select: { type: true, rewardMenuItemId: true, stackable: true } },
     },
   },
 } satisfies Prisma.TableSessionInclude;
@@ -125,6 +127,16 @@ function groupItemsByCategory(
   return Array.from(groups.values()).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+/**
+ * Label for the synthetic rank-discount line (§Rank discount) — shared so
+ * getPreview/recordPayment/listAppliedDiscounts all describe it the same
+ * way, and so applyPromotion's own "a bigger rank discount already covers
+ * this" message can name it consistently.
+ */
+function rankDiscountLabel(rankName: string, percent: number) {
+  return `🏅 ${rankName} rank — ${percent}% off`;
+}
+
 async function computeBreakdown(
   session: Awaited<ReturnType<typeof loadSessionForCheckout>>,
   // Pass `tx` when calling this from inside a $transaction block (see
@@ -149,28 +161,95 @@ async function computeBreakdown(
   const foodDrinkSubtotal = foodDrinkItems.reduce((s, i) => s + i.lineTotal, 0);
   const itemsByCategory = groupItemsByCategory(session.orders);
 
+  // A redeemed FREE_ITEM promotion is a separate gift (§Free item
+  // redemptions), and an EXP_BONUS one grants bonus EXP rather than
+  // money (§Award EXP as promotion) — neither is a discount on the
+  // bill, so neither ever touches the order above or subtracts from the
+  // total. Their AppliedDiscount rows still exist (audit trail, benefit
+  // redemption linkage, undo) but play no part in this sum.
+  const realDiscounts = session.appliedDiscounts.filter(
+    (d) => d.promotion?.type !== "FREE_ITEM" && d.promotion?.type !== "EXP_BONUS",
+  );
+  // A non-stackable promotion and the member's rank discount both occupy
+  // the same "one discount" slot on a bill (§Rank discount) — only the
+  // bigger of the two ever counts. A manual discount or a stackable
+  // promotion isn't competing for that slot at all, and always adds on
+  // top regardless of which side wins.
+  const nonStackablePromoApplied = realDiscounts.filter(
+    (d) => d.promotion && d.promotion.stackable === false,
+  );
+  const alwaysOnDiscounts = realDiscounts.filter(
+    (d) => !(d.promotion && d.promotion.stackable === false),
+  );
+  const nonStackablePromoTotal = nonStackablePromoApplied.reduce(
+    (s, d) => s + toNum(d.amount),
+    0,
+  );
+  const alwaysOnTotal = alwaysOnDiscounts.reduce((s, d) => s + toNum(d.amount), 0);
+
+  const rank = session.member?.rank ?? null;
+  const rankDiscountPercent = rank ? toNum(rank.discountPercent) : 0;
+  const preRankBase = Math.max(0, tableFee.total + foodDrinkSubtotal - alwaysOnTotal);
+  const rankDiscountAmount =
+    rank && rankDiscountPercent > 0
+      ? computeDiscountAmount({ type: "PERCENTAGE", value: rankDiscountPercent }, preRankBase)
+      : 0;
+  const rankWins = rankDiscountAmount > 0 && rankDiscountAmount >= nonStackablePromoTotal;
+  const rankDiscount =
+    rank && rankDiscountPercent > 0
+      ? {
+          rankName: rank.nameEn,
+          icon: rank.icon,
+          percent: rankDiscountPercent,
+          // Always the raw computed value, whether or not it's currently
+          // the winning side — applyPromotion needs the real number to
+          // compare a new promotion against, and a caller that only cares
+          // about the bill total should key off `applied`, not assume a
+          // non-applied rank discount is worth ฿0.
+          amount: rankDiscountAmount,
+          applied: rankWins,
+        }
+      : null;
+
   const checkoutSettings = await getSettings("checkout", client);
   const bill = computeBill({
     tableFeeTotal: tableFee.total,
     foodDrinkSubtotal,
-    // A redeemed FREE_ITEM promotion is a separate gift (§Free item
-    // redemptions), and an EXP_BONUS one grants bonus EXP rather than
-    // money (§Award EXP as promotion) — neither is a discount on the
-    // bill, so neither ever touches the order above or subtracts from the
-    // total. Their AppliedDiscount rows still exist (audit trail, benefit
-    // redemption linkage, undo) but play no part in this sum. Only genuine
-    // discounts (manual, percentage, fixed-amount) count toward
-    // discountTotal.
-    discounts: session.appliedDiscounts
-      .filter((d) => d.promotion?.type !== "FREE_ITEM" && d.promotion?.type !== "EXP_BONUS")
-      .map((d) => ({ promotionId: d.promotionId, label: d.label, amount: toNum(d.amount) })),
+    discounts: [
+      ...alwaysOnDiscounts.map((d) => ({
+        promotionId: d.promotionId,
+        label: d.label,
+        amount: toNum(d.amount),
+      })),
+      ...(rankWins
+        ? [
+            {
+              promotionId: null,
+              label: rankDiscountLabel(rank!.nameEn, rankDiscountPercent),
+              amount: rankDiscountAmount,
+            },
+          ]
+        : nonStackablePromoApplied.map((d) => ({
+            promotionId: d.promotionId,
+            label: d.label,
+            amount: toNum(d.amount),
+          }))),
+    ],
     taxEnabled: checkoutSettings.taxEnabled,
     taxPercent: checkoutSettings.taxPercent,
     serviceChargeEnabled: checkoutSettings.serviceChargeEnabled,
     serviceChargePercent: checkoutSettings.serviceChargePercent,
   });
 
-  return { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill, checkoutSettings };
+  return {
+    tableFee,
+    foodDrinkItems,
+    foodDrinkSubtotal,
+    itemsByCategory,
+    bill,
+    checkoutSettings,
+    rankDiscount,
+  };
 }
 
 /**
@@ -264,7 +343,8 @@ export const checkoutRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
-      const { tableFee, foodDrinkItems, itemsByCategory, bill } = await computeBreakdown(session);
+      const { tableFee, foodDrinkItems, itemsByCategory, bill, rankDiscount } =
+        await computeBreakdown(session);
 
       const membershipSettings = await getSettings("membership");
       let memberPreview = null;
@@ -313,22 +393,46 @@ export const checkoutRouter = router({
         pricingModel: session.pricingType?.model ?? "HOURLY",
         foodDrinkItems,
         itemsByCategory,
-        appliedDiscounts: session.appliedDiscounts.map((d) => ({
-          id: d.id,
-          promotionId: d.promotionId,
-          label: d.label,
-          amount: toNum(d.amount),
-          appliedByName: d.appliedBy.name,
-          // FREE_ITEM's "amount" is the item's own price, offsetting a line
-          // that's already in the order at full price — showing "-฿80"
-          // next to something labeled "free" reads as a deduction rather
-          // than what it actually is, so the bill shows "Free" instead.
-          isFreeItem: d.promotion?.type === "FREE_ITEM",
-          // Same idea for EXP_BONUS (§Award EXP as promotion) — "amount"
-          // there is a raw EXP number, not money, so the bill shows
-          // "+X EXP" instead of a ฿ figure.
-          isExpBonus: d.promotion?.type === "EXP_BONUS",
-        })),
+        appliedDiscounts: [
+          ...session.appliedDiscounts.map((d) => ({
+            id: d.id,
+            promotionId: d.promotionId,
+            label: d.label,
+            amount: toNum(d.amount),
+            appliedByName: d.appliedBy.name,
+            // FREE_ITEM's "amount" is the item's own price, offsetting a line
+            // that's already in the order at full price — showing "-฿80"
+            // next to something labeled "free" reads as a deduction rather
+            // than what it actually is, so the bill shows "Free" instead.
+            isFreeItem: d.promotion?.type === "FREE_ITEM",
+            // Same idea for EXP_BONUS (§Award EXP as promotion) — "amount"
+            // there is a raw EXP number, not money, so the bill shows
+            // "+X EXP" instead of a ฿ figure.
+            isExpBonus: d.promotion?.type === "EXP_BONUS",
+            isRankDiscount: false,
+          })),
+          // The member's rank discount (§Rank discount) isn't a real
+          // AppliedDiscount row — it's computed fresh every time from
+          // their current rank, not something staff tapped Apply on — so
+          // it gets a synthetic id here instead of a real one, and the
+          // UI knows (via isRankDiscount) not to offer a remove button
+          // for it the way every other line gets.
+          ...(rankDiscount?.applied
+            ? [
+                {
+                  id: "rank-discount",
+                  promotionId: null,
+                  label: rankDiscountLabel(rankDiscount.rankName, rankDiscount.percent),
+                  amount: rankDiscount.amount,
+                  appliedByName: null,
+                  isFreeItem: false,
+                  isExpBonus: false,
+                  isRankDiscount: true,
+                },
+              ]
+            : []),
+        ],
+        rankDiscount,
         bill,
         memberPreview,
         sessionStatus: session.status,
@@ -510,9 +614,28 @@ export const checkoutRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Already applied." });
       }
 
-      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      const { tableFee, foodDrinkSubtotal, bill, rankDiscount } = await computeBreakdown(session);
       const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const config = toPromotionConfig(promotion);
+      // A non-stackable promotion competes with the member's rank discount
+      // for the same "one discount" slot (§Rank discount) — applying one
+      // that's smaller than what their rank already covers wouldn't move
+      // the total at all, so it's refused up front rather than silently
+      // doing nothing (which would look like a bug, not a rule). FREE_ITEM/
+      // EXP_BONUS aren't part of this at all — neither is a ฿ discount on
+      // the bill to begin with.
+      if (
+        !promotion.stackable &&
+        config.type !== "FREE_ITEM" &&
+        config.type !== "EXP_BONUS" &&
+        rankDiscount &&
+        rankDiscount.amount >= computeDiscountAmount(config, base)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${rankDiscount.rankName} rank already gives ${session.member!.adventurerName} a bigger discount (${rankDiscount.percent}% off) than "${promotion.name}" would — no need to apply it.`,
+        });
+      }
       // A member's own earned reward (§Benefits) bypasses the normal
       // eligibility check entirely — same reasoning as
       // listEligiblePromotions above. Only look this up if a member is
@@ -682,35 +805,61 @@ export const checkoutRouter = router({
   listAppliedDiscounts: cashierProcedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const discounts = await ctx.prisma.appliedDiscount.findMany({
-        where: { sessionId: input.sessionId },
-        include: { appliedBy: { select: { name: true } }, promotion: { select: { type: true } } },
-        orderBy: { createdAt: "asc" },
-      });
-      return discounts.map((d) => ({
-        id: d.id,
-        promotionId: d.promotionId,
-        label: d.label,
-        amount: toNum(d.amount),
-        appliedByName: d.appliedBy.name,
-        isFreeItem: d.promotion?.type === "FREE_ITEM",
-        isExpBonus: d.promotion?.type === "EXP_BONUS",
-      }));
+      // Loads the full session (rather than a bare AppliedDiscount query)
+      // so the member's rank discount (§Rank discount) can be resolved
+      // and shown here too — this feeds the table page's own promotion
+      // picker, before checkout ever loads getPreview, so a member's
+      // automatic rank discount should be visible there too, not just at
+      // Checkout.
+      const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
+      const { rankDiscount } = await computeBreakdown(session);
+      return [
+        ...session.appliedDiscounts.map((d) => ({
+          id: d.id,
+          promotionId: d.promotionId,
+          label: d.label,
+          amount: toNum(d.amount),
+          appliedByName: d.appliedBy.name,
+          isFreeItem: d.promotion?.type === "FREE_ITEM",
+          isExpBonus: d.promotion?.type === "EXP_BONUS",
+          isRankDiscount: false,
+        })),
+        // See getPreview's own comment — synthetic, not a real
+        // AppliedDiscount row, so no remove button for it.
+        ...(rankDiscount?.applied
+          ? [
+              {
+                id: "rank-discount",
+                promotionId: null,
+                label: rankDiscountLabel(rankDiscount.rankName, rankDiscount.percent),
+                amount: rankDiscount.amount,
+                appliedByName: null,
+                isFreeItem: false,
+                isExpBonus: false,
+                isRankDiscount: true,
+              },
+            ]
+          : []),
+      ];
     }),
 
   /**
    * Manually apply a specific Back Office promotion with a required reason,
    * skipping the date/day/time/minimum-spend/member-only eligibility
    * checks listEligiblePromotions/applyPromotion enforce — this is the
-   * override path for "manager approved Happy Hour early" type cases. Two
-   * checks still apply regardless: FREE_ITEM's (you can't give away an
-   * item that isn't actually in the order, override or not) and
+   * override path for "manager approved Happy Hour early" type cases.
+   * Three checks still apply regardless: FREE_ITEM's (you can't give away
+   * an item that isn't actually in the order, override or not),
    * EXP_BONUS's (§Award EXP as promotion — there has to be a member on
-   * the session to credit, override or not; unlike the other checks this
-   * one isn't a "when/how much" judgment call a manager could reasonably
-   * waive). Unlike applyManualDiscount's free-typed amount, this always
-   * links back to a real Promotion row (promotionId on the resulting
-   * AppliedDiscount) so it's traceable to what was actually approved.
+   * the session to credit, override or not), and the rank-discount
+   * comparison (§Rank discount — applying a promotion smaller than what
+   * the member's rank already covers wouldn't move the total at all,
+   * override or not). None of these three are a "when/how much" judgment
+   * call a manager could reasonably waive — they're just facts about
+   * whether applying this would do anything. Unlike applyManualDiscount's
+   * free-typed amount, this always links back to a real Promotion row
+   * (promotionId on the resulting AppliedDiscount) so it's traceable to
+   * what was actually approved.
    */
   applyPromotionOverride: permissionProcedure(Permission.APPLY_DISCOUNTS)
     .input(
@@ -745,9 +894,25 @@ export const checkoutRouter = router({
         });
       }
 
-      const { tableFee, foodDrinkSubtotal, bill } = await computeBreakdown(session);
+      const { tableFee, foodDrinkSubtotal, bill, rankDiscount } = await computeBreakdown(session);
       const base = Math.max(0, tableFee.total + foodDrinkSubtotal - bill.discountTotal);
       const config = toPromotionConfig(promotion);
+
+      // See applyPromotion's own comment — a non-stackable promotion
+      // smaller than what the member's rank already covers is refused
+      // even here.
+      if (
+        !promotion.stackable &&
+        config.type !== "FREE_ITEM" &&
+        config.type !== "EXP_BONUS" &&
+        rankDiscount &&
+        rankDiscount.amount >= computeDiscountAmount(config, base)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${rankDiscount.rankName} rank already gives ${session.member!.adventurerName} a bigger discount (${rankDiscount.percent}% off) than "${promotion.name}" would — no need to apply it.`,
+        });
+      }
 
       // See applyPromotion's own comment — FREE_ITEM and EXP_BONUS are
       // both a separate gift, not a discount on the bill, so amount here
@@ -884,7 +1049,7 @@ export const checkoutRouter = router({
           });
         }
 
-        const { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill } =
+        const { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill, rankDiscount } =
           await computeBreakdown(session, tx);
         const paidTotal = input.payments.reduce((s, p) => s + p.amount, 0);
         if (Math.abs(paidTotal - bill.total) > 0.5) {
@@ -1072,12 +1237,30 @@ export const checkoutRouter = router({
           foodDrinkItems,
           foodDrinkSubtotal,
           itemsByCategory,
-          discounts: session.appliedDiscounts.map((d) => ({
-            label: d.label,
-            amount: toNum(d.amount),
-            isFreeItem: d.promotion?.type === "FREE_ITEM",
-            isExpBonus: d.promotion?.type === "EXP_BONUS",
-          })),
+          discounts: [
+            ...session.appliedDiscounts.map((d) => ({
+              label: d.label,
+              amount: toNum(d.amount),
+              isFreeItem: d.promotion?.type === "FREE_ITEM",
+              isExpBonus: d.promotion?.type === "EXP_BONUS",
+            })),
+            // See getPreview's own comment — the rank discount (§Rank
+            // discount) isn't a real AppliedDiscount row, so it's folded
+            // into the receipt's own snapshot here instead, same as
+            // every other line on a paid bill: frozen at the moment of
+            // payment, independent of whatever the member's rank does
+            // later.
+            ...(rankDiscount?.applied
+              ? [
+                  {
+                    label: rankDiscountLabel(rankDiscount.rankName, rankDiscount.percent),
+                    amount: rankDiscount.amount,
+                    isFreeItem: false,
+                    isExpBonus: false,
+                  },
+                ]
+              : []),
+          ],
           bill,
           payments: input.payments.map((p) => ({
             method: p.method,

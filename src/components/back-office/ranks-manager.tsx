@@ -27,6 +27,7 @@ type Rank = {
   descriptionTh: string | null;
   descriptionEn: string | null;
   levelsRequired: number;
+  discountPercent: number;
   memberCount: number;
 };
 
@@ -127,6 +128,24 @@ function RankDetailsModal({
             />
           </div>
           <div>
+            <label className="text-xs text-foreground-muted">
+              Discount % (auto-applies at checkout for a member holding this rank)
+            </label>
+            <TextInput
+              type="number"
+              min={0}
+              max={100}
+              step="0.1"
+              defaultValue={r.discountPercent}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (!Number.isNaN(n) && n >= 0 && n <= 100 && n !== r.discountPercent) {
+                  update.mutate({ id: r.id, discountPercent: n });
+                }
+              }}
+            />
+          </div>
+          <div>
             <label className="text-xs text-foreground-muted">English description (optional)</label>
             <TextInput
               defaultValue={r.descriptionEn ?? ""}
@@ -219,6 +238,7 @@ function RankRow({
               LV {levelRange.start}
               {isLast ? "+" : `–${levelRange.end}`} · {r.memberCount} member
               {r.memberCount === 1 ? "" : "s"}
+              {r.discountPercent > 0 && ` · ${r.discountPercent}% off`}
             </p>
           </div>
         </div>
@@ -309,8 +329,12 @@ export function RanksManager() {
         stuck. Drag the ⠿ handle to reorder — works with a finger on
         phone/tablet too. Open{" "}
         <span className="font-medium text-foreground">Details</span> to
-        rename, add a description, or delete a rank nobody currently holds.
-        To move a specific member to a different rank, use{" "}
+        rename, add a description, set a discount %, or delete a rank
+        nobody currently holds. A rank&apos;s discount % applies
+        automatically at checkout for any member holding it — no button
+        to tap, no promotion to pick — and only the bigger of it or a
+        manually-applied promotion ever counts, never both. To move a
+        specific member to a different rank, use{" "}
         <span className="font-medium text-foreground">Adjust Rank</span> on
         their profile instead — editing a rank here changes it for everyone
         in it.

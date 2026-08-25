@@ -318,12 +318,18 @@ export function CheckoutClient({
               <span>{d.label}</span>
               <div className="flex items-center gap-2">
                 <span>-฿{d.amount.toFixed(0)}</span>
-                <button
-                  onClick={() => removeDiscount.mutate({ discountId: d.id })}
-                  className="text-xs underline"
-                >
-                  remove
-                </button>
+                {/* The rank discount (§Rank discount) isn't a real
+                    AppliedDiscount row — it's computed automatically from
+                    the member's current rank, so there's nothing here to
+                    remove. */}
+                {!d.isRankDiscount && (
+                  <button
+                    onClick={() => removeDiscount.mutate({ discountId: d.id })}
+                    className="text-xs underline"
+                  >
+                    remove
+                  </button>
+                )}
               </div>
             </div>
           ))}

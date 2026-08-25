@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
+import { toNum } from "@/lib/decimal";
 
 // Rank tiers are financial/business configuration in the same spirit as
 // Pricing Types and Settings — gated behind MANAGE_SETTINGS rather than a
@@ -21,12 +22,17 @@ const rankShape = z.object({
   // total level lands. The last configured rank absorbs everything
   // beyond it uncapped, so it never "runs out."
   levelsRequired: z.number().int().min(1),
+  // Automatic %-off every bill for a member currently holding this rank
+  // (§Rank discount) — see checkout.ts's computeBreakdown for how this
+  // competes with a manually-applied promotion (only the bigger wins).
+  discountPercent: z.number().min(0).max(100).default(0),
 });
 
 export const ranksRouter = router({
   /** Ordered, for pickers (Adjust Rank, progression calc) — any staff can read. */
-  list: staffProcedure.query(({ ctx }) => {
-    return ctx.prisma.rank.findMany({ orderBy: { order: "asc" } });
+  list: staffProcedure.query(async ({ ctx }) => {
+    const ranks = await ctx.prisma.rank.findMany({ orderBy: { order: "asc" } });
+    return ranks.map((r) => ({ ...r, discountPercent: toNum(r.discountPercent) }));
   }),
 
   /** Back Office management list — includes how many members currently hold each rank. */
@@ -35,7 +41,11 @@ export const ranksRouter = router({
       orderBy: { order: "asc" },
       include: { _count: { select: { members: true } } },
     });
-    return ranks.map((r) => ({ ...r, memberCount: r._count.members }));
+    return ranks.map((r) => ({
+      ...r,
+      discountPercent: toNum(r.discountPercent),
+      memberCount: r._count.members,
+    }));
   }),
 
   create: manage()
