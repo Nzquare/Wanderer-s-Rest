@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc/client";
@@ -14,6 +13,7 @@ import { MemberLinkPanel } from "./member-link-panel";
 import { PromotionPicker } from "./promotion-picker";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
+import { printOnce } from "@/lib/print-once";
 import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -108,13 +108,23 @@ export function CheckoutClient({
   // Which hidden print area is "armed" for the next window.print() —
   // invoice and the PromptPay QR slip can both be in the DOM at once on
   // this page, so only one may carry the print:block class at a time (see
-  // printAs below). flushSync forces the class swap to land in the DOM
-  // before print() reads it — a plain setState wouldn't be guaranteed to
-  // flush in time.
-  const [printMode, setPrintMode] = useState<"invoice" | "promptpay">("invoice");
+  // printAs below). Starts at null, not defaulted to "invoice" — this
+  // used to default straight to "invoice" armed, which meant the invoice
+  // area already carried print-area/print:block the instant the page
+  // loaded, before the cashier ever clicked a print button (§sometimes
+  // wrong thing printed) — any print triggered on this page for any
+  // other reason (notably the Cashier shell's OrderAlertBanner
+  // auto-printing an unrelated kitchen ticket) would print the invoice
+  // right along with it. Routed through the shared printOnce queue for
+  // the same reason — this page keeps that banner mounted too, so
+  // without the shared queue an auto-print could still land mid-print
+  // and swap which area actually goes to the printer.
+  const [printMode, setPrintMode] = useState<"invoice" | "promptpay" | null>(null);
   function printAs(mode: "invoice" | "promptpay") {
-    flushSync(() => setPrintMode(mode));
-    window.print();
+    printOnce(
+      () => setPrintMode(mode),
+      () => {},
+    );
   }
 
   const applyDiscount = trpc.checkout.applyManualDiscount.useMutation({

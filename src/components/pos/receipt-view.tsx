@@ -1,9 +1,10 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/client";
+import { printOnce } from "@/lib/print-once";
 import { formatMinutesShort } from "./live-timer";
 
 interface ReceiptSnapshot {
@@ -85,18 +86,36 @@ export function ReceiptView({
   const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
 
+  // Whether the receipt card currently carries the print-area class —
+  // separate from it being on screen at all, which it always is here
+  // (this view doubles as the on-screen checkout-success confirmation).
+  // Used to be unconditionally `print-area`, which meant it was eligible
+  // to print the instant this view mounted, for the rest of the time the
+  // cashier stayed on this screen — the Cashier shell's OrderAlertBanner
+  // stays mounted here too and can auto-print an unrelated kitchen ticket
+  // in the background, and that print job would pull this receipt in
+  // right along with it (§sometimes wrong thing printed). Now it's only
+  // print-area while a print triggered from *this* view (auto-print below,
+  // or the button) is actually in flight.
+  const [printArmed, setPrintArmed] = useState(false);
+
   // Fires once per checkout, right when this view mounts (§auto print) —
   // same idea as the kitchen ticket's autoPrintKitchenTicket, opening the
   // print dialog automatically instead of making the cashier click "Print
   // Receipt" every time. The ref guards against firing again if
   // notificationSettings refetches in the background (e.g. on window
-  // focus) after already printing once.
+  // focus) after already printing once. Routed through the shared
+  // printOnce queue (see print-once.ts) so it can't land mid-print
+  // alongside some other print job triggered elsewhere on the page.
   const autoPrinted = useRef(false);
   useEffect(() => {
     if (autoPrinted.current || !notificationSettings) return;
     if (notificationSettings.autoPrintReceipt) {
       autoPrinted.current = true;
-      window.print();
+      printOnce(
+        () => setPrintArmed(true),
+        () => setPrintArmed(false),
+      );
     }
   }, [notificationSettings]);
   // Back Office → Settings has real inputs for both of these (café name,
@@ -174,7 +193,7 @@ export function ReceiptView({
         id="receipt-print-area"
         style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
         className={
-          "print-area " +
+          (printArmed ? "print-area " : "") +
           (printerWidthMm === 58
             ? "mx-auto max-w-[240px] space-y-2 rounded-2xl border border-border bg-surface px-4 pb-4 pt-2 font-mono text-xs"
             : "mx-auto max-w-xs space-y-2 rounded-2xl border border-border bg-surface px-5 pb-5 pt-3 font-mono text-sm")
@@ -334,7 +353,12 @@ export function ReceiptView({
         <Button
           variant="outline"
           className="flex-1"
-          onClick={() => window.print()}
+          onClick={() =>
+            printOnce(
+              () => setPrintArmed(true),
+              () => setPrintArmed(false),
+            )
+          }
         >
           Print Receipt
         </Button>
