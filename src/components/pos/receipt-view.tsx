@@ -243,6 +243,19 @@ function ReceiptBody({
           EXP earned: +{snapshot.expAwarded}
         </div>
       )}
+      {/* Was only shown on the on-screen "Quest Complete" banner further
+          up — that banner isn't part of ReceiptBody, so it never made it
+          onto the actual printed/self-service copy of the receipt
+          (§show achievement unlock in the receipt also). This is the
+          compact, receipt-styled version of the same list. */}
+      {snapshot.unlockedAchievements && snapshot.unlockedAchievements.length > 0 && (
+        <div className="border-t border-dashed border-border pt-2 text-center text-xs">
+          <p className="font-semibold">🏆 Achievement Unlocked</p>
+          {snapshot.unlockedAchievements.map((a, i) => (
+            <p key={i}>{a.nameEn}</p>
+          ))}
+        </div>
+      )}
       <p className="pt-2 text-center text-xs text-foreground-muted">{receiptFooter}</p>
     </>
   );
