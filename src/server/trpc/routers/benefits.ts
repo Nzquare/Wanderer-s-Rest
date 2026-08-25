@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
+import { snapshotPromotion } from "@/server/benefit-snapshot";
 
 export const benefitsRouter = router({
   /**
@@ -82,7 +83,10 @@ export const benefitsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const [member, promotion] = await Promise.all([
         ctx.prisma.member.findUnique({ where: { id: input.memberId } }),
-        ctx.prisma.promotion.findUnique({ where: { id: input.promotionId } }),
+        ctx.prisma.promotion.findUnique({
+          where: { id: input.promotionId },
+          include: { rewardMenuItem: { select: { nameEn: true } } },
+        }),
       ]);
       if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Member not found." });
       if (!promotion || !promotion.active) {
@@ -93,6 +97,7 @@ export const benefitsRouter = router({
         data: {
           memberId: member.id,
           promotionId: promotion.id,
+          ...snapshotPromotion(promotion),
           label: input.label,
           grantedById: ctx.staff.id,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,

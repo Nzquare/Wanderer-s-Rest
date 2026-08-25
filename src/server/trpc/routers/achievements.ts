@@ -4,6 +4,7 @@ import { router, staffProcedure, permissionProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { logAudit } from "@/server/audit";
 import { toNum } from "@/lib/decimal";
+import { snapshotPromotion } from "@/server/benefit-snapshot";
 
 const categoryEnum = z.enum([
   "VISITS",
@@ -153,6 +154,7 @@ export const achievementsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const achievement = await ctx.prisma.achievement.findUnique({
         where: { id: input.achievementId },
+        include: { promotion: { include: { rewardMenuItem: { select: { nameEn: true } } } } },
       });
       if (!achievement || achievement.type !== "MANUAL" || !achievement.active) {
         throw new TRPCError({
@@ -188,12 +190,13 @@ export const achievementsRouter = router({
           },
         });
 
-        if (achievement.hasReward && achievement.promotionId) {
+        if (achievement.hasReward && achievement.promotionId && achievement.promotion) {
           await tx.benefitRedemption.create({
             data: {
               memberId: input.memberId,
               memberAchievementId: memberAchievement.id,
               promotionId: achievement.promotionId,
+              ...snapshotPromotion(achievement.promotion),
             },
           });
         }

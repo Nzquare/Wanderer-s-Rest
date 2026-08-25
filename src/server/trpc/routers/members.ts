@@ -7,6 +7,7 @@ import { toNum } from "@/lib/decimal";
 import { computeProgression } from "@/server/domain/exp";
 import { getSettings } from "@/server/settings/service";
 import { logAudit } from "@/server/audit";
+import { resolveBenefitPromotion } from "@/server/benefit-snapshot";
 
 /**
  * Minimal member lookup/creation for POS-side linking (§25), plus a
@@ -213,15 +214,26 @@ export const membersRouter = router({
         // Every benefit this member currently has — achievement-earned and
         // directly granted (§Direct benefit grants) treated the same way,
         // since a member doesn't care which path produced it.
-        benefits: member.benefitRedemptions.map((b) => ({
-          id: b.id,
-          status: b.status,
-          earnedAt: b.earnedAt,
-          label: b.label,
-          achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
-          icon: b.memberAchievement?.achievement.icon ?? null,
-          promotion: { ...b.promotion, value: toNum(b.promotion.value) },
-        })),
+        benefits: member.benefitRedemptions.map((b) => {
+          // Falls back to the snapshot taken at grant time if the
+          // promotion's since been force-deleted (§Promotion delete) —
+          // b.promotion can be null now, unlike every other relation here.
+          const resolved = resolveBenefitPromotion(b);
+          return {
+            id: b.id,
+            status: b.status,
+            earnedAt: b.earnedAt,
+            label: b.label,
+            achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
+            icon: b.memberAchievement?.achievement.icon ?? null,
+            promotion: {
+              name: resolved.name,
+              type: resolved.type,
+              value: resolved.value,
+              rewardMenuItem: resolved.rewardMenuItemName ? { nameEn: resolved.rewardMenuItemName } : null,
+            },
+          };
+        }),
         expHistory: member.expHistory.map((h) => ({
           id: h.id,
           amount: h.amount,
@@ -534,21 +546,27 @@ export const membersRouter = router({
         // granted (§Direct benefit grants) alike — shown separately from
         // the achievement badge itself, since what a member actually cares
         // about here is "what can I claim," not the trigger that earned it.
-        benefits: member.benefitRedemptions.map((b) => ({
-          id: b.id,
-          achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
-          icon: b.memberAchievement?.achievement.icon ?? null,
-          label: b.label,
-          promotionName: b.promotion.name,
-          promotionType: b.promotion.type,
-          promotionValue: toNum(b.promotion.value),
-          rewardMenuItemName: b.promotion.rewardMenuItem?.nameEn ?? null,
-          status: b.status,
-          earnedAt: b.earnedAt,
-          // Only meaningful once redeemed — the self-service History tab
-          // (§Benefits history) shows when a used one was actually used.
-          usedAt: b.usedAt,
-        })),
+        // Falls back to each redemption's own snapshot if its promotion's
+        // since been force-deleted (§Promotion delete) — b.promotion can
+        // be null now, unlike every other relation here.
+        benefits: member.benefitRedemptions.map((b) => {
+          const resolved = resolveBenefitPromotion(b);
+          return {
+            id: b.id,
+            achievementNameEn: b.memberAchievement?.achievement.nameEn ?? null,
+            icon: b.memberAchievement?.achievement.icon ?? null,
+            label: b.label,
+            promotionName: resolved.name,
+            promotionType: resolved.type,
+            promotionValue: resolved.value,
+            rewardMenuItemName: resolved.rewardMenuItemName,
+            status: b.status,
+            earnedAt: b.earnedAt,
+            // Only meaningful once redeemed — the self-service History tab
+            // (§Benefits history) shows when a used one was actually used.
+            usedAt: b.usedAt,
+          };
+        }),
       };
     }),
 });

@@ -15,6 +15,7 @@ import { expFromSpending, computeProgression } from "@/server/domain/exp";
 import { evaluateNewlyUnlocked, type AchievementDef } from "@/server/domain/achievements";
 import { getSettings } from "@/server/settings/service";
 import { logAudit } from "@/server/audit";
+import { snapshotPromotion } from "@/server/benefit-snapshot";
 import { toPlayerRecord, toPricingConfig } from "./sessions";
 import { prisma as defaultPrisma } from "@/server/db";
 import type { Prisma } from "@/generated/prisma/client";
@@ -400,7 +401,14 @@ export const checkoutRouter = router({
                 },
                 select: { promotionId: true },
               })
-            ).map((r) => r.promotionId),
+            )
+              .map((r) => r.promotionId)
+              // A redemption whose promotion has since been force-deleted
+              // (§Promotion delete) has nothing left here to match against
+              // — it just drops out of this auto-apply picker and has to
+              // be honored manually via benefits.redeem instead, using its
+              // own snapshot as the record of what was promised.
+              .filter((id): id is string => !!id),
           )
         : new Set<string>();
 
@@ -598,7 +606,11 @@ export const checkoutRouter = router({
                 },
                 select: { promotionId: true },
               })
-            ).map((r) => r.promotionId)
+            )
+              .map((r) => r.promotionId)
+              // See listEligiblePromotions' own comment — a since-deleted
+              // promotion's redemption just drops out of this picker.
+              .filter((id): id is string => !!id)
           : [],
       );
       const promotions = await ctx.prisma.promotion.findMany({
@@ -908,7 +920,10 @@ export const checkoutRouter = router({
 
           // ── Automatic achievements (§30, §53) ─────────────────────────
           const [catalog, unlocked, gameStats] = await Promise.all([
-            tx.achievement.findMany({ where: { type: "AUTOMATIC", active: true } }),
+            tx.achievement.findMany({
+              where: { type: "AUTOMATIC", active: true },
+              include: { promotion: { include: { rewardMenuItem: { select: { nameEn: true } } } } },
+            }),
             tx.memberAchievement.findMany({ where: { memberId: session.member.id } }),
             getMemberGameStats(tx, session.member.id),
           ]);
@@ -938,14 +953,22 @@ export const checkoutRouter = router({
                   sessionId: session.id,
                 },
               });
-              const promotionId = (achievement as unknown as { promotionId: string | null })
-                .promotionId;
+              const { promotionId, promotion, hasReward } = achievement as unknown as {
+                promotionId: string | null;
+                promotion: Parameters<typeof snapshotPromotion>[0] | null;
+                hasReward: boolean;
+              };
               // hasReward with no promotion actually picked shouldn't happen
               // (the achievement editor requires one), but guard it anyway
               // rather than create a redemption pointing at nothing.
-              if ((achievement as unknown as { hasReward: boolean }).hasReward && promotionId) {
+              if (hasReward && promotionId && promotion) {
                 await tx.benefitRedemption.create({
-                  data: { memberId: session.member!.id, memberAchievementId: ma.id, promotionId },
+                  data: {
+                    memberId: session.member!.id,
+                    memberAchievementId: ma.id,
+                    promotionId,
+                    ...snapshotPromotion(promotion),
+                  },
                 });
               }
             }),

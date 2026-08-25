@@ -890,8 +890,27 @@ model BenefitRedemption {
   // creation time — denormalized here so a direct grant (no achievement)
   // has the same field to read, and every lookup can go through this row
   // alone regardless of source.
-  promotionId String
-  promotion   Promotion @relation(fields: [promotionId], references: [id])
+  //
+  // Nullable + SetNull (rather than the original Restrict) so a promotion
+  // can be force-deleted (§Promotion delete) even once a member has
+  // actually earned/redeemed it — same reasoning as AppliedDiscount.label
+  // below, which is why the four snapshot fields underneath exist: they
+  // capture what this redemption was actually worth at grant time,
+  // independent of the live Promotion row, so an already-USED redemption's
+  // history never changes and an AVAILABLE one can still be described to
+  // the member/staff (describeBenefit) even after the promotion's gone.
+  // The one real behavior change once a promotion's deleted: an AVAILABLE
+  // redemption for it drops out of checkout's auto-apply picker (there's
+  // no live promotion left to resolve pricing from) and has to be honored
+  // manually via benefits.redeem instead, using this snapshot as the
+  // record of what was promised.
+  promotionId String?
+  promotion   Promotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+
+  promotionNameSnapshot      String
+  promotionTypeSnapshot      DiscountType
+  promotionValueSnapshot     Decimal      @db.Decimal(12, 2)
+  rewardMenuItemNameSnapshot String?
 
   // Free-text context for a direct grant (e.g. "Birthday 2026") — null
   // for an achievement-earned one, where the achievement's own name

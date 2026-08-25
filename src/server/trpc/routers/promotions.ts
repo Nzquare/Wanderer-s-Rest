@@ -173,26 +173,30 @@ export const promotionsRouter = router({
 
   /**
    * True delete. Default is soft-blocked once a promotion has actually been
-   * applied to a bill — staff are steered to Inactive instead — but
-   * `force: true` (an explicit "Delete anyway" in the UI, same pattern as
-   * menu/games) overrides that. Safe to force: AppliedDiscount.promotionId
-   * is nullable + ON DELETE SET NULL, and every AppliedDiscount already
-   * carries its own `label` snapshot of the promotion's name independent of
-   * the live row (see checkout.ts), so no past bill's discount line
-   * changes — only report grouping (buildPromotionUsageReport) folds a
-   * deleted promotion's old usage into the generic "Manual / custom
-   * discount" bucket, same as a deleted game's plays show as "Unknown".
+   * applied to a bill, or has a member benefit redemption tied to it —
+   * staff are steered to Inactive instead — but `force: true` (an explicit
+   * "Delete anyway" in the UI, same pattern as menu/games) overrides both.
+   * Safe to force: AppliedDiscount.promotionId and BenefitRedemption.
+   * promotionId are both nullable + ON DELETE SET NULL, and both already
+   * carry their own snapshot of what the promotion was worth at the time —
+   * AppliedDiscount.label (see checkout.ts), BenefitRedemption's four
+   * promotion*Snapshot fields (see schema comment, @/server/benefit-
+   * snapshot.ts) — independent of the live row, so no past bill or earned
+   * reward's record changes. The one real behavior change: an AVAILABLE
+   * (unclaimed) redemption for a deleted promotion drops out of checkout's
+   * auto-apply picker — there's no live promotion left to resolve pricing
+   * from — and has to be honored manually via benefits.redeem instead,
+   * using the snapshot as the record of what was promised. Report grouping
+   * (buildPromotionUsageReport) also folds a deleted promotion's old
+   * AppliedDiscount usage into the generic "Manual / custom discount"
+   * bucket, same as a deleted game's plays show as "Unknown".
    *
-   * Two other links are never force-able, though — both are live config,
-   * not historical data:
-   * - An Achievement still configured to grant this promotion as its
-   *   reward (§Benefits) — must be unlinked from the achievement first,
-   *   same reasoning as MenuItem's redeemablePromotions guard.
-   * - Any BenefitRedemption (an achievement-earned or directly-granted
-   *   member reward, claimed or not) — promotionId there is required at
-   *   the DB level (ON DELETE RESTRICT), since a redemption has no
-   *   snapshot of its own and needs the live promotion to know what it's
-   *   actually worth, even after it's been used.
+   * One link is never force-able: an Achievement still configured to grant
+   * this promotion as its reward (§Benefits) must be unlinked from the
+   * achievement first, same reasoning as MenuItem's redeemablePromotions
+   * guard — that's live config (what a future unlock gives out), not
+   * historical data, and there's nothing to snapshot for a reward that
+   * hasn't been earned yet.
    */
   remove: manage()
     .input(z.object({ id: z.string(), force: z.boolean().optional() }))
@@ -212,18 +216,17 @@ export const promotionsRouter = router({
           message: `"${promotion.name}" is the reward for an achievement and can't be deleted — remove it from that achievement first, or mark the promotion Inactive instead.`,
         });
       }
-      if (promotion._count.benefitRedemptions > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `"${promotion.name}" has member benefit redemptions tied to it and can't be deleted — mark it Inactive instead.`,
-        });
-      }
-      if (promotion._count.appliedDiscounts > 0 && !input.force) {
+      const hasHistory = promotion._count.appliedDiscounts > 0 || promotion._count.benefitRedemptions > 0;
+      if (hasHistory && !input.force) {
         // CONFLICT (not BAD_REQUEST) so the UI can tell this apart from
-        // the two hard blocks above and offer "Delete anyway".
+        // the achievement hard block above and offer "Delete anyway".
+        const reason =
+          promotion._count.benefitRedemptions > 0
+            ? "has member benefit redemptions tied to it"
+            : "has already been applied to a bill";
         throw new TRPCError({
           code: "CONFLICT",
-          message: `"${promotion.name}" has already been applied to a bill and can't be deleted — mark it Inactive instead, or delete it anyway if you're sure.`,
+          message: `"${promotion.name}" ${reason} and can't be deleted — mark it Inactive instead, or delete it anyway if you're sure.`,
         });
       }
       await ctx.prisma.promotion.delete({ where: { id: input.id } });
@@ -232,7 +235,7 @@ export const promotionsRouter = router({
         action: "PROMOTION_DELETED",
         entityType: "Promotion",
         entityId: input.id,
-        previousValue: { name: promotion.name, hadUsageHistory: promotion._count.appliedDiscounts > 0 },
+        previousValue: { name: promotion.name, hadUsageHistory: hasHistory },
       });
       return { ok: true };
     }),
