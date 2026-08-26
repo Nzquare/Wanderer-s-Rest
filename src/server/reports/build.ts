@@ -173,6 +173,14 @@ export async function buildTransactionsReport(prisma: PrismaClient, range: DateR
     include: {
       table: { select: { code: true, name: true } },
       member: { select: { adventurerName: true } },
+      // Who *closed out* the sale — for a VOIDED session this happens to
+      // be the same staff who voided it (voidSession sets closedById to
+      // whoever it's assigned to), but for a REFUNDED one it's still
+      // whoever originally checked the bill out, not whoever refunded it
+      // later. voidedOrRefundedBy/Reason below is the one that actually
+      // answers "who did the void/refund, and why" (§Transactions:
+      // record void/refund by who and why) — this stays as the separate
+      // "who closed this sale" fact it always was.
       closedBy: { select: { name: true } },
       payments: { where: { status: "COMPLETED" }, select: { method: true, amount: true } },
       receipt: { select: { receiptNumber: true } },
@@ -180,24 +188,59 @@ export async function buildTransactionsReport(prisma: PrismaClient, range: DateR
     orderBy: { endTime: "desc" },
   });
 
-  return sessions.map((s) => ({
-    id: s.id,
-    receiptNumber: s.receipt?.receiptNumber ?? null,
-    endTime: s.endTime,
-    tableCode: s.table.code,
-    tableName: s.table.name,
-    memberName: s.member?.adventurerName ?? null,
-    staffName: s.closedBy?.name ?? null,
-    subtotalTableFee: toNum(s.subtotalTableFee),
-    subtotalFoodDrink: toNum(s.subtotalFoodDrink),
-    discountTotal: toNum(s.discountTotal),
-    taxAmount: toNum(s.taxAmount),
-    serviceChargeAmount: toNum(s.serviceChargeAmount),
-    totalAmount: toNum(s.totalAmount),
-    paymentStatus: s.paymentStatus,
-    paymentMethods: s.payments.map((p) => p.method).join(", "),
-    expAwarded: s.expAwarded,
-  }));
+  // One batched AuditLog lookup for every voided/refunded session in this
+  // page, instead of a query per row — same source buildVoidRefundReport
+  // already reads (staffId + reason are recorded there at the moment of
+  // the action, in sessions.ts's voidSession/refundSession), just merged
+  // directly onto each transaction row here instead of living only in
+  // that separate report.
+  const reversedSessionIds = sessions
+    .filter((s) => s.paymentStatus === "VOIDED" || s.paymentStatus === "REFUNDED")
+    .map((s) => s.id);
+  const reversalLogs = reversedSessionIds.length
+    ? await prisma.auditLog.findMany({
+        where: {
+          entityType: "TableSession",
+          entityId: { in: reversedSessionIds },
+          action: { in: ["VOID_TRANSACTION", "REFUND_TRANSACTION"] },
+        },
+        include: { staff: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+  // Latest entry per session (findMany above is already newest-first) —
+  // in the ordinary case there's exactly one, but this stays correct if
+  // a session were somehow voided/refunded more than once.
+  const reversalBySession = new Map<string, (typeof reversalLogs)[number]>();
+  for (const log of reversalLogs) {
+    if (log.entityId && !reversalBySession.has(log.entityId)) {
+      reversalBySession.set(log.entityId, log);
+    }
+  }
+
+  return sessions.map((s) => {
+    const reversal = reversalBySession.get(s.id);
+    return {
+      id: s.id,
+      receiptNumber: s.receipt?.receiptNumber ?? null,
+      endTime: s.endTime,
+      tableCode: s.table.code,
+      tableName: s.table.name,
+      memberName: s.member?.adventurerName ?? null,
+      staffName: s.closedBy?.name ?? null,
+      subtotalTableFee: toNum(s.subtotalTableFee),
+      subtotalFoodDrink: toNum(s.subtotalFoodDrink),
+      discountTotal: toNum(s.discountTotal),
+      taxAmount: toNum(s.taxAmount),
+      serviceChargeAmount: toNum(s.serviceChargeAmount),
+      totalAmount: toNum(s.totalAmount),
+      paymentStatus: s.paymentStatus,
+      paymentMethods: s.payments.map((p) => p.method).join(", "),
+      expAwarded: s.expAwarded,
+      voidedOrRefundedBy: reversal?.staff?.name ?? null,
+      voidedOrRefundedReason: reversal?.reason ?? null,
+    };
+  });
 }
 
 export type TransactionsReport = Awaited<ReturnType<typeof buildTransactionsReport>>;

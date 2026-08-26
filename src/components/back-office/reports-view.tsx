@@ -93,10 +93,21 @@ function TransactionRow({ tx }: { tx: TransactionRowData }) {
           ฿{tx.totalAmount.toFixed(0)}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">{tx.paymentMethods || "—"}</td>
-        <td className="whitespace-nowrap px-3 py-2">
+        <td className="px-3 py-2">
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[tx.paymentStatus] ?? ""}`}>
             {tx.paymentStatus}
           </span>
+          {/* Who actually did the void/refund and why (§Transactions:
+              record void/refund by who and why) — distinct from the
+              Staff column above, which is whoever originally checked
+              the bill out and, for a REFUNDED one, isn't necessarily
+              the same person. */}
+          {(tx.voidedOrRefundedBy || tx.voidedOrRefundedReason) && (
+            <p className="mt-0.5 max-w-[220px] text-[11px] text-foreground-muted">
+              by {tx.voidedOrRefundedBy ?? "unknown"}
+              {tx.voidedOrRefundedReason ? `: ${tx.voidedOrRefundedReason}` : ""}
+            </p>
+          )}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-right">
           {tx.paymentStatus === "PAID" &&

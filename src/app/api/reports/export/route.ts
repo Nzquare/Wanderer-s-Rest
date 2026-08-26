@@ -117,6 +117,10 @@ function buildTransactionsSheet(
     { header: "Payment method(s)", key: "paymentMethods", width: 20 },
     { header: "Status", key: "paymentStatus", width: 12 },
     { header: "EXP awarded", key: "expAwarded", width: 12 },
+    // Who actually did the void/refund and why (§Transactions: record
+    // void/refund by who and why) — blank for an ordinary PAID row.
+    { header: "Voided/refunded by", key: "voidedOrRefundedBy", width: 18 },
+    { header: "Void/refund reason", key: "voidedOrRefundedReason", width: 28 },
   ];
   sheet.getRow(1).font = { bold: true };
   for (const row of rows) {
