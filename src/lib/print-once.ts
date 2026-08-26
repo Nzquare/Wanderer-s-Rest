@@ -45,9 +45,27 @@ import { flushSync } from "react-dom";
  * no matter which two triggers happened to land close together.
  *
  * The `afterprint` event isn't fully reliable everywhere either (again,
- * iOS) — a short timeout also force-finishes a job as a fallback, so a
- * missed event can't wedge the whole queue. Worst case there: the queue
- * moves on a few seconds later than it ideally would, not "stuck".
+ * iOS — the native share/print sheet can be left open for a while, e.g.
+ * a cashier holding up a PromptPay QR or a printed invoice for a
+ * customer to read before moving on) — a timeout also force-finishes a
+ * job as a fallback, so a missed event can't wedge the whole queue
+ * forever. That fallback alone isn't enough on its own, though: if a
+ * cashier's own next action (e.g. confirming payment, which switches the
+ * checkout screen straight to the receipt) makes an earlier queued job's
+ * print area disappear from the page entirely before that timeout ever
+ * fires, the queue would sit there for the rest of the timeout window
+ * waiting on content that no longer exists — and calling window.print()
+ * again once it *does* move on, while whatever native dialog the earlier
+ * job opened might still be sitting on screen, is exactly the kind of
+ * overlapping-print-call situation browsers behave inconsistently for
+ * (silently ignoring the second call, or showing it before it's actually
+ * populated) — which reads as "confirmed payment, but the receipt just
+ * printed blank" (§confirm payment, nothing prints). printOnce returns a
+ * cancel function for exactly that: a caller whose print area is about
+ * to stop being relevant (case in point: checkout-client.tsx's invoice/
+ * QR print area, right when payment is confirmed and the screen swaps to
+ * the receipt) can release its own place in the queue immediately,
+ * instead of leaving the next job to wait out the timeout.
  */
 interface PrintJob {
   show: () => void;
@@ -55,12 +73,14 @@ interface PrintJob {
 }
 
 let current: PrintJob | null = null;
+let currentFinish: (() => void) | null = null;
 const queue: PrintJob[] = [];
 
 function runNext() {
   const job = queue.shift();
   if (!job) {
     current = null;
+    currentFinish = null;
     return;
   }
   current = job;
@@ -70,16 +90,33 @@ function runNext() {
     settled = true;
     clearTimeout(timeoutId);
     window.removeEventListener("afterprint", finish);
+    currentFinish = null;
     job.hide();
     runNext();
   };
+  currentFinish = finish;
   window.addEventListener("afterprint", finish, { once: true });
-  const timeoutId = setTimeout(finish, 8000);
+  const timeoutId = setTimeout(finish, 3000);
   flushSync(job.show);
   window.print();
 }
 
-export function printOnce(show: () => void, hide: () => void) {
-  queue.push({ show, hide });
+/**
+ * @returns a function the caller can invoke to give up its place in the
+ * queue — a no-op if this job already finished on its own, removes it
+ * from the queue if it hadn't started yet, or force-finishes it (freeing
+ * the queue for whatever's next) if it was the one actually printing.
+ */
+export function printOnce(show: () => void, hide: () => void): () => void {
+  const job: PrintJob = { show, hide };
+  queue.push(job);
   if (!current) runNext();
+  return () => {
+    const idx = queue.indexOf(job);
+    if (idx !== -1) {
+      queue.splice(idx, 1);
+      return;
+    }
+    if (current === job) currentFinish?.();
+  };
 }

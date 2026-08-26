@@ -173,6 +173,10 @@ function ReceiptBody({
             ))}
           </>
         )}
+        <div className="flex justify-between border-t border-dashed border-border pt-1 font-semibold">
+          <span>Subtotal</span>
+          <span>฿{(snapshot.bill.subtotalTableFee + snapshot.bill.subtotalFoodDrink).toFixed(0)}</span>
+        </div>
         {/* A redeemed free item is a separate gift (§Free item
             redemptions), and an EXP_BONUS grants EXP not money (§Award
             EXP as promotion) — neither is a discount, no ฿ figure for
@@ -311,11 +315,17 @@ export function ReceiptView({
   // printOnce queue (see print-once.ts) so it can't land mid-print
   // alongside some other print job triggered elsewhere on the page.
   const autoPrinted = useRef(false);
+  // The most recent printOnce call's own cancel handle — released the
+  // moment "Done" navigates away (see the button below), so a print job
+  // still sitting in the queue (its dialog left open on screen a moment
+  // too long) doesn't delay whatever prints next on a completely
+  // different page (§confirm payment, nothing prints).
+  const cancelPrintRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (autoPrinted.current || !notificationSettings) return;
     if (notificationSettings.autoPrintReceipt) {
       autoPrinted.current = true;
-      printOnce(
+      cancelPrintRef.current = printOnce(
         () => setPrintArmed(true),
         () => setPrintArmed(false),
       );
@@ -425,16 +435,22 @@ export function ReceiptView({
         <Button
           variant="outline"
           className="flex-1"
-          onClick={() =>
-            printOnce(
+          onClick={() => {
+            cancelPrintRef.current = printOnce(
               () => setPrintArmed(true),
               () => setPrintArmed(false),
-            )
-          }
+            );
+          }}
         >
           Print Receipt
         </Button>
-        <Button className="flex-1" onClick={onDone}>
+        <Button
+          className="flex-1"
+          onClick={() => {
+            cancelPrintRef.current?.();
+            onDone();
+          }}
+        >
           Done
         </Button>
       </div>

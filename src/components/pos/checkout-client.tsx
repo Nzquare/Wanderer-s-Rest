@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import type { inferRouterOutputs } from "@trpc/server";
@@ -120,10 +120,22 @@ export function CheckoutClient({
   // without the shared queue an auto-print could still land mid-print
   // and swap which area actually goes to the printer.
   const [printMode, setPrintMode] = useState<"invoice" | "promptpay" | null>(null);
+  // Every printAs call's own cancel handle (see print-once.ts) — held onto
+  // so recordPayment's onSuccess below can release them the instant
+  // payment is confirmed. This page's invoice/QR print areas are about to
+  // be unmounted right then (the return swaps to <ReceiptView>), so if
+  // one of those prints is still sitting in the shared queue — printed,
+  // but its own dialog left open on screen while the cashier collected
+  // payment — there's nothing left worth waiting on, and leaving it
+  // queued would just delay the receipt's own auto-print behind it
+  // (§confirm payment, nothing prints).
+  const pendingPrintCancels = useRef<(() => void)[]>([]);
   function printAs(mode: "invoice" | "promptpay") {
-    printOnce(
-      () => setPrintMode(mode),
-      () => {},
+    pendingPrintCancels.current.push(
+      printOnce(
+        () => setPrintMode(mode),
+        () => {},
+      ),
     );
   }
 
@@ -151,6 +163,12 @@ export function CheckoutClient({
   });
   const recordPayment = trpc.checkout.recordPayment.useMutation({
     onSuccess: async (data) => {
+      // Release any invoice/QR print job still sitting in the shared
+      // queue (see pendingPrintCancels above) before switching to the
+      // receipt — its print area is about to disappear from the page
+      // entirely, so there's nothing left for the queue to wait on.
+      pendingPrintCancels.current.forEach((cancel) => cancel());
+      pendingPrintCancels.current = [];
       setResult(data);
       await Promise.all([
         utils.sessions.listTables.invalidate(),
