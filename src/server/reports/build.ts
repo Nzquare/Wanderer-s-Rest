@@ -252,11 +252,16 @@ export type TransactionsReport = Awaited<ReturnType<typeof buildTransactionsRepo
  * item price), summed per category. groupBy can't do a computed
  * quantity×price sum in Prisma, so this pulls the raw rows and reduces in
  * JS — fine at café-scale order volumes.
+ *
+ * Only counts items from a session that actually got paid — matches
+ * buildSummaryReport's paidSessions convention — so a voided or refunded
+ * sale's items don't inflate category revenue/quantity even though the
+ * OrderItem rows themselves are never deleted (§45 historical data).
  */
 export async function buildSalesByCategoryReport(prisma: PrismaClient, range: DateRange) {
   const { from, to } = range;
   const items = await prisma.orderItem.findMany({
-    where: { order: { createdAt: { gte: from, lte: to } } },
+    where: { order: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } } },
     select: {
       quantity: true,
       unitPriceSnapshot: true,
@@ -290,12 +295,13 @@ export type SalesByCategoryReport = Awaited<ReturnType<typeof buildSalesByCatego
 /**
  * Sales by Product — every menu item ordered in range (full list, not the
  * Overview's top 5), using the same snapshotted-name/price approach as
- * buildSalesByCategoryReport above.
+ * buildSalesByCategoryReport above, including the same paid-sessions-only
+ * filter so voided/refunded sales don't count here either.
  */
 export async function buildSalesByProductReport(prisma: PrismaClient, range: DateRange) {
   const { from, to } = range;
   const items = await prisma.orderItem.findMany({
-    where: { order: { createdAt: { gte: from, lte: to } } },
+    where: { order: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } } },
     select: {
       menuItemId: true,
       nameSnapshotEn: true,
