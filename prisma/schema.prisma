@@ -545,38 +545,78 @@ model OrderItemModifier {
 // Payments / Receipts / Void-Refund (§20, §21, §22)
 // ─────────────────────────────────────────────────────────────────────────
 
-enum PaymentMethod {
-  CASH
-  PROMPTPAY
-  CARD
-  OTHER
-}
-
 enum PaymentRecordStatus {
   COMPLETED
   VOIDED
   REFUNDED
 }
 
+// Payment "methods" used to be a fixed CASH/PROMPTPAY/CARD/OTHER enum —
+// now a Back Office-managed list (§Payment methods — manage your own),
+// so a café can add whatever it actually takes payment through (Grab,
+// Line Man, ...) instead of everything non-standard getting lumped into
+// "Other". Two behavior flags replace what used to be hardcoded to
+// specific enum values:
+// - countsAsCash drives the cash-received/change-due calculator at
+//   checkout AND whether a method's payments count toward the Shift's
+//   physical cash-drawer reconciliation (§Shift open/close) — only Cash
+//   needs this by default. A delivery platform settles separately later
+//   (e.g. a monthly transfer), so no same-day cash or card-terminal
+//   receipt to reconcile.
+// - showQrCode drives the PromptPay QR-code generation/print UI.
+// Both default false and are plain per-method toggles, not hardcoded to
+// a method's code — so a café could flag a second method either way too.
+model PaymentMethod {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  icon         String?
+  countsAsCash Boolean  @default(false)
+  showQrCode   Boolean  @default(false)
+  // Cash/PromptPay/Card/Other ship as permanent built-ins (§Payment
+  // methods — manage your own) — renamable and reorderable, but never
+  // deletable, so the checkout/shift logic that assumes at least a cash
+  // and a QR option exist can't have them pulled out from under it. A
+  // staff-added custom method has this false: freely deletable outright
+  // if it has no payment history yet, or force-deletable (kept as a
+  // snapshot on old payments, §45) if it does.
+  isBuiltIn    Boolean  @default(false)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  payments Payment[]
+}
+
 model Payment {
-  id        String              @id @default(cuid())
-  sessionId String
-  session   TableSession        @relation(fields: [sessionId], references: [id])
-  shiftId   String?
-  shift     Shift?              @relation(fields: [shiftId], references: [id])
-  amount    Decimal             @db.Decimal(12, 2)
-  method    PaymentMethod
-  staffId   String
-  staff     Staff               @relation(fields: [staffId], references: [id])
-  reference String?
-  notes     String?
-  status    PaymentRecordStatus @default(COMPLETED)
-  createdAt DateTime            @default(now())
+  id                 String              @id @default(cuid())
+  sessionId          String
+  session            TableSession        @relation(fields: [sessionId], references: [id])
+  shiftId            String?
+  shift              Shift?              @relation(fields: [shiftId], references: [id])
+  amount             Decimal             @db.Decimal(12, 2)
+  methodId           String?
+  method             PaymentMethod?      @relation(fields: [methodId], references: [id], onDelete: SetNull)
+  // Name at the moment this payment was recorded (§45) — survives a
+  // custom method being renamed or force-deleted later, so an old
+  // payment/receipt/report row still shows what it was actually paid
+  // through instead of falling back to nothing. Always what displays;
+  // the live `method` relation is only for flags (countsAsCash/
+  // showQrCode) that only ever matter for the *current*, still-open shift.
+  methodNameSnapshot String
+  staffId            String
+  staff              Staff               @relation(fields: [staffId], references: [id])
+  reference          String?
+  notes              String?
+  status             PaymentRecordStatus @default(COMPLETED)
+  createdAt          DateTime            @default(now())
 
   refunds Refund[]
 
   @@index([sessionId])
   @@index([shiftId])
+  @@index([methodId])
 }
 
 model Refund {

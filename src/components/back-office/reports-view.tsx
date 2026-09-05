@@ -733,11 +733,17 @@ export function ReportsView() {
 
             <Card className="space-y-3">
               <p className="font-medium text-foreground">Payments</p>
+              {/* Whichever payment methods actually got used in range
+                  (§Payment methods — manage your own) — not a fixed
+                  Cash/PromptPay/Card/Other set, since a café can add its
+                  own (Line Man, Grab, ...) too. */}
               <div className="grid grid-cols-2 gap-3">
-                <Stat label="Cash" value={`฿${data.payments.CASH.toFixed(0)}`} />
-                <Stat label="PromptPay" value={`฿${data.payments.PROMPTPAY.toFixed(0)}`} />
-                <Stat label="Card" value={`฿${data.payments.CARD.toFixed(0)}`} />
-                <Stat label="Other" value={`฿${data.payments.OTHER.toFixed(0)}`} />
+                {data.payments.map((m) => (
+                  <Stat key={m.name} label={m.name} value={`฿${m.total.toFixed(0)}`} />
+                ))}
+                {data.payments.length === 0 && (
+                  <p className="col-span-2 text-sm text-foreground-muted">No payments in range.</p>
+                )}
               </div>
             </Card>
 

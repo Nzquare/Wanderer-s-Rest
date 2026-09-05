@@ -42,7 +42,7 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
       }),
       prisma.payment.findMany({
         where: { createdAt: { gte: from, lte: to }, status: "COMPLETED" },
-        select: { method: true, amount: true },
+        select: { methodNameSnapshot: true, amount: true },
       }),
       prisma.appliedDiscount.findMany({
         where: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } },
@@ -67,8 +67,18 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
   const memberRevenue = memberSessions.reduce((s, x) => s + toNum(x.totalAmount), 0);
   const avgBill = paidSessions.length ? totalRevenue / paidSessions.length : 0;
 
-  const byMethod: Record<string, number> = { CASH: 0, PROMPTPAY: 0, CARD: 0, OTHER: 0 };
-  for (const p of payments) byMethod[p.method] += toNum(p.amount);
+  // Grouped by whichever payment methods actually got used in range
+  // (§Payment methods — manage your own), by name (methodNameSnapshot —
+  // §45, immune to a method being renamed or force-deleted since) rather
+  // than a fixed CASH/PROMPTPAY/CARD/OTHER shape, since a café can take
+  // payment through any custom method (Line Man, Grab, ...) too.
+  const byMethodMap = new Map<string, number>();
+  for (const p of payments) {
+    byMethodMap.set(p.methodNameSnapshot, (byMethodMap.get(p.methodNameSnapshot) ?? 0) + toNum(p.amount));
+  }
+  const byMethod = Array.from(byMethodMap.entries())
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total);
 
   const totalTableMinutes = paidSessions.reduce((s, x) => {
     if (!x.endTime) return s;
@@ -182,7 +192,7 @@ export async function buildTransactionsReport(prisma: PrismaClient, range: DateR
       // record void/refund by who and why) — this stays as the separate
       // "who closed this sale" fact it always was.
       closedBy: { select: { name: true } },
-      payments: { where: { status: "COMPLETED" }, select: { method: true, amount: true } },
+      payments: { where: { status: "COMPLETED" }, select: { methodNameSnapshot: true, amount: true } },
       receipt: { select: { receiptNumber: true } },
     },
     orderBy: { endTime: "desc" },
@@ -235,7 +245,7 @@ export async function buildTransactionsReport(prisma: PrismaClient, range: DateR
       serviceChargeAmount: toNum(s.serviceChargeAmount),
       totalAmount: toNum(s.totalAmount),
       paymentStatus: s.paymentStatus,
-      paymentMethods: s.payments.map((p) => p.method).join(", "),
+      paymentMethods: s.payments.map((p) => p.methodNameSnapshot).join(", "),
       expAwarded: s.expAwarded,
       voidedOrRefundedBy: reversal?.staff?.name ?? null,
       voidedOrRefundedReason: reversal?.reason ?? null,

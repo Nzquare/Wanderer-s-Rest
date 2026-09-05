@@ -89,6 +89,38 @@ async function main() {
     update: {},
   });
 
+  // ── Payment methods (§Payment methods — manage your own) ─────────────
+  // A brand-new install's built-ins — the same four every existing
+  // install already got backfilled with by
+  // 20260905060000_managed_payment_methods's migration SQL (ids differ,
+  // upsert-by-code doesn't care).
+  await prisma.paymentMethod.upsert({
+    where: { code: "CASH" },
+    create: { code: "CASH", name: "Cash", countsAsCash: true, isBuiltIn: true, sortOrder: 0 },
+    update: {},
+  });
+  await prisma.paymentMethod.upsert({
+    where: { code: "PROMPTPAY" },
+    create: {
+      code: "PROMPTPAY",
+      name: "PromptPay / QR",
+      showQrCode: true,
+      isBuiltIn: true,
+      sortOrder: 1,
+    },
+    update: {},
+  });
+  await prisma.paymentMethod.upsert({
+    where: { code: "CARD" },
+    create: { code: "CARD", name: "Card", isBuiltIn: true, sortOrder: 2 },
+    update: {},
+  });
+  await prisma.paymentMethod.upsert({
+    where: { code: "OTHER" },
+    create: { code: "OTHER", name: "Other", isBuiltIn: true, sortOrder: 3 },
+    update: {},
+  });
+
   // ── Reservation types (§9) ───────────────────────────────────────────
   await prisma.reservationType.upsert({
     where: { code: "CASUAL" },

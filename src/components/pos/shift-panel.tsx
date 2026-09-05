@@ -151,22 +151,16 @@ export function ShiftPanel() {
           <span>Starting cash</span>
           <span>฿{shift.startingCash.toFixed(0)}</span>
         </div>
-        <div className="flex justify-between text-sm">
-          <span>Cash sales</span>
-          <span>฿{shift.byMethod.CASH.toFixed(0)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span>PromptPay</span>
-          <span>฿{shift.byMethod.PROMPTPAY.toFixed(0)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span>Card</span>
-          <span>฿{shift.byMethod.CARD.toFixed(0)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span>Other</span>
-          <span>฿{shift.byMethod.OTHER.toFixed(0)}</span>
-        </div>
+        {/* Whichever payment methods actually got used this shift
+            (§Payment methods — manage your own) — not a fixed
+            Cash/PromptPay/Card/Other set, since a café can take payment
+            through its own custom methods (Line Man, Grab, ...) too. */}
+        {shift.byMethod.map((m) => (
+          <div key={m.methodId ?? m.name} className="flex justify-between text-sm">
+            <span>{m.name}</span>
+            <span>฿{m.total.toFixed(0)}</span>
+          </div>
+        ))}
         <div className="flex justify-between border-t border-border pt-2 text-sm font-semibold">
           <span>Total sales ({shift.paymentCount} payments)</span>
           <span>฿{shift.totalSales.toFixed(0)}</span>

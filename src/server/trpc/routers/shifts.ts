@@ -16,11 +16,41 @@ export const shiftsRouter = router({
 
     const payments = await ctx.prisma.payment.findMany({
       where: { shiftId: shift.id, status: "COMPLETED" },
+      select: {
+        amount: true,
+        methodId: true,
+        methodNameSnapshot: true,
+        method: { select: { countsAsCash: true, sortOrder: true } },
+      },
     });
-    const byMethod = { CASH: 0, PROMPTPAY: 0, CARD: 0, OTHER: 0 };
-    for (const p of payments) byMethod[p.method] += toNum(p.amount);
-    const totalSales = Object.values(byMethod).reduce((a, b) => a + b, 0);
-    const expectedCash = toNum(shift.startingCash) + byMethod.CASH;
+    // Grouped by whichever payment methods actually got used this shift
+    // (§Payment methods — manage your own) rather than a fixed
+    // CASH/PROMPTPAY/CARD/OTHER shape — a café could take a payment
+    // through any custom method (Line Man, Grab, ...) too. Keyed by
+    // methodId when the method still exists, falling back to the frozen
+    // name for one that's since been force-deleted (still grouped
+    // correctly, just with no live countsAsCash to read — treated as not
+    // cash, the safe default per PaymentMethod's own doc comment).
+    const byMethodMap = new Map<
+      string,
+      { methodId: string | null; name: string; total: number; countsAsCash: boolean; sortOrder: number }
+    >();
+    for (const p of payments) {
+      const key = p.methodId ?? `deleted:${p.methodNameSnapshot}`;
+      const existing = byMethodMap.get(key) ?? {
+        methodId: p.methodId,
+        name: p.methodNameSnapshot,
+        total: 0,
+        countsAsCash: p.method?.countsAsCash ?? false,
+        sortOrder: p.method?.sortOrder ?? 999,
+      };
+      existing.total += toNum(p.amount);
+      byMethodMap.set(key, existing);
+    }
+    const byMethod = Array.from(byMethodMap.values()).sort((a, b) => a.sortOrder - b.sortOrder);
+    const totalSales = byMethod.reduce((s, m) => s + m.total, 0);
+    const cashTotal = byMethod.filter((m) => m.countsAsCash).reduce((s, m) => s + m.total, 0);
+    const expectedCash = toNum(shift.startingCash) + cashTotal;
 
     return {
       id: shift.id,
@@ -71,8 +101,12 @@ export const shiftsRouter = router({
       if (!shift || shift.status !== "OPEN") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Shift is not open." });
       }
+      // Only payments through a method flagged countsAsCash count toward
+      // the physical drawer (§Payment methods — manage your own) — a
+      // relation filter naturally excludes a payment whose method was
+      // since force-deleted (methodId null), which is the safe default.
       const payments = await ctx.prisma.payment.findMany({
-        where: { shiftId: shift.id, status: "COMPLETED", method: "CASH" },
+        where: { shiftId: shift.id, status: "COMPLETED", method: { countsAsCash: true } },
       });
       const cashTotal = payments.reduce((s, p) => s + toNum(p.amount), 0);
       const expectedCash = toNum(shift.startingCash) + cashTotal;
@@ -113,8 +147,12 @@ export const shiftsRouter = router({
       if (!shift || shift.status !== "OPEN") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Shift is not open." });
       }
+      // Only payments through a method flagged countsAsCash count toward
+      // the physical drawer (§Payment methods — manage your own) — a
+      // relation filter naturally excludes a payment whose method was
+      // since force-deleted (methodId null), which is the safe default.
       const payments = await ctx.prisma.payment.findMany({
-        where: { shiftId: shift.id, status: "COMPLETED", method: "CASH" },
+        where: { shiftId: shift.id, status: "COMPLETED", method: { countsAsCash: true } },
       });
       const cashTotal = payments.reduce((s, p) => s + toNum(p.amount), 0);
       const expectedCash = toNum(shift.startingCash) + cashTotal;

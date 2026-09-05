@@ -61,11 +61,13 @@ export default async function BackOfficeDashboard() {
     prisma.staff.count({ where: { status: "ACTIVE" } }),
   ]);
 
+  // Only payments through a method flagged countsAsCash (§Payment
+  // methods — manage your own) count toward the physical drawer.
   const shiftCashTotal = openShift
     ? toNum(
         (
           await prisma.payment.aggregate({
-            where: { shiftId: openShift.id, status: "COMPLETED", method: "CASH" },
+            where: { shiftId: openShift.id, status: "COMPLETED", method: { countsAsCash: true } },
             _sum: { amount: true },
           })
         )._sum.amount,
@@ -193,16 +195,21 @@ export default async function BackOfficeDashboard() {
           )}
         </Card>
 
-        {/* Payment methods today */}
+        {/* Payment methods today — whichever ones actually got used
+            (§Payment methods — manage your own), not a fixed
+            Cash/PromptPay/Card/Other set. */}
         <Card>
           <h2 className="mb-3 text-sm font-semibold text-foreground">Payments today</h2>
           <div className="space-y-2 text-sm">
-            {(["CASH", "PROMPTPAY", "CARD", "OTHER"] as const).map((method) => (
-              <div key={method} className="flex items-center justify-between">
-                <span className="text-foreground-muted">{method === "PROMPTPAY" ? "PromptPay" : method.charAt(0) + method.slice(1).toLowerCase()}</span>
-                <span className="font-medium text-foreground">฿{summary.payments[method].toFixed(0)}</span>
+            {summary.payments.map((m) => (
+              <div key={m.name} className="flex items-center justify-between">
+                <span className="text-foreground-muted">{m.name}</span>
+                <span className="font-medium text-foreground">฿{m.total.toFixed(0)}</span>
               </div>
             ))}
+            {summary.payments.length === 0 && (
+              <p className="text-foreground-muted">No payments yet today.</p>
+            )}
           </div>
         </Card>
       </div>

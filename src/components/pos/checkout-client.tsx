@@ -20,8 +20,6 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 type CheckoutResult = RouterOutputs["checkout"]["recordPayment"];
 type CategoryGroup = RouterOutputs["checkout"]["getPreview"]["itemsByCategory"][number];
 
-type PaymentMethod = "CASH" | "PROMPTPAY" | "CARD" | "OTHER";
-
 /**
  * Order items grouped by their menu category — Drinks, Snacks, Goods,
  * whatever categories exist — each its own subtotal line, instead of one
@@ -61,12 +59,14 @@ function ItemsByCategoryLines({ groups, compact }: { groups: CategoryGroup[]; co
 
 interface PaymentRow {
   key: string;
-  method: PaymentMethod;
+  /** A PaymentMethod id (§Payment methods — manage your own), or "" while
+   * the methods list is still loading. */
+  methodId: string;
   amount: string;
-  /** CASH only — what the customer actually handed over, purely for the
-   * change-due calculator below. Never sent to recordPayment; `amount`
-   * (locked to the remaining balance for a single cash payment, same as
-   * PROMPTPAY) is what's recorded as paid. */
+  /** Cash-like methods only (countsAsCash) — what the customer actually
+   * handed over, purely for the change-due calculator below. Never sent
+   * to recordPayment; `amount` (locked to the remaining balance for a
+   * single payment, same as any QR method) is what's recorded as paid. */
   cashReceived: string;
 }
 
@@ -89,6 +89,14 @@ export function CheckoutClient({
   // it always did (§Receipt settings wiring).
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
 
+  // Active payment methods (§Payment methods — manage your own) — Back
+  // Office-managed now, not a fixed Cash/PromptPay/Card/Other set, so a
+  // café can add its own (Line Man, Grab, ...). methodsById drives every
+  // per-row behavior below (cash-received UI, QR code) instead of a
+  // hardcoded string comparison against a specific method's code.
+  const { data: paymentMethods } = trpc.paymentMethods.list.useQuery();
+  const methodsById = new Map((paymentMethods ?? []).map((m) => [m.id, m]));
+
   // PromotionPicker (shared with the table page — §Table-page promotions)
   // owns the "Add promotion" popup itself: every active promotion,
   // one-tap Apply for eligible ones, inline reason-gated override for
@@ -102,8 +110,17 @@ export function CheckoutClient({
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [payments, setPayments] = useState<PaymentRow[]>([
-    { key: "p1", method: "CASH", amount: "", cashReceived: "" },
+    { key: "p1", methodId: "", amount: "", cashReceived: "" },
   ]);
+  // Payment methods load async, so a row can start (or, for a new split
+  // row added before they're in, briefly sit) at methodId: "" — resolved
+  // to whichever active method counts as cash, falling back to the first
+  // one, everywhere a row's *effective* method actually matters below.
+  // Never written back into state itself — the cashier's own pick (via
+  // the select's onChange) is the only thing that does that.
+  const defaultMethodId =
+    (paymentMethods ?? []).find((m) => m.countsAsCash)?.id ?? paymentMethods?.[0]?.id ?? "";
+  const effectiveMethodId = (p: PaymentRow) => p.methodId || defaultMethodId;
   const [result, setResult] = useState<CheckoutResult | null>(null);
   // Which hidden print area is "armed" for the next window.print() —
   // invoice and the PromptPay QR slip can both be in the DOM at once on
@@ -245,7 +262,7 @@ export function CheckoutClient({
   // call below applies.
   const cashRowIssues = payments
     .map((p, i) => ({ ...p, effectiveAmount: effectiveAmounts[i] }))
-    .filter((p) => p.method === "CASH" && p.effectiveAmount > 0);
+    .filter((p) => methodsById.get(effectiveMethodId(p))?.countsAsCash && p.effectiveAmount > 0);
   const cashReceivedMissing = cashRowIssues.some((p) => !(Number(p.cashReceived) > 0));
   const cashReceivedShort = cashRowIssues.some(
     (p) => Number(p.cashReceived) > 0 && Number(p.cashReceived) < p.effectiveAmount,
@@ -573,7 +590,7 @@ export function CheckoutClient({
       <Card className="space-y-3">
         <p className="text-sm font-medium text-foreground-muted">Payment</p>
         {payments.map((p, i) => {
-          const isCash = p.method === "CASH";
+          const isCash = methodsById.get(effectiveMethodId(p))?.countsAsCash ?? false;
           const isLocked = !isSplitPayment;
           const received = Number(p.cashReceived) || 0;
           const change = received - effectiveAmounts[i];
@@ -581,22 +598,21 @@ export function CheckoutClient({
           <div key={p.key} className="space-y-1">
           <div className="flex items-center gap-2">
             <select
-              value={p.method}
+              value={effectiveMethodId(p)}
               onChange={(e) =>
                 setPayments((rows) =>
                   rows.map((r) =>
-                    r.key === p.key
-                      ? { ...r, method: e.target.value as PaymentMethod }
-                      : r,
+                    r.key === p.key ? { ...r, methodId: e.target.value } : r,
                   ),
                 )
               }
               className="h-11 rounded-lg border border-border bg-background px-2 text-sm"
             >
-              <option value="PROMPTPAY">PromptPay / QR</option>
-              <option value="CASH">Cash</option>
-              <option value="CARD">Card</option>
-              <option value="OTHER">Other</option>
+              {(paymentMethods ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
             </select>
             {isLocked ? (
               <div className="flex h-11 flex-1 items-center rounded-lg border border-border bg-background px-2 text-sm text-foreground-muted">
@@ -634,7 +650,10 @@ export function CheckoutClient({
                     ...rows,
                     {
                       key: `p${rows.length + 1}-${Date.now()}`,
-                      method: "CASH",
+                      methodId:
+                        paymentMethods?.find((m) => m.countsAsCash)?.id ??
+                        paymentMethods?.[0]?.id ??
+                        "",
                       amount: "",
                       cashReceived: "",
                     },
@@ -679,7 +698,9 @@ export function CheckoutClient({
           );
         })}
         {(() => {
-          const promptPayIndex = payments.findIndex((p) => p.method === "PROMPTPAY");
+          const promptPayIndex = payments.findIndex(
+            (p) => methodsById.get(effectiveMethodId(p))?.showQrCode,
+          );
           if (promptPayIndex === -1) return null;
           const qrAmount = effectiveAmounts[promptPayIndex];
           if (!checkoutSettings?.promptpayId) {
@@ -750,20 +771,23 @@ export function CheckoutClient({
             Math.abs(remaining) > 0.5 ||
             recordPayment.isPending ||
             cashReceivedMissing ||
-            cashReceivedShort
+            cashReceivedShort ||
+            // Payment methods still loading, or a row somehow ended up
+            // without one selected — nothing to actually submit yet.
+            payments.some((p, i) => effectiveAmounts[i] > 0 && !effectiveMethodId(p))
           }
           onClick={() =>
             recordPayment.mutate({
               sessionId,
               payments: payments
                 .map((p, i) => ({
-                  method: p.method,
+                  methodId: effectiveMethodId(p),
                   amount: effectiveAmounts[i],
-                  // Only meaningful for cash, and only when the cashier
-                  // actually typed one — the receipt shows what was
-                  // tendered and the change given when present.
+                  // Only meaningful for a cash-like method, and only when
+                  // the cashier actually typed one — the receipt shows
+                  // what was tendered and the change given when present.
                   cashReceived:
-                    p.method === "CASH" && Number(p.cashReceived) > 0
+                    methodsById.get(effectiveMethodId(p))?.countsAsCash && Number(p.cashReceived) > 0
                       ? Number(p.cashReceived)
                       : undefined,
                 }))

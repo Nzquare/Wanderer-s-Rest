@@ -1012,16 +1012,19 @@ export const checkoutRouter = router({
         // total genuinely is ฿0.
         payments: z.array(
           z.object({
-            method: z.enum(["CASH", "PROMPTPAY", "CARD", "OTHER"]),
+            // A Back Office-managed PaymentMethod id (§Payment methods —
+            // manage your own), not a fixed enum value anymore.
+            methodId: z.string(),
             amount: z.number().positive(),
             reference: z.string().optional(),
-            // CASH only — what the customer actually handed over
-            // (checkout-client.tsx's change-due calculator). Never part
-            // of the money actually owed/recorded (`amount` already is
-            // that, and the drawer only ever nets `amount` either way —
-            // the ฿100-in/฿40-change split isn't a separate financial
-            // fact anything else needs) — carried through only so the
-            // receipt can show what was tendered and the change given.
+            // Cash-like methods only (countsAsCash) — what the customer
+            // actually handed over (checkout-client.tsx's change-due
+            // calculator). Never part of the money actually owed/recorded
+            // (`amount` already is that, and the drawer only ever nets
+            // `amount` either way — the ฿100-in/฿40-change split isn't a
+            // separate financial fact anything else needs) — carried
+            // through only so the receipt can show what was tendered and
+            // the change given.
             cashReceived: z.number().positive().optional(),
           }),
         ),
@@ -1059,6 +1062,20 @@ export const checkoutRouter = router({
           });
         }
 
+        // Every payment row's method resolved up front — both to reject
+        // an id that doesn't exist, and to freeze each one's display name
+        // into methodNameSnapshot (§45) so a method renamed or force-
+        // deleted later doesn't change what this bill's receipt/reports
+        // show.
+        const methodIds = [...new Set(input.payments.map((p) => p.methodId))];
+        const methods = await tx.paymentMethod.findMany({ where: { id: { in: methodIds } } });
+        const methodById = new Map(methods.map((m) => [m.id, m]));
+        for (const id of methodIds) {
+          if (!methodById.has(id)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown payment method." });
+          }
+        }
+
         // One round trip for every payment row instead of N sequential
         // ones — each interactive transaction only gets a few seconds
         // (§getSettings) before Postgres/Prisma calls it expired, so every
@@ -1068,7 +1085,8 @@ export const checkoutRouter = router({
             sessionId: session.id,
             shiftId: openShift.id,
             amount: p.amount,
-            method: p.method,
+            methodId: p.methodId,
+            methodNameSnapshot: methodById.get(p.methodId)!.name,
             reference: p.reference,
             staffId: ctx.staff.id,
           })),
@@ -1263,7 +1281,11 @@ export const checkoutRouter = router({
           ],
           bill,
           payments: input.payments.map((p) => ({
-            method: p.method,
+            // The method's display name at payment time (§45), not its
+            // raw code — a custom method (e.g. "Line Man") reads fine
+            // here where the old fixed enum's ALL_CAPS codes never would
+            // have.
+            method: methodById.get(p.methodId)!.name,
             amount: p.amount,
             cashReceived: p.cashReceived,
             change: p.cashReceived != null ? p.cashReceived - p.amount : undefined,

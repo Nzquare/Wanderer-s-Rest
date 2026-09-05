@@ -60,10 +60,12 @@ function buildSummarySheet(workbook: ExcelJS.Workbook, report: SummaryReport) {
 
   sheet.addRow({});
   section("Payments");
-  stat("Cash (฿)", report.payments.CASH.toFixed(2));
-  stat("PromptPay (฿)", report.payments.PROMPTPAY.toFixed(2));
-  stat("Card (฿)", report.payments.CARD.toFixed(2));
-  stat("Other (฿)", report.payments.OTHER.toFixed(2));
+  // Whichever payment methods actually got used in range (§Payment
+  // methods — manage your own), not a fixed Cash/PromptPay/Card/Other
+  // set.
+  for (const m of report.payments) {
+    stat(`${m.name} (฿)`, m.total.toFixed(2));
+  }
 
   sheet.addRow({});
   section("Tables");

@@ -20,6 +20,11 @@ const NAV_ITEMS: { href: string; label: string; permission?: Permission }[] = [
   { href: "/back-office", label: "Dashboard" },
   { href: "/back-office/tables", label: "Tables", permission: Permission.MANAGE_TABLES },
   { href: "/back-office/pricing", label: "Pricing", permission: Permission.MANAGE_SETTINGS },
+  {
+    href: "/back-office/payment-methods",
+    label: "Payment Methods",
+    permission: Permission.MANAGE_SETTINGS,
+  },
   { href: "/back-office/menu", label: "Menu", permission: Permission.MANAGE_MENU },
   { href: "/back-office/games", label: "Game Library", permission: Permission.MANAGE_GAMES },
   { href: "/back-office/members", label: "Members", permission: Permission.MANAGE_MEMBERS },
