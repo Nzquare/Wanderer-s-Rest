@@ -45,7 +45,7 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
         select: { method: true, amount: true },
       }),
       prisma.appliedDiscount.findMany({
-        where: { createdAt: { gte: from, lte: to } },
+        where: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } },
         select: { amount: true, label: true, promotion: { select: { type: true } } },
       }),
       prisma.tableSession.findMany({
@@ -79,14 +79,14 @@ export async function buildSummaryReport(prisma: PrismaClient, range: DateRange)
   const [topItems, topGames, topAchievements] = await Promise.all([
     prisma.orderItem.groupBy({
       by: ["nameSnapshotEn"],
-      where: { order: { createdAt: { gte: from, lte: to } } },
+      where: { order: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } } },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: 5,
     }),
     prisma.gameSession.groupBy({
       by: ["gameId"],
-      where: { playedAt: { gte: from, lte: to } },
+      where: { playedAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } },
       _count: { _all: true },
       orderBy: { _count: { gameId: "desc" } },
       take: 5,
@@ -339,12 +339,19 @@ export async function buildSalesByProductReport(prisma: PrismaClient, range: Dat
 
 export type SalesByProductReport = Awaited<ReturnType<typeof buildSalesByProductReport>>;
 
-/** Games Played — every game recorded in range (full list, not the Overview's top 5). */
+/**
+ * Games Played — every game recorded in range (full list, not the Overview's
+ * top 5). Only counts plays whose session actually got paid — same
+ * paid-sessions-only convention as the sales reports above — so a game
+ * logged against a table that was later voided or refunded doesn't count
+ * as a real play. The GameSession row itself is never deleted (§45
+ * historical data), just excluded from this total.
+ */
 export async function buildGamesPlayedReport(prisma: PrismaClient, range: DateRange) {
   const { from, to } = range;
   const grouped = await prisma.gameSession.groupBy({
     by: ["gameId"],
-    where: { playedAt: { gte: from, lte: to } },
+    where: { playedAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } },
     _count: { _all: true },
     orderBy: { _count: { gameId: "desc" } },
   });
@@ -382,11 +389,19 @@ export type GamesPlayedReport = Awaited<ReturnType<typeof buildGamesPlayedReport
  * how much it discounted in total. Manual/custom discounts (not tied to a
  * Promotion row — see checkout.applyManualDiscount) are grouped together
  * under a single "Manual / custom discount" row rather than dropped.
+ *
+ * Only counts a discount whose session actually got paid — same
+ * paid-sessions-only convention as the sales reports above. An applied
+ * discount on a bill that was later voided or refunded never became a
+ * real discount anyone kept, so it shouldn't inflate a promotion's usage
+ * count or total ฿ discounted here; the AppliedDiscount row itself is
+ * left alone (§45 historical data), and still shows up on that specific
+ * bill in the Transactions report and Void & Refund Detail.
  */
 export async function buildPromotionUsageReport(prisma: PrismaClient, range: DateRange) {
   const { from, to } = range;
   const discounts = await prisma.appliedDiscount.findMany({
-    where: { createdAt: { gte: from, lte: to } },
+    where: { createdAt: { gte: from, lte: to }, session: { paymentStatus: "PAID" } },
     select: { promotionId: true, amount: true, promotion: { select: { name: true, type: true } } },
   });
 
