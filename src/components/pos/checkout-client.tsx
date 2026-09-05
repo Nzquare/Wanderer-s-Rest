@@ -114,12 +114,14 @@ export function CheckoutClient({
   ]);
   // Payment methods load async, so a row can start (or, for a new split
   // row added before they're in, briefly sit) at methodId: "" — resolved
-  // to whichever active method counts as cash, falling back to the first
-  // one, everywhere a row's *effective* method actually matters below.
-  // Never written back into state itself — the cashier's own pick (via
-  // the select's onChange) is the only thing that does that.
-  const defaultMethodId =
-    (paymentMethods ?? []).find((m) => m.countsAsCash)?.id ?? paymentMethods?.[0]?.id ?? "";
+  // to whichever one Back Office has first (§Payment methods — manage
+  // your own; the same order the dropdown below lists them in), so the
+  // default at checkout is whatever a café itself put first there —
+  // PromptPay ahead of Cash by default, not a fixed preference for
+  // whichever counts as cash. Never written back into state itself — the
+  // cashier's own pick (via the select's onChange) is the only thing
+  // that does that.
+  const defaultMethodId = paymentMethods?.[0]?.id ?? "";
   const effectiveMethodId = (p: PaymentRow) => p.methodId || defaultMethodId;
   const [result, setResult] = useState<CheckoutResult | null>(null);
   // Which hidden print area is "armed" for the next window.print() —
@@ -650,10 +652,7 @@ export function CheckoutClient({
                     ...rows,
                     {
                       key: `p${rows.length + 1}-${Date.now()}`,
-                      methodId:
-                        paymentMethods?.find((m) => m.countsAsCash)?.id ??
-                        paymentMethods?.[0]?.id ??
-                        "",
+                      methodId: defaultMethodId,
                       amount: "",
                       cashReceived: "",
                     },

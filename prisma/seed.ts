@@ -95,19 +95,19 @@ async function main() {
   // 20260905060000_managed_payment_methods's migration SQL (ids differ,
   // upsert-by-code doesn't care).
   await prisma.paymentMethod.upsert({
-    where: { code: "CASH" },
-    create: { code: "CASH", name: "Cash", countsAsCash: true, isBuiltIn: true, sortOrder: 0 },
-    update: {},
-  });
-  await prisma.paymentMethod.upsert({
     where: { code: "PROMPTPAY" },
     create: {
       code: "PROMPTPAY",
       name: "PromptPay / QR",
       showQrCode: true,
       isBuiltIn: true,
-      sortOrder: 1,
+      sortOrder: 0,
     },
+    update: {},
+  });
+  await prisma.paymentMethod.upsert({
+    where: { code: "CASH" },
+    create: { code: "CASH", name: "Cash", countsAsCash: true, isBuiltIn: true, sortOrder: 1 },
     update: {},
   });
   await prisma.paymentMethod.upsert({
