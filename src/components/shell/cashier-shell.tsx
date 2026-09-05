@@ -5,6 +5,7 @@ import type { CafeSettings } from "@/server/settings/schema";
 import { canAccessBackOffice } from "@/server/rbac/can";
 import { pickLogo } from "@/lib/pick-logo";
 import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
+import { StaleShiftBanner } from "@/components/pos/stale-shift-banner";
 
 const NAV_ITEMS = [
   { href: "/cashier", label: "Tables" },
@@ -77,6 +78,7 @@ export function CashierShell({
           </Link>
         ))}
       </nav>
+      <StaleShiftBanner />
       <OrderAlertBanner />
       <main className="flex-1 p-3 md:p-6">{children}</main>
     </div>

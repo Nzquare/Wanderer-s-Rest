@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, permissionProcedure, cashierProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
+import { logAudit } from "@/server/audit";
 
 export const shiftsRouter = router({
   getCurrent: cashierProcedure.query(async ({ ctx }) => {
@@ -91,5 +92,55 @@ export const shiftsRouter = router({
       });
 
       return { expectedCash, actualCashCounted: input.actualCashCounted, cashDifference };
+    }),
+
+  /**
+   * Closes an abandoned shift with no physical cash count (§Automatic
+   * shift close) — for when whoever had it open is gone and it's blocking
+   * a new shift from opening (only one may be OPEN at a time), not a
+   * substitute for the normal close above. actualCashCounted/
+   * cashDifference are deliberately left null, unlike a normal close,
+   * since there's nothing to compare — a shift closed this way is never
+   * mistakable for a reconciled one. The reason is required and goes on
+   * the shift's own notes (same "[TAG by name: reason]" convention
+   * voidSession/refundSession already use) as well as the audit log, so
+   * it's clear on the shift itself why no count happened.
+   */
+  forceClose: permissionProcedure(Permission.CLOSE_SHIFT)
+    .input(z.object({ shiftId: z.string(), reason: z.string().min(1).max(300) }))
+    .mutation(async ({ ctx, input }) => {
+      const shift = await ctx.prisma.shift.findUnique({ where: { id: input.shiftId } });
+      if (!shift || shift.status !== "OPEN") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Shift is not open." });
+      }
+      const payments = await ctx.prisma.payment.findMany({
+        where: { shiftId: shift.id, status: "COMPLETED", method: "CASH" },
+      });
+      const cashTotal = payments.reduce((s, p) => s + toNum(p.amount), 0);
+      const expectedCash = toNum(shift.startingCash) + cashTotal;
+
+      await ctx.prisma.shift.update({
+        where: { id: shift.id },
+        data: {
+          status: "CLOSED",
+          closedById: ctx.staff.id,
+          closedAt: new Date(),
+          expectedCash,
+          notes: shift.notes
+            ? `${shift.notes}\n[FORCE-CLOSED by ${ctx.staff.name}: ${input.reason}]`
+            : `[FORCE-CLOSED by ${ctx.staff.name}: ${input.reason}]`,
+        },
+      });
+
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "SHIFT_FORCE_CLOSED",
+        entityType: "Shift",
+        entityId: shift.id,
+        newValue: { expectedCash },
+        reason: input.reason,
+      });
+
+      return { ok: true, expectedCash };
     }),
 });
