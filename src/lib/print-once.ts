@@ -66,6 +66,20 @@ import { flushSync } from "react-dom";
  * QR print area, right when payment is confirmed and the screen swaps to
  * the receipt) can release its own place in the queue immediately,
  * instead of leaving the next job to wait out the timeout.
+ *
+ * That cancellation alone still wasn't enough (§confirm payment, nothing
+ * prints — round 2, cash): releasing our own queue bookkeeping doesn't
+ * tell the browser/OS that the *previous* window.print() call is done
+ * settling — on the async-handoff browsers described above, the earlier
+ * native dialog/share sheet can still be transitioning onto the screen at
+ * the exact moment the next job calls window.print() again, which is the
+ * overlapping-call situation flagged above and produced exactly that
+ * pattern: a dialog opens for the receipt, but it's blank, because the
+ * print engine was still busy with the invoice/QR job a moment before.
+ * runNext below gives every job a short pause between committing its own
+ * content (flushSync) and actually calling window.print(), so a job that
+ * starts immediately after another was just force-finished has a beat
+ * for that to actually settle first, instead of firing right on top of it.
  */
 interface PrintJob {
   show: () => void;
@@ -85,10 +99,12 @@ function runNext() {
   }
   current = job;
   let settled = false;
+  let printTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
   const finish = () => {
     if (settled) return;
     settled = true;
-    clearTimeout(timeoutId);
+    clearTimeout(finishTimeoutId);
+    clearTimeout(printTimeoutId);
     window.removeEventListener("afterprint", finish);
     currentFinish = null;
     job.hide();
@@ -96,9 +112,13 @@ function runNext() {
   };
   currentFinish = finish;
   window.addEventListener("afterprint", finish, { once: true });
-  const timeoutId = setTimeout(finish, 3000);
+  const finishTimeoutId = setTimeout(finish, 3000);
   flushSync(job.show);
-  window.print();
+  // The pause itself (see the doc comment above) — not "wait for the
+  // previous dialog to close" (there's no reliable cross-browser signal
+  // for that), just enough of a gap that this job's own window.print()
+  // never lands in the exact same tick as a just-force-finished one's.
+  printTimeoutId = setTimeout(() => window.print(), 400);
 }
 
 /**
