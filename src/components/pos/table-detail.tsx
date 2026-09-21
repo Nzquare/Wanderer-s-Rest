@@ -803,8 +803,8 @@ export function TableDetail({
                     {notesSection}
                   </div>
                   <div className="space-y-4">
-                    {ordersSection}
                     {addOrderSection}
+                    {ordersSection}
                   </div>
                 </div>
                 {splitBillModal}
@@ -852,8 +852,8 @@ export function TableDetail({
                   </>
                 ) : (
                   <>
-                    {ordersSection}
                     {addOrderSection}
+                    {ordersSection}
                   </>
                 )}
               </div>
