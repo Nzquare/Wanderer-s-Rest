@@ -208,4 +208,61 @@ describe("computeTableFee", () => {
     });
     expect(result.total).toBe(1000);
   });
+
+  it("mixes pricing types at one table — a player's own override wins over the table's default", () => {
+    const student = { ...regular, hourlyRate: 50 };
+    const now = new Date("2026-01-01T11:00:00Z"); // 1h elapsed for both
+    const start = new Date("2026-01-01T10:00:00Z");
+    const result = computeTableFee({
+      pricingType: regular, // table default: Regular
+      now,
+      players: [
+        {
+          id: "p1",
+          startTime: start,
+          pausedAt: null,
+          accumulatedPausedMs: 0,
+          endTime: null,
+          status: "ACTIVE",
+          // No override — bills at the table's own Regular rate.
+        },
+        {
+          id: "p2",
+          startTime: start,
+          pausedAt: null,
+          accumulatedPausedMs: 0,
+          endTime: null,
+          status: "ACTIVE",
+          pricingType: student, // overridden to Student rate
+        },
+      ],
+    });
+    const p1 = result.lines.find((l) => l.playerId === "p1")!;
+    const p2 = result.lines.find((l) => l.playerId === "p2")!;
+    expect(p1.fee).toBe(60); // 1h * regular's 60/hr
+    expect(p2.fee).toBe(50); // 1h * student's 50/hr
+    expect(result.total).toBe(110);
+  });
+
+  it("ignores a player override when the table's own type is a flat (non-per-person) charge", () => {
+    const flatHourly = { ...regular, perPerson: false };
+    const now = new Date("2026-01-01T11:00:00Z");
+    const start = new Date("2026-01-01T10:00:00Z");
+    const result = computeTableFee({
+      pricingType: flatHourly,
+      now,
+      players: [
+        {
+          id: "p1",
+          startTime: start,
+          pausedAt: null,
+          accumulatedPausedMs: 0,
+          endTime: null,
+          status: "ACTIVE",
+          pricingType: { ...regular, hourlyRate: 50 }, // no effect here
+        },
+      ],
+    });
+    expect(result.total).toBe(60); // still the flat table rate, override ignored
+  });
 });

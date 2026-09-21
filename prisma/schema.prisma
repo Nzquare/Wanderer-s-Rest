@@ -217,8 +217,9 @@ model PricingType {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  sessions     TableSession[]
-  reservations Reservation[]
+  sessions       TableSession[]
+  reservations   Reservation[]
+  sessionPlayers SessionPlayer[]
 }
 
 model Package {
@@ -326,12 +327,23 @@ model SessionPlayer {
   pausedAt            DateTime?
   accumulatedPausedMs BigInt            @default(0)
   endTime             DateTime?
+  // Per-player pricing override (§Mixed pricing per table) — null means
+  // "use the table's own pricingType" (TableSession.pricingTypeId), same
+  // as always. Lets one table mix e.g. Student and Regular players
+  // instead of billing everyone at the table's single rate. Only takes
+  // effect while the table's own pricing type bills per person
+  // (perPerson: true) — src/server/domain/pricing.ts's computeTableFee
+  // ignores it for a flat whole-table charge, since there's no single
+  // player to attribute a different rate to there.
+  pricingTypeId       String?
+  pricingType         PricingType?      @relation(fields: [pricingTypeId], references: [id])
   addedById           String?
   addedBy             Staff?            @relation(fields: [addedById], references: [id])
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
   @@index([sessionId])
+  @@index([pricingTypeId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

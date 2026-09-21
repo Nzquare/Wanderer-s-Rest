@@ -22,7 +22,9 @@ import type { Prisma } from "@/generated/prisma/client";
 
 const checkoutInclude = {
   table: true,
-  players: true,
+  // pricingType included per player too (§Mixed pricing per table) so
+  // computeBreakdown can bill an overridden player at their own rate.
+  players: { include: { pricingType: true } },
   pricingType: true,
   package: true,
   // class included so the receipt (§Receipt member details) can show it
@@ -149,6 +151,20 @@ async function computeBreakdown(
     pricingType: toPricingConfig(session.pricingType),
     players: session.players.map(toPlayerRecord),
   });
+  // Labels each fee line with the pricing type actually billed — the
+  // player's own override if set, else the table's own type (§Mixed
+  // pricing per table) — so the bill/receipt can show e.g. "P1 Student"
+  // next to "P2 Regular" instead of implying everyone paid the same rate.
+  // Kept as a separate display-only array rather than folded into
+  // `tableFee.lines` itself — that stays the plain domain shape
+  // src/server/domain/pricing.ts returns, with no display concerns.
+  const playerNameById = new Map(
+    session.players.map((p) => [p.id, p.pricingType?.name ?? session.pricingType?.name ?? null]),
+  );
+  const tableFeeLines = tableFee.lines.map((line) => ({
+    ...line,
+    pricingTypeName: playerNameById.get(line.playerId) ?? session.pricingType?.name ?? null,
+  }));
   const foodDrinkItems = session.orders.flatMap((o) =>
     o.items.map((i) => ({
       id: i.id,
@@ -243,6 +259,7 @@ async function computeBreakdown(
 
   return {
     tableFee,
+    tableFeeLines,
     foodDrinkItems,
     foodDrinkSubtotal,
     itemsByCategory,
@@ -343,7 +360,7 @@ export const checkoutRouter = router({
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForCheckout(ctx.prisma, input.sessionId);
-      const { tableFee, foodDrinkItems, itemsByCategory, bill, rankDiscount } =
+      const { tableFeeLines, foodDrinkItems, itemsByCategory, bill, rankDiscount } =
         await computeBreakdown(session);
 
       const membershipSettings = await getSettings("membership");
@@ -386,7 +403,7 @@ export const checkoutRouter = router({
           label: p.label,
           status: p.status,
         })),
-        tableFeeLines: tableFee.lines,
+        tableFeeLines,
         // FIXED/PACKAGE pricing isn't billed by elapsed time — the
         // checkout bill shows "All day" instead of a per-player minutes
         // breakdown that wouldn't apply for those (§7).
@@ -1052,8 +1069,15 @@ export const checkoutRouter = router({
           });
         }
 
-        const { tableFee, foodDrinkItems, foodDrinkSubtotal, itemsByCategory, bill, rankDiscount } =
-          await computeBreakdown(session, tx);
+        const {
+          tableFee,
+          tableFeeLines,
+          foodDrinkItems,
+          foodDrinkSubtotal,
+          itemsByCategory,
+          bill,
+          rankDiscount,
+        } = await computeBreakdown(session, tx);
         const paidTotal = input.payments.reduce((s, p) => s + p.amount, 0);
         if (Math.abs(paidTotal - bill.total) > 0.5) {
           throw new TRPCError({
@@ -1247,7 +1271,7 @@ export const checkoutRouter = router({
           receiptNumber,
           table: { code: session.table.code, name: session.table.name },
           players: session.players.length,
-          tableFeeLines: tableFee.lines,
+          tableFeeLines,
           // FIXED/PACKAGE pricing isn't billed by elapsed time — the
           // printed/stored receipt shows "All day" instead of a per-player
           // minutes breakdown that wouldn't apply for those (§7).

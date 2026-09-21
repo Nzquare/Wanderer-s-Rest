@@ -13,7 +13,17 @@ interface ReceiptSnapshot {
   players: number;
   // Older receipts (printed before this field existed) won't have these —
   // always optional-chain/fallback rather than assuming they're present.
-  tableFeeLines?: { playerId: string; billableMinutes: number; fee: number; cappedAtDailyCap?: boolean }[];
+  // pricingTypeName is absent on receipts printed before per-player
+  // pricing overrides existed (§Mixed pricing per table) — falls back to
+  // not showing a type label for those, same as any other pre-existing
+  // snapshot field.
+  tableFeeLines?: {
+    playerId: string;
+    billableMinutes: number;
+    fee: number;
+    cappedAtDailyCap?: boolean;
+    pricingTypeName?: string | null;
+  }[];
   // Older receipts (printed before this field existed) default to HOURLY so
   // they keep rendering their per-player minutes breakdown as before.
   pricingModel?: string;
@@ -135,7 +145,9 @@ function ReceiptBody({
           snapshot.tableFeeLines.map((line, i) => (
             <div key={line.playerId} className="flex justify-between pl-2 text-[11px] text-foreground-muted">
               <span>
-                P{i + 1} {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
+                P{i + 1}
+                {line.pricingTypeName ? ` (${line.pricingTypeName})` : ""}{" "}
+                {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
               </span>
               <span>฿{line.fee.toFixed(0)}</span>
             </div>

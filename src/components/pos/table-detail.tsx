@@ -27,6 +27,8 @@ function PlayerRow({
   tableId,
   locked,
   notStarted,
+  tableDefaultPricingTypeName,
+  pricingTypes,
 }: {
   player: {
     id: string;
@@ -36,6 +38,7 @@ function PlayerRow({
     pausedAt: string | null;
     accumulatedPausedMs: number;
     endTime: string | null;
+    pricingTypeId: string | null;
   };
   tableId: string;
   locked: boolean;
@@ -45,6 +48,12 @@ function PlayerRow({
    * rejects it anyway) in favor of the one table-level Start Playing
    * action, which resumes everyone together. */
   notStarted: boolean;
+  /** What "Default" resolves to for this table right now — shown in the
+   * per-player pricing-type picker's own label (§Mixed pricing per
+   * table) so it's clear what "not overridden" actually means, rather
+   * than a bare "Default" with nothing to compare against. */
+  tableDefaultPricingTypeName: string | null;
+  pricingTypes: { id: string; name: string }[];
 }) {
   const utils = trpc.useUtils();
   const invalidate = () =>
@@ -56,6 +65,9 @@ function PlayerRow({
   const resume = trpc.sessions.resumePlayer.useMutation({ onSuccess: invalidate });
   const stop = trpc.sessions.stopPlayer.useMutation({ onSuccess: invalidate });
   const restart = trpc.sessions.restartPlayer.useMutation({ onSuccess: invalidate });
+  const updatePricingType = trpc.sessions.updatePlayerPricingType.useMutation({
+    onSuccess: invalidate,
+  });
   const pending =
     pause.isPending || resume.isPending || stop.isPending || restart.isPending;
 
@@ -77,6 +89,32 @@ function PlayerRow({
           <p className="text-lg font-semibold tabular-nums text-foreground">
             <LiveTimer timer={player} />
           </p>
+          {/* Per-player pricing-type override (§Mixed pricing per table)
+              — e.g. one table split between Student and Regular. Left
+              at "" (inherit the table's own type) unless staff picks one
+              for this specific customer. */}
+          {!locked && (
+            <select
+              value={player.pricingTypeId ?? ""}
+              disabled={updatePricingType.isPending}
+              onChange={(e) =>
+                updatePricingType.mutate({
+                  sessionPlayerId: player.id,
+                  pricingTypeId: e.target.value || null,
+                })
+              }
+              className="mt-1 h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground-muted"
+            >
+              <option value="">
+                Default{tableDefaultPricingTypeName ? ` (${tableDefaultPricingTypeName})` : ""}
+              </option>
+              {pricingTypes.map((pt) => (
+                <option key={pt.id} value={pt.id}>
+                  {pt.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
       <div className="flex gap-1.5">
@@ -278,6 +316,9 @@ export function TableDetail({
   // Same fallback as receipt-view.tsx/checkout-client.tsx — matches what
   // this setting already defaults to (§Receipt settings wiring).
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
+  // For each PlayerRow's own pricing-type override picker (§Mixed
+  // pricing per table).
+  const { data: pricingTypes } = trpc.pricingTypes.list.useQuery();
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   // Only read on the client; the print area that uses this is hidden until
   // printed (@media print), so there's nothing to mismatch during hydration.
@@ -454,9 +495,15 @@ export function TableDetail({
                       {isHourly && liveBill.lines.length > 1 && (
                         <p className="mt-0.5 text-xs text-foreground-muted">
                           {liveBill.lines
-                            .map((l, i) =>
-                              `P${i + 1} ${l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`,
-                            )
+                            .map((l, i) => {
+                              // Each line's own pricing type, if overridden
+                              // (§Mixed pricing per table), else the
+                              // table's own — so a mixed table reads e.g.
+                              // "P1 (Student) ... · P2 (Regular) ...".
+                              const player = session.players.find((p) => p.id === l.playerId);
+                              const typeName = player?.pricingType?.name ?? session.pricingType?.name;
+                              return `P${i + 1}${typeName ? ` (${typeName})` : ""} ${l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes)} (฿${l.fee.toFixed(0)})`;
+                            })
                             .join(" · ")}
                         </p>
                       )}
@@ -616,6 +663,8 @@ export function TableDetail({
                     tableId={tableId}
                     locked={locked}
                     notStarted={notStarted}
+                    tableDefaultPricingTypeName={session.pricingType?.name ?? null}
+                    pricingTypes={pricingTypes ?? []}
                     player={{
                       id: p.id,
                       label: p.label,
@@ -624,6 +673,7 @@ export function TableDetail({
                       pausedAt: p.pausedAt ? String(p.pausedAt) : null,
                       accumulatedPausedMs: Number(p.accumulatedPausedMs),
                       endTime: p.endTime ? String(p.endTime) : null,
+                      pricingTypeId: p.pricingTypeId,
                     }}
                   />
                 ))}

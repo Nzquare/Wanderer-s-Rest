@@ -29,6 +29,17 @@ function toPlayerRecord(p: {
   accumulatedPausedMs: bigint;
   endTime: Date | null;
   status: "ACTIVE" | "PAUSED" | "STOPPED";
+  // Optional — only present when the caller's query included the
+  // relation (§Mixed pricing per table). Absent/null both mean "use the
+  // table's own pricingType", same as computeTableFee's own fallback.
+  pricingType?: {
+    model: "HOURLY" | "FIXED" | "PACKAGE";
+    hourlyRate: Prisma.Decimal | null;
+    fixedPrice: Prisma.Decimal | null;
+    perPerson: boolean;
+    dailyCap: Prisma.Decimal | null;
+    gracePeriodMinutes: number;
+  } | null;
 }): PlayerTimeRecord {
   return {
     id: p.id,
@@ -37,6 +48,7 @@ function toPlayerRecord(p: {
     accumulatedPausedMs: Number(p.accumulatedPausedMs),
     endTime: p.endTime,
     status: p.status,
+    pricingType: p.pricingType ? toPricingConfig(p.pricingType) : undefined,
   };
 }
 
@@ -69,7 +81,9 @@ function toPricingConfig(pt: {
 }
 
 const sessionInclude = {
-  players: { orderBy: { createdAt: "asc" as const } },
+  // pricingType included per player too (§Mixed pricing per table) so
+  // computeTableFee can bill an overridden player at their own rate.
+  players: { orderBy: { createdAt: "asc" as const }, include: { pricingType: true } },
   pricingType: true,
   package: true,
   member: true,
@@ -114,7 +128,7 @@ async function listTablesByKind(
       sessions: {
         where: { status: { in: [...ACTIVE_SESSION_STATUSES] } },
         include: {
-          players: true,
+          players: { include: { pricingType: true } },
           pricingType: true,
           member: { select: { id: true, adventurerName: true } },
           orders: {
@@ -395,6 +409,42 @@ export const sessionsRouter = router({
           data: { playerCount: { increment: 1 } },
         }),
       ]);
+      return { ok: true };
+    }),
+
+  /**
+   * Overrides one player's pricing type independently of the table's own
+   * (§Mixed pricing per table) — e.g. a table seated with both students
+   * and non-students, billed at each their own rate. `pricingTypeId:
+   * null` clears the override back to "use the table's own type", the
+   * same as a player who's never had one set.
+   */
+  updatePlayerPricingType: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionPlayerId: z.string(), pricingTypeId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const player = await ctx.prisma.sessionPlayer.findUnique({
+        where: { id: input.sessionPlayerId },
+        include: { session: { select: { status: true } } },
+      });
+      if (!player) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["OPEN", "PAUSED"].includes(player.session.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Table is locked for checkout — use Back to Table first.",
+        });
+      }
+      if (input.pricingTypeId) {
+        const pt = await ctx.prisma.pricingType.findUnique({
+          where: { id: input.pricingTypeId },
+        });
+        if (!pt || !pt.active) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Choose an active pricing type." });
+        }
+      }
+      await ctx.prisma.sessionPlayer.update({
+        where: { id: player.id },
+        data: { pricingTypeId: input.pricingTypeId },
+      });
       return { ok: true };
     }),
 
