@@ -8,11 +8,15 @@ import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
 import { StaleShiftBanner } from "@/components/pos/stale-shift-banner";
 
 const NAV_ITEMS = [
+  // Shift leads the nav (§Shift-first nav) — opening a table requires an
+  // open shift (§47), so putting it first is a standing reminder to open
+  // one before anything else, rather than staff discovering the block
+  // only after they've already tried to seat a table.
+  { href: "/cashier/shift", label: "Shift" },
   { href: "/cashier", label: "Tables" },
   { href: "/cashier/quick-sale", label: "Quick Sale" },
   { href: "/cashier/members", label: "Members" },
   { href: "/cashier/reservations", label: "Reservations" },
-  { href: "/cashier/shift", label: "Shift" },
 ];
 
 // Cashier is the operational control center (§3) — clean, fast, no fantasy
