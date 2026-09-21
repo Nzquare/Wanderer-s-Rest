@@ -46,8 +46,8 @@ export function OrderAlertBanner() {
     ticket: PendingOrder;
   } | null>(null);
 
-  // An order can span more than one print station (§Separate kitchen
-  // ticket by category — food vs bar, say) — splits it first, then
+  // An order can span more than one menu category (§Separate kitchen
+  // ticket by category — food vs drinks, say) — splits it first, then
   // queues one printOnce job per resulting ticket. printOnce already
   // serializes jobs, so this just prints them one after another instead
   // of trying to show two tickets in the one shared print area at once.

@@ -94,14 +94,14 @@ const sessionInclude = {
     // here (notes, item snapshots) is already a plain scalar field that
     // comes along for free.
     include: {
-      // menuItem.category.printStation feeds the reprint's kitchen
-      // ticket split (§Separate kitchen ticket by category) — read live,
-      // not snapshotted, same reasoning as orders.listUnacknowledged.
+      // menuItem.category.nameEn feeds the reprint's kitchen ticket
+      // split (§Separate kitchen ticket by category) — read live, not
+      // snapshotted, same reasoning as orders.listUnacknowledged.
       items: {
         include: {
           modifiers: true,
           comboSelections: true,
-          menuItem: { select: { category: { select: { printStation: true } } } },
+          menuItem: { select: { category: { select: { nameEn: true } } } },
         },
       },
       orderedBy: { select: { name: true } },

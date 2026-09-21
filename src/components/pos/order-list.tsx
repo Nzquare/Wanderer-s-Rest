@@ -106,10 +106,10 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
               </span>
               <button
                 onClick={() => {
-                  // Splits by print station (§Separate kitchen ticket by
+                  // Splits by menu category (§Separate kitchen ticket by
                   // category) so a reprint of a mixed order still comes
-                  // out as separate Kitchen/Bar/... tickets, not one
-                  // mixed list — printOnce serializes the resulting jobs.
+                  // out as separate per-category tickets, not one mixed
+                  // list — printOnce serializes the resulting jobs.
                   for (const entry of splitTicketByStation(toTicketOrder(order, tableCode))) {
                     printOnce(
                       () => setPrintOrder(entry),

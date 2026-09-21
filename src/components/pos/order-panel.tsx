@@ -126,9 +126,9 @@ export function OrderPanel({
           playChime(notificationSettings.volume);
         }
         if (notificationSettings?.autoPrintKitchenTicket) {
-          // Splits by print station (§Separate kitchen ticket by
+          // Splits by menu category (§Separate kitchen ticket by
           // category) — printOnce serializes the resulting jobs, so a
-          // mixed order still prints as separate Kitchen/Bar/... tickets
+          // mixed order still prints as separate per-category tickets
           // one after another instead of one mixed list.
           for (const entry of splitTicketByStation(ticket)) {
             printOnce(
@@ -144,12 +144,13 @@ export function OrderPanel({
   const activeCategory =
     categories?.find((c) => c.id === activeCategoryId) ?? categories?.[0];
 
-  // Which print station each menu item's own category routes to
-  // (§Separate kitchen ticket by category) — resolved from the same
+  // Which category each menu item belongs to (§Separate kitchen ticket
+  // by category) — every category prints as its own ticket
+  // automatically, using its own name. Resolved from the same
   // `categories` data already loaded for the ordering grid, not a
   // separate query.
   const stationByMenuItemId = new Map(
-    (categories ?? []).flatMap((c) => c.items.map((i) => [i.id, c.printStation] as const)),
+    (categories ?? []).flatMap((c) => c.items.map((i) => [i.id, c.nameEn] as const)),
   );
 
   function startAdd(item: MenuItem) {
@@ -321,7 +322,7 @@ export function OrderPanel({
                       ...l.comboSelections.map((cs) => cs.label),
                     ],
                     comboSelections: [],
-                    station: stationByMenuItemId.get(l.menuItemId) ?? "Kitchen",
+                    station: stationByMenuItemId.get(l.menuItemId) ?? "Other",
                   })),
                 };
               }

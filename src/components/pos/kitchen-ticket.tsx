@@ -20,27 +20,30 @@ export interface KitchenTicketOrder {
     notes: string | null;
     modifierNames: string[];
     comboSelections: { slotNameEn: string; nameEn: string }[];
-    // Which physical station this item prints on (§Separate kitchen
-    // ticket by category) — the menu item's category's own printStation,
-    // "Kitchen" for anything unresolved (e.g. a hard-deleted menu item).
-    // Only read by splitTicketByStation below; KitchenTicket itself
-    // doesn't render it per item.
+    // Which ticket this item prints on (§Separate kitchen ticket by
+    // category) — the menu item's own category name, automatically, no
+    // setup step needed; "Other" for anything unresolved (e.g. a
+    // hard-deleted menu item, same fallback the Sales by Category report
+    // and checkout bill grouping already use). Only read by
+    // splitTicketByStation below; KitchenTicket itself doesn't render it
+    // per item.
     station: string;
   }[];
 }
 
 /**
- * Splits one order into one ticket per distinct print station its items
- * belong to (§Separate kitchen ticket by category) — e.g. food items on
- * a Kitchen ticket, drinks on a separate Bar ticket, so each station only
- * ever sees its own items instead of one mixed list. Every caller that
- * prints a KitchenTicketOrder should route it through this first, then
- * print (queue via printOnce) one ticket per returned entry.
+ * Splits one order into one ticket per distinct menu category its items
+ * belong to (§Separate kitchen ticket by category) — e.g. Food items on
+ * their own ticket, Drinks on another, automatically, with no per-
+ * category setup — so each station only ever sees its own items instead
+ * of one mixed list. Every caller that prints a KitchenTicketOrder
+ * should route it through this first, then print (queue via printOnce)
+ * one ticket per returned entry.
  *
  * Order/table/notes metadata is repeated on each resulting ticket; only
- * `items` differs. Stations appear in first-seen order among the order's
- * items, not alphabetically, so the most relevant one for that order
- * tends to print first.
+ * `items` differs. Categories appear in first-seen order among the
+ * order's items, not alphabetically, so the most relevant one for that
+ * order tends to print first.
  *
  * Generic over the caller's own order shape (which may carry extra
  * fields beyond KitchenTicketOrder, e.g. orders.listUnacknowledged's
@@ -88,12 +91,12 @@ export function KitchenTicket({
   order,
   printerWidthMm,
   printAreaId = "kitchen-print-area",
-  // Which station this particular ticket is for (§Separate kitchen
+  // Which category this particular ticket is for (§Separate kitchen
   // ticket by category) — a caller that's already split the order via
   // splitTicketByStation passes that entry's own station name here so
-  // the header reads e.g. "Bar Order" instead of always "Kitchen Order",
-  // even though every item on `order` already belongs to that one
-  // station either way.
+  // the header reads e.g. "Drinks Order" instead of always "Kitchen
+  // Order", even though every item on `order` already belongs to that
+  // one category either way.
   station = "Kitchen",
 }: {
   order: KitchenTicketOrder;

@@ -204,16 +204,18 @@ export const ordersRouter = router({
         status: "SUBMITTED",
       },
       include: {
-        // menuItem.category.printStation feeds the kitchen ticket split
-        // (§Separate kitchen ticket by category) — read live rather than
-        // snapshotted, since this is operational routing, not a
-        // financial fact §45 needs frozen; a category reassigned to a
-        // different station later should route there immediately.
+        // menuItem.category.nameEn feeds the kitchen ticket split
+        // (§Separate kitchen ticket by category) — every category prints
+        // as its own ticket automatically, using its own name, no extra
+        // config needed. Read live rather than snapshotted, since this
+        // is operational routing, not a financial fact §45 needs frozen
+        // — a category renamed later should relabel the ticket
+        // immediately.
         items: {
           include: {
             modifiers: true,
             comboSelections: true,
-            menuItem: { select: { category: { select: { printStation: true } } } },
+            menuItem: { select: { category: { select: { nameEn: true } } } },
           },
         },
         session: { include: { table: true } },
@@ -240,7 +242,10 @@ export const ordersRouter = router({
           slotNameEn: cs.slotNameSnapshotEn,
           nameEn: cs.nameSnapshotEn,
         })),
-        station: i.menuItem?.category.printStation ?? "Kitchen",
+        // A hard-deleted menu item (§Delete anyway) has no live category
+        // anymore — same "Other" fallback bucket the Sales by Category
+        // report and checkout bill grouping already use.
+        station: i.menuItem?.category.nameEn ?? "Other",
       })),
     }));
   }),
