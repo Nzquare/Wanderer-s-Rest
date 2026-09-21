@@ -128,15 +128,28 @@ function TicketContent({ order, station }: { order: KitchenTicketOrder; station:
  * they can't be missed but don't compete with the item name for attention.
  *
  * Takes `entries` (from splitTicketByStation) rather than a single order
- * — every entry renders inside this ONE print area, separated by a CSS
- * page break, so an order spanning multiple categories still comes out
- * as separate physical tickets from a SINGLE window.print() call/
- * printOnce job (§confirm payment, nothing prints and its sequels —
- * queuing one printOnce job per category here instead landed as some
- * tickets printing blank: extra window.print() calls fired close
- * together are exactly the overlapping-print-call situation print-
- * once.ts's own doc comment already warns about). One print job, one
- * user interaction, however many pages it turns into.
+ * — an order spanning multiple categories still comes out as separate
+ * physical tickets from a SINGLE window.print() call/printOnce job
+ * (§confirm payment, nothing prints and its sequels — queuing one
+ * printOnce job per category here instead landed as some tickets
+ * printing blank: extra window.print() calls fired close together are
+ * exactly the overlapping-print-call situation print-once.ts's own doc
+ * comment already warns about). One print job, one user interaction,
+ * however many pages it turns into.
+ *
+ * Each entry gets its OWN top-level `.print-area` element (own
+ * `position: absolute; top: 0; left: 0`), with a forced page break
+ * between them, rather than nesting all the entries' content one level
+ * deeper inside a single shared `.print-area`. That nested version is
+ * what produced this feature's own printing-blank-pages bug (§Separate
+ * kitchen ticket by category, round 2): a `position: absolute` box
+ * doesn't reliably fragment its own content across multiple physical
+ * pages in most browsers' print engines — page breaks forced INSIDE one
+ * only came out as extra blank pages, not the next ticket's content.
+ * Sibling boxes that are each independently absolutely positioned don't
+ * have that problem — a forced break before a sibling just starts it
+ * fresh, pinned to the top-left of its own new page, the same way a
+ * single ticket already always has been.
  *
  * Lives in its own component so the alert banner's manual "Print" button,
  * its auto-print-on-arrival path, and the Cashier order panel's own
@@ -147,7 +160,9 @@ function TicketContent({ order, station }: { order: KitchenTicketOrder; station:
  * the order panel can both be mounted on the same page at once (the
  * Cashier table page — banner in the shell, panel in the page content),
  * so a caller that might render alongside another KitchenTicket needs its
- * own id to avoid two elements sharing one — see order-panel.tsx.
+ * own id to avoid two elements sharing one — see order-panel.tsx. Each
+ * entry beyond the first gets its own id derived from that (ids must be
+ * unique per element), since there's now one `.print-area` per entry.
  */
 export function KitchenTicket({
   entries,
@@ -159,19 +174,22 @@ export function KitchenTicket({
   printAreaId?: string;
 }) {
   return (
-    <div
-      id={printAreaId}
-      style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-      className="print-area hidden print:block"
-    >
+    <>
       {entries.map((entry, i) => (
         <div
           key={entry.station}
-          style={i < entries.length - 1 ? { pageBreakAfter: "always" } : undefined}
+          id={i === 0 ? printAreaId : `${printAreaId}-${i}`}
+          style={
+            {
+              "--receipt-print-width": `${printerWidthMm}mm`,
+              ...(i < entries.length - 1 ? { pageBreakAfter: "always" } : null),
+            } as CSSProperties
+          }
+          className="print-area hidden print:block"
         >
           <TicketContent order={entry.ticket} station={entry.station} />
         </div>
       ))}
-    </div>
+    </>
   );
 }
