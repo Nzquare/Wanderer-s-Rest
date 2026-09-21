@@ -106,7 +106,10 @@ const sessionInclude = {
       },
       orderedBy: { select: { name: true } },
     },
-    orderBy: { createdAt: "asc" as const },
+    // Newest first (§Newer orders on top) — the order history on the
+    // table page reads top-to-bottom as "what just happened", not a
+    // typed-up log a cashier has to scroll to the bottom of.
+    orderBy: { createdAt: "desc" as const },
   },
 };
 
