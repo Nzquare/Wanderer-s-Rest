@@ -127,6 +127,27 @@ button,
    isn't `hidden`. A new print area only needs this class, not a new
    entry in this file. */
 @media print {
+  /* `visibility: hidden` below hides everything but a `.print-area`
+     visually, but it still preserves every hidden element's own layout
+     space — the printed document's total height ends up as tall as the
+     ENTIRE hidden page behind it (the whole Cashier app: nav, table
+     grid, banners, whatever's on screen), not just the print-area's own
+     short content. `.print-area` is `position: absolute`, so it renders
+     in full on page 1 regardless (out of flow, sized by its own
+     content, unaffected by an ancestor's height) — but the browser still
+     has to paginate the rest of that inflated, empty height into however
+     many extra physical pages it takes, which came out as trailing
+     blank pages after every real ticket/receipt/invoice (§kitchen
+     ticket prints 3 pages, 1 real 2 blank — this had nothing to do with
+     the per-category split, it's a print-CSS bug any print flow on a
+     content-heavy page could hit). Collapsing body's own height to 0
+     here removes that inflated total — the print-area still renders at
+     its own full height either way, since absolute positioning was
+     never constrained by the parent's height to begin with.
+   */
+  body {
+    height: 0;
+  }
   body * {
     visibility: hidden;
   }
