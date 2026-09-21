@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { playChime } from "@/lib/chime";
 import { printOnce } from "@/lib/print-once";
-import { KitchenTicket, splitTicketByStation, type KitchenTicketOrder } from "./kitchen-ticket";
+import {
+  KitchenTicket,
+  splitTicketByStation,
+  type KitchenTicketEntry,
+  type KitchenTicketOrder,
+} from "./kitchen-ticket";
 
 interface ModifierOption {
   id: string;
@@ -107,10 +112,7 @@ export function OrderPanel({
   // no separate "unacknowledged order" flow to catch this from, unlike
   // Staff/Customer-QR orders, so the kitchen ticket has to fire right here).
   const pendingTicket = useRef<KitchenTicketOrder | null>(null);
-  const [printOrder, setPrintOrder] = useState<{
-    station: string;
-    ticket: KitchenTicketOrder;
-  } | null>(null);
+  const [printEntries, setPrintEntries] = useState<KitchenTicketEntry[] | null>(null);
 
   const submit = trpc.orders.add.useMutation({
     onSuccess: async () => {
@@ -127,15 +129,13 @@ export function OrderPanel({
         }
         if (notificationSettings?.autoPrintKitchenTicket) {
           // Splits by menu category (§Separate kitchen ticket by
-          // category) — printOnce serializes the resulting jobs, so a
-          // mixed order still prints as separate per-category tickets
-          // one after another instead of one mixed list.
-          for (const entry of splitTicketByStation(ticket)) {
-            printOnce(
-              () => setPrintOrder(entry),
-              () => setPrintOrder(null),
-            );
-          }
+          // category), but still just one printOnce job/window.print()
+          // call for the whole order — KitchenTicket renders every
+          // split entry as its own page inside that one print area.
+          printOnce(
+            () => setPrintEntries(splitTicketByStation(ticket)),
+            () => setPrintEntries(null),
+          );
         }
       }
     },
@@ -489,10 +489,9 @@ export function OrderPanel({
         </div>
       )}
 
-      {printOrder && (
+      {printEntries && (
         <KitchenTicket
-          order={printOrder.ticket}
-          station={printOrder.station}
+          entries={printEntries}
           printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
           printAreaId="kitchen-print-area-panel"
         />

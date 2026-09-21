@@ -4,7 +4,12 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/client";
 import { printOnce } from "@/lib/print-once";
-import { KitchenTicket, splitTicketByStation, type KitchenTicketOrder } from "./kitchen-ticket";
+import {
+  KitchenTicket,
+  splitTicketByStation,
+  type KitchenTicketEntry,
+  type KitchenTicketOrder,
+} from "./kitchen-ticket";
 
 interface OrderItemModifier {
   id: string;
@@ -75,10 +80,7 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
  */
 export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: string }) {
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
-  const [printOrder, setPrintOrder] = useState<{
-    station: string;
-    ticket: KitchenTicketOrder;
-  } | null>(null);
+  const [printEntries, setPrintEntries] = useState<KitchenTicketEntry[] | null>(null);
 
   if (orders.length === 0) {
     return (
@@ -107,15 +109,15 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
               <button
                 onClick={() => {
                   // Splits by menu category (§Separate kitchen ticket by
-                  // category) so a reprint of a mixed order still comes
-                  // out as separate per-category tickets, not one mixed
-                  // list — printOnce serializes the resulting jobs.
-                  for (const entry of splitTicketByStation(toTicketOrder(order, tableCode))) {
-                    printOnce(
-                      () => setPrintOrder(entry),
-                      () => setPrintOrder(null),
-                    );
-                  }
+                  // category), but still just one printOnce job/
+                  // window.print() call for the reprint — KitchenTicket
+                  // renders every split entry as its own page inside
+                  // that one print area.
+                  const entries = splitTicketByStation(toTicketOrder(order, tableCode));
+                  printOnce(
+                    () => setPrintEntries(entries),
+                    () => setPrintEntries(null),
+                  );
                 }}
                 title="Reprint kitchen ticket"
                 className="rounded-lg border border-teal-600 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300"
@@ -149,10 +151,9 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
           ))}
         </Card>
       ))}
-      {printOrder && (
+      {printEntries && (
         <KitchenTicket
-          order={printOrder.ticket}
-          station={printOrder.station}
+          entries={printEntries}
           printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
           printAreaId="kitchen-print-area-list"
         />
