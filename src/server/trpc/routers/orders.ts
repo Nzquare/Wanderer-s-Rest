@@ -204,7 +204,18 @@ export const ordersRouter = router({
         status: "SUBMITTED",
       },
       include: {
-        items: { include: { modifiers: true, comboSelections: true } },
+        // menuItem.category.printStation feeds the kitchen ticket split
+        // (§Separate kitchen ticket by category) — read live rather than
+        // snapshotted, since this is operational routing, not a
+        // financial fact §45 needs frozen; a category reassigned to a
+        // different station later should route there immediately.
+        items: {
+          include: {
+            modifiers: true,
+            comboSelections: true,
+            menuItem: { select: { category: { select: { printStation: true } } } },
+          },
+        },
         session: { include: { table: true } },
         orderedBy: { select: { name: true } },
       },
@@ -229,6 +240,7 @@ export const ordersRouter = router({
           slotNameEn: cs.slotNameSnapshotEn,
           nameEn: cs.nameSnapshotEn,
         })),
+        station: i.menuItem?.category.printStation ?? "Kitchen",
       })),
     }));
   }),

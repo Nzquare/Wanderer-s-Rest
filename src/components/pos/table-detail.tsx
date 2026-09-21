@@ -708,6 +708,7 @@ export function TableDetail({
                       slotNameSnapshotEn: cs.slotNameSnapshotEn,
                       nameSnapshotEn: cs.nameSnapshotEn,
                     })),
+                    station: i.menuItem?.category.printStation ?? "Kitchen",
                   })),
                 }))}
               />

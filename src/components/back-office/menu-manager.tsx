@@ -43,6 +43,7 @@ type CategoryListItem = {
   nameTh: string;
   nameEn: string;
   active: boolean;
+  printStation: string;
   _count: { items: number };
 };
 
@@ -67,6 +68,7 @@ function CategoryRow({
   const [editing, setEditing] = useState(false);
   const [nameEn, setNameEn] = useState(category.nameEn);
   const [nameTh, setNameTh] = useState(category.nameTh);
+  const [printStation, setPrintStation] = useState(category.printStation);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const invalidate = () =>
     Promise.all([
@@ -91,11 +93,27 @@ function CategoryRow({
       <div className="space-y-2 rounded-xl border border-teal-500 bg-background p-3">
         <TextInput value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="English name" />
         <TextInput value={nameTh} onChange={(e) => setNameTh(e.target.value)} placeholder="Thai name" />
+        <div>
+          <label className="text-xs text-foreground-muted">
+            Print station (§Separate kitchen ticket by category)
+          </label>
+          <TextInput
+            value={printStation}
+            onChange={(e) => setPrintStation(e.target.value)}
+            placeholder="Kitchen, Bar, ..."
+          />
+          <p className="mt-1 text-xs text-foreground-muted">
+            An order with items from more than one station prints as separate tickets —
+            e.g. food to Kitchen, drinks to Bar — instead of one mixed list.
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button
             size="md"
-            disabled={!nameEn || !nameTh || update.isPending}
-            onClick={() => update.mutate({ id: category.id, nameEn, nameTh })}
+            disabled={!nameEn || !nameTh || !printStation.trim() || update.isPending}
+            onClick={() =>
+              update.mutate({ id: category.id, nameEn, nameTh, printStation: printStation.trim() })
+            }
           >
             Save
           </Button>
@@ -135,7 +153,8 @@ function CategoryRow({
             )}
           </div>
           <p className="text-xs text-foreground-muted">
-            {category._count.items} item{category._count.items === 1 ? "" : "s"}
+            {category._count.items} item{category._count.items === 1 ? "" : "s"} · Prints to:{" "}
+            {category.printStation}
           </p>
         </button>
       </div>

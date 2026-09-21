@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/client";
 import { printOnce } from "@/lib/print-once";
-import { KitchenTicket, type KitchenTicketOrder } from "./kitchen-ticket";
+import { KitchenTicket, splitTicketByStation, type KitchenTicketOrder } from "./kitchen-ticket";
 
 interface OrderItemModifier {
   id: string;
@@ -23,6 +23,7 @@ interface OrderItem {
   notes?: string | null;
   modifiers: OrderItemModifier[];
   comboSelections?: OrderItemComboSelection[];
+  station: string;
 }
 interface Order {
   id: string;
@@ -59,6 +60,7 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
         slotNameEn: cs.slotNameSnapshotEn,
         nameEn: cs.nameSnapshotEn,
       })),
+      station: item.station,
     })),
   };
 }
@@ -73,7 +75,10 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
  */
 export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: string }) {
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
-  const [printOrder, setPrintOrder] = useState<KitchenTicketOrder | null>(null);
+  const [printOrder, setPrintOrder] = useState<{
+    station: string;
+    ticket: KitchenTicketOrder;
+  } | null>(null);
 
   if (orders.length === 0) {
     return (
@@ -100,12 +105,18 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
                 })}
               </span>
               <button
-                onClick={() =>
-                  printOnce(
-                    () => setPrintOrder(toTicketOrder(order, tableCode)),
-                    () => setPrintOrder(null),
-                  )
-                }
+                onClick={() => {
+                  // Splits by print station (§Separate kitchen ticket by
+                  // category) so a reprint of a mixed order still comes
+                  // out as separate Kitchen/Bar/... tickets, not one
+                  // mixed list — printOnce serializes the resulting jobs.
+                  for (const entry of splitTicketByStation(toTicketOrder(order, tableCode))) {
+                    printOnce(
+                      () => setPrintOrder(entry),
+                      () => setPrintOrder(null),
+                    );
+                  }
+                }}
                 title="Reprint kitchen ticket"
                 className="rounded-lg border border-teal-600 px-2 py-0.5 text-xs font-medium text-teal-700 dark:text-teal-300"
               >
@@ -140,7 +151,8 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
       ))}
       {printOrder && (
         <KitchenTicket
-          order={printOrder}
+          order={printOrder.ticket}
+          station={printOrder.station}
           printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
           printAreaId="kitchen-print-area-list"
         />

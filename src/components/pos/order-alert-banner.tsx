@@ -8,7 +8,7 @@ import type { AppRouter } from "@/server/trpc/routers/_app";
 import { playChime } from "@/lib/chime";
 import { printOnce } from "@/lib/print-once";
 import { cn } from "@/lib/cn";
-import { KitchenTicket } from "./kitchen-ticket";
+import { KitchenTicket, splitTicketByStation } from "./kitchen-ticket";
 
 const SOURCE_LABEL: Record<string, string> = {
   STAFF: "Staff order",
@@ -36,18 +36,28 @@ export function OrderAlertBanner() {
 
   const seenIds = useRef<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
-  // The order currently loaded into the hidden #kitchen-print-area — set
+  // The ticket currently loaded into the hidden #kitchen-print-area — set
   // right before window.print() and cleared again once the print dialog
   // closes (see printOnce), so it doesn't stay `print:block` and bleed
   // into some other print job on a later Cashier page (§printer overlap
   // bug — this banner lives in the shell, present on every screen).
-  const [printOrder, setPrintOrder] = useState<PendingOrder | null>(null);
+  const [printOrder, setPrintOrder] = useState<{
+    station: string;
+    ticket: PendingOrder;
+  } | null>(null);
 
+  // An order can span more than one print station (§Separate kitchen
+  // ticket by category — food vs bar, say) — splits it first, then
+  // queues one printOnce job per resulting ticket. printOnce already
+  // serializes jobs, so this just prints them one after another instead
+  // of trying to show two tickets in the one shared print area at once.
   function printTicket(order: PendingOrder) {
-    printOnce(
-      () => setPrintOrder(order),
-      () => setPrintOrder(null),
-    );
+    for (const entry of splitTicketByStation(order)) {
+      printOnce(
+        () => setPrintOrder(entry),
+        () => setPrintOrder(null),
+      );
+    }
   }
 
   useEffect(() => {
@@ -139,7 +149,11 @@ export function OrderAlertBanner() {
         </div>
       )}
       {printOrder && (
-        <KitchenTicket order={printOrder} printerWidthMm={checkoutSettings?.printerWidthMm ?? 80} />
+        <KitchenTicket
+          order={printOrder.ticket}
+          station={printOrder.station}
+          printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
+        />
       )}
     </div>
   );

@@ -351,13 +351,22 @@ model SessionPlayer {
 // ─────────────────────────────────────────────────────────────────────────
 
 model MenuCategory {
-  id        String   @id @default(cuid())
-  nameTh    String
-  nameEn    String
-  sortOrder Int      @default(0)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  nameTh       String
+  nameEn       String
+  sortOrder    Int      @default(0)
+  active       Boolean  @default(true)
+  // Which physical kitchen ticket an item in this category prints on
+  // (§Separate kitchen ticket by category) — free text (not an enum) so
+  // a café can name its own stations (Kitchen, Bar, Dessert, ...).
+  // Categories sharing a station combine onto one ticket; different
+  // stations print as separate tickets for the same order, so e.g. food
+  // and drinks can go to different counters instead of one mixed list.
+  // Defaults to "Kitchen" so every existing category keeps today's
+  // single-ticket behavior until a café explicitly splits one out.
+  printStation String   @default("Kitchen")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   items      MenuItem[]
   comboSlots ComboSlot[]

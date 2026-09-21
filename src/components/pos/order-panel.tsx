@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { playChime } from "@/lib/chime";
 import { printOnce } from "@/lib/print-once";
-import { KitchenTicket, type KitchenTicketOrder } from "./kitchen-ticket";
+import { KitchenTicket, splitTicketByStation, type KitchenTicketOrder } from "./kitchen-ticket";
 
 interface ModifierOption {
   id: string;
@@ -107,7 +107,10 @@ export function OrderPanel({
   // no separate "unacknowledged order" flow to catch this from, unlike
   // Staff/Customer-QR orders, so the kitchen ticket has to fire right here).
   const pendingTicket = useRef<KitchenTicketOrder | null>(null);
-  const [printOrder, setPrintOrder] = useState<KitchenTicketOrder | null>(null);
+  const [printOrder, setPrintOrder] = useState<{
+    station: string;
+    ticket: KitchenTicketOrder;
+  } | null>(null);
 
   const submit = trpc.orders.add.useMutation({
     onSuccess: async () => {
@@ -123,10 +126,16 @@ export function OrderPanel({
           playChime(notificationSettings.volume);
         }
         if (notificationSettings?.autoPrintKitchenTicket) {
-          printOnce(
-            () => setPrintOrder(ticket),
-            () => setPrintOrder(null),
-          );
+          // Splits by print station (§Separate kitchen ticket by
+          // category) — printOnce serializes the resulting jobs, so a
+          // mixed order still prints as separate Kitchen/Bar/... tickets
+          // one after another instead of one mixed list.
+          for (const entry of splitTicketByStation(ticket)) {
+            printOnce(
+              () => setPrintOrder(entry),
+              () => setPrintOrder(null),
+            );
+          }
         }
       }
     },
@@ -134,6 +143,14 @@ export function OrderPanel({
 
   const activeCategory =
     categories?.find((c) => c.id === activeCategoryId) ?? categories?.[0];
+
+  // Which print station each menu item's own category routes to
+  // (§Separate kitchen ticket by category) — resolved from the same
+  // `categories` data already loaded for the ordering grid, not a
+  // separate query.
+  const stationByMenuItemId = new Map(
+    (categories ?? []).flatMap((c) => c.items.map((i) => [i.id, c.printStation] as const)),
+  );
 
   function startAdd(item: MenuItem) {
     if (item.soldOut) return;
@@ -304,6 +321,7 @@ export function OrderPanel({
                       ...l.comboSelections.map((cs) => cs.label),
                     ],
                     comboSelections: [],
+                    station: stationByMenuItemId.get(l.menuItemId) ?? "Kitchen",
                   })),
                 };
               }
@@ -472,7 +490,8 @@ export function OrderPanel({
 
       {printOrder && (
         <KitchenTicket
-          order={printOrder}
+          order={printOrder.ticket}
+          station={printOrder.station}
           printerWidthMm={checkoutSettings?.printerWidthMm ?? 80}
           printAreaId="kitchen-print-area-panel"
         />

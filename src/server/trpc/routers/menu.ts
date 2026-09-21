@@ -70,6 +70,10 @@ export const menuRouter = router({
       id: cat.id,
       nameTh: cat.nameTh,
       nameEn: cat.nameEn,
+      // Feeds the cashier-entered order's own immediate kitchen ticket
+      // print (§Separate kitchen ticket by category) — order-panel.tsx
+      // resolves each cart line's station from here before printing.
+      printStation: cat.printStation,
       items: cat.items.map((item) => ({
         id: item.id,
         nameTh: item.nameTh,
@@ -147,6 +151,7 @@ export const menuRouter = router({
         nameEn: z.string().min(1).optional(),
         active: z.boolean().optional(),
         sortOrder: z.number().int().optional(),
+        printStation: z.string().min(1).max(40).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

@@ -20,7 +20,49 @@ export interface KitchenTicketOrder {
     notes: string | null;
     modifierNames: string[];
     comboSelections: { slotNameEn: string; nameEn: string }[];
+    // Which physical station this item prints on (§Separate kitchen
+    // ticket by category) — the menu item's category's own printStation,
+    // "Kitchen" for anything unresolved (e.g. a hard-deleted menu item).
+    // Only read by splitTicketByStation below; KitchenTicket itself
+    // doesn't render it per item.
+    station: string;
   }[];
+}
+
+/**
+ * Splits one order into one ticket per distinct print station its items
+ * belong to (§Separate kitchen ticket by category) — e.g. food items on
+ * a Kitchen ticket, drinks on a separate Bar ticket, so each station only
+ * ever sees its own items instead of one mixed list. Every caller that
+ * prints a KitchenTicketOrder should route it through this first, then
+ * print (queue via printOnce) one ticket per returned entry.
+ *
+ * Order/table/notes metadata is repeated on each resulting ticket; only
+ * `items` differs. Stations appear in first-seen order among the order's
+ * items, not alphabetically, so the most relevant one for that order
+ * tends to print first.
+ *
+ * Generic over the caller's own order shape (which may carry extra
+ * fields beyond KitchenTicketOrder, e.g. orders.listUnacknowledged's
+ * `tableId`/`itemSummary`) so those pass through untouched — only
+ * `items` is ever replaced.
+ */
+export function splitTicketByStation<T extends KitchenTicketOrder>(
+  order: T,
+): { station: string; ticket: T }[] {
+  const stations: string[] = [];
+  const itemsByStation = new Map<string, KitchenTicketOrder["items"]>();
+  for (const item of order.items) {
+    if (!itemsByStation.has(item.station)) {
+      stations.push(item.station);
+      itemsByStation.set(item.station, []);
+    }
+    itemsByStation.get(item.station)!.push(item);
+  }
+  return stations.map((station) => ({
+    station,
+    ticket: { ...order, items: itemsByStation.get(station)! },
+  }));
 }
 
 /**
@@ -46,10 +88,18 @@ export function KitchenTicket({
   order,
   printerWidthMm,
   printAreaId = "kitchen-print-area",
+  // Which station this particular ticket is for (§Separate kitchen
+  // ticket by category) — a caller that's already split the order via
+  // splitTicketByStation passes that entry's own station name here so
+  // the header reads e.g. "Bar Order" instead of always "Kitchen Order",
+  // even though every item on `order` already belongs to that one
+  // station either way.
+  station = "Kitchen",
 }: {
   order: KitchenTicketOrder;
   printerWidthMm: number;
   printAreaId?: string;
+  station?: string;
 }) {
   return (
     <div
@@ -63,7 +113,7 @@ export function KitchenTicket({
             number or any item line. */}
         <div style={{ height: "18mm" }} aria-hidden />
         <div className="space-y-0.5 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em]">Kitchen Order</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em]">{station} Order</p>
           <p className="text-3xl font-bold">Table {order.tableCode}</p>
           <p className="text-xs">
             {SOURCE_LABEL[order.source] ?? order.source}
