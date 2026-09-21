@@ -42,7 +42,6 @@ export function LoginForm() {
           value={loginId}
           onChange={(e) => setLoginId(e.target.value)}
           className="h-14 w-full rounded-xl border border-border bg-surface px-4 text-lg tracking-wide text-foreground outline-none focus:border-teal-500"
-          placeholder="e.g. owner"
         />
       </div>
 
