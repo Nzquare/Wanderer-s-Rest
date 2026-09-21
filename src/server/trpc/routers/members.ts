@@ -85,6 +85,13 @@ export const membersRouter = router({
       z.object({
         adventurerName: z.string().min(1).max(80),
         phone: z.string().max(30).optional(),
+        // Required (§New member must pick a class) — every new member
+        // must have an AdventurerClass from the moment they're created,
+        // whether that's the Cashier/Table quick-add or Back Office's
+        // Create member form. Members created before this requirement
+        // existed are left as-is (classId stays nullable on the model)
+        // rather than being force-assigned one retroactively.
+        classId: z.string().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -99,11 +106,16 @@ export const membersRouter = router({
           });
         }
       }
+      const cls = await ctx.prisma.adventurerClass.findUnique({ where: { id: input.classId } });
+      if (!cls) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a class for this member." });
+      }
       const member = await ctx.prisma.member.create({
         data: {
           memberCode: `WR-${nanoid(8).toUpperCase()}`,
           adventurerName: input.adventurerName,
           phone: input.phone || null,
+          classId: cls.id,
         },
       });
       return { id: member.id, adventurerName: member.adventurerName };

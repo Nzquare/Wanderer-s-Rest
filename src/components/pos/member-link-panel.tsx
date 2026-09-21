@@ -27,6 +27,8 @@ export function MemberLinkPanel({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newClassId, setNewClassId] = useState("");
+  const { data: classes } = trpc.classes.list.useQuery();
 
   const search = trpc.members.search.useQuery(
     { query },
@@ -43,6 +45,7 @@ export function MemberLinkPanel({
       setShowCreate(false);
       setNewName("");
       setNewPhone("");
+      setNewClassId("");
       setQuery("");
     },
   });
@@ -127,12 +130,27 @@ export function MemberLinkPanel({
             placeholder="Phone (optional)"
             className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500"
           />
+          <select
+            value={newClassId}
+            onChange={(e) => setNewClassId(e.target.value)}
+            className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500"
+          >
+            <option value="">Choose a class…</option>
+            {classes?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.icon ?? ""} {c.nameEn}
+              </option>
+            ))}
+          </select>
+          {quickCreate.error && (
+            <p className="text-xs text-status-danger">{quickCreate.error.message}</p>
+          )}
           <Button
             size="md"
             className="w-full"
-            disabled={!newName.trim() || quickCreate.isPending}
+            disabled={!newName.trim() || !newClassId || quickCreate.isPending}
             onClick={() =>
-              quickCreate.mutate({ adventurerName: newName, phone: newPhone })
+              quickCreate.mutate({ adventurerName: newName, phone: newPhone, classId: newClassId })
             }
           >
             Create & Link

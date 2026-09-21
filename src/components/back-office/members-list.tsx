@@ -12,11 +12,14 @@ function CreateMemberForm() {
   const [open, setOpen] = useState(false);
   const [adventurerName, setAdventurerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [classId, setClassId] = useState("");
+  const { data: classes } = trpc.classes.list.useQuery();
   const utils = trpc.useUtils();
   const create = trpc.members.quickCreate.useMutation({
     onSuccess: async (member) => {
       setAdventurerName("");
       setPhone("");
+      setClassId("");
       setOpen(false);
       await utils.members.listAll.invalidate();
       router.push(`/back-office/members/${member.id}`);
@@ -51,12 +54,27 @@ function CreateMemberForm() {
           className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
         />
       </div>
+      <div className="w-48">
+        <label className="text-xs text-foreground-muted">Class</label>
+        <select
+          value={classId}
+          onChange={(e) => setClassId(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        >
+          <option value="">Choose a class…</option>
+          {classes?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.icon ?? ""} {c.nameEn}
+            </option>
+          ))}
+        </select>
+      </div>
       {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button
         size="md"
-        disabled={!adventurerName.trim() || create.isPending}
+        disabled={!adventurerName.trim() || !classId || create.isPending}
         onClick={() =>
-          create.mutate({ adventurerName: adventurerName.trim(), phone: phone.trim() || undefined })
+          create.mutate({ adventurerName: adventurerName.trim(), phone: phone.trim() || undefined, classId })
         }
       >
         {create.isPending ? "Creating…" : "Create member"}
