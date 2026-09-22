@@ -3,13 +3,20 @@ import Link from "next/link";
 import { getCurrentStaff } from "@/server/auth/current-user";
 import { canAccessBackOffice, canAccessCashier } from "@/server/rbac/can";
 import { logoutAction } from "@/server/auth/actions";
+import { LandingPage } from "@/components/customer/landing-page";
 
-// A logged-in staff member lands here once. If only one app is reachable
-// with their permissions, skip straight to it — the chooser only appears
-// for staff (Owner/Manager, typically) who can actually use more than one.
+// Same reasoning as src/app/member/page.tsx: LandingPage reads cafe
+// settings/menu/games from the DB per request, so this can't be
+// statically prerendered at build time.
+export const dynamic = "force-dynamic";
+
+// A logged-out visitor gets the public marketing page. A logged-in staff
+// member lands here once instead. If only one app is reachable with their
+// permissions, skip straight to it — the chooser only appears for staff
+// (Owner/Manager, typically) who can actually use more than one.
 export default async function Home() {
   const staff = await getCurrentStaff();
-  if (!staff) redirect("/login");
+  if (!staff) return <LandingPage />;
 
   const apps = [
     {
