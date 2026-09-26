@@ -89,6 +89,7 @@ function CreateStaffForm({ roles }: { roles: { id: string; name: string }[] }) {
 function StaffRow({
   member,
   roles,
+  isSelf,
 }: {
   member: {
     id: string;
@@ -96,18 +97,20 @@ function StaffRow({
     loginId: string;
     status: "ACTIVE" | "INACTIVE";
     role: { id: string; name: string };
+    _count: Record<string, number>;
   };
   roles: { id: string; name: string }[];
+  isSelf: boolean;
 }) {
   const utils = trpc.useUtils();
   const [newPin, setNewPin] = useState("");
   const [showPinReset, setShowPinReset] = useState(false);
-  const setStatus = trpc.staff.setStatus.useMutation({
-    onSuccess: () => utils.staff.list.invalidate(),
-  });
-  const setRole = trpc.staff.setRole.useMutation({
-    onSuccess: () => utils.staff.list.invalidate(),
-  });
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const invalidate = () => utils.staff.list.invalidate();
+  const update = trpc.staff.update.useMutation({ onSuccess: invalidate });
+  const setStatus = trpc.staff.setStatus.useMutation({ onSuccess: invalidate });
+  const setRole = trpc.staff.setRole.useMutation({ onSuccess: invalidate });
+  const remove = trpc.staff.delete.useMutation({ onSuccess: invalidate });
   const resetPin = trpc.staff.resetPin.useMutation({
     onSuccess: () => {
       setShowPinReset(false);
@@ -115,12 +118,28 @@ function StaffRow({
     },
   });
 
+  const hasActivity = Object.values(member._count).some((n) => n > 0);
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-background px-3 py-2 text-sm">
-      <div>
-        <p className="font-medium text-foreground">
-          {member.name} <span className="text-foreground-muted">· {member.loginId}</span>
-        </p>
+      <div className="flex min-w-40 flex-1 items-center gap-1 text-foreground-muted">
+        <input
+          defaultValue={member.name}
+          onBlur={(e) => {
+            const value = e.target.value.trim();
+            if (value && value !== member.name) update.mutate({ staffId: member.id, name: value });
+          }}
+          className="w-28 rounded border border-transparent bg-transparent font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
+        />
+        <span>·</span>
+        <input
+          defaultValue={member.loginId}
+          onBlur={(e) => {
+            const value = e.target.value.trim();
+            if (value && value !== member.loginId) update.mutate({ staffId: member.id, loginId: value });
+          }}
+          className="w-24 rounded border border-transparent bg-transparent hover:border-border focus:border-teal-500 focus:outline-none"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <select
@@ -170,7 +189,40 @@ function StaffRow({
             Reset PIN
           </button>
         )}
+        {isSelf ? null : hasActivity ? (
+          <span
+            className="text-xs text-foreground-muted"
+            title="This account has orders, shifts, payments, or other history — mark it Inactive instead of deleting."
+          >
+            🔒
+          </span>
+        ) : confirmingDelete ? (
+          <span className="flex items-center gap-1.5 text-xs">
+            <button
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ staffId: member.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-xs text-status-danger underline"
+          >
+            Delete
+          </button>
+        )}
       </div>
+      {(update.error || remove.error) && (
+        <p className="w-full text-xs text-status-danger">
+          {(update.error ?? remove.error)?.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -337,6 +389,7 @@ export function StaffRolesManager() {
   const { data: staffList, error: staffError } = trpc.staff.list.useQuery();
   const { data: roles, error: rolesError } = trpc.staff.listRoles.useQuery();
   const { data: allPermissions } = trpc.staff.allPermissions.useQuery();
+  const { data: me } = trpc.staff.me.useQuery();
 
   // A FORBIDDEN here (no MANAGE_STAFF) used to just fall through to
   // `roles ?? []` on every list — an apparently-working but silently empty
@@ -355,7 +408,7 @@ export function StaffRolesManager() {
         <CreateStaffForm roles={roles ?? []} />
         <div className="space-y-1">
           {staffList?.map((s) => (
-            <StaffRow key={s.id} member={s} roles={roles ?? []} />
+            <StaffRow key={s.id} member={s} roles={roles ?? []} isSelf={s.id === me?.id} />
           ))}
         </div>
       </section>

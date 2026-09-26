@@ -7,10 +7,40 @@ import { logAudit } from "@/server/audit";
 
 const manageStaff = () => permissionProcedure(Permission.MANAGE_STAFF);
 
+/**
+ * Every relation Staff is referenced from (§Staff delete) — a staff row
+ * can only ever be hard-deleted if every one of these is zero, since all
+ * of them are required (non-nullable) foreign keys elsewhere: an order,
+ * payment, shift, etc. must always say who actually did it, so none of
+ * that history can ever be reassigned or dropped just to allow a delete.
+ * A staff member with any of this on record can only be marked Inactive.
+ */
+const STAFF_ACTIVITY_COUNTS = {
+  auditLogs: true,
+  createdSessions: true,
+  closedSessions: true,
+  addedPlayers: true,
+  orders: true,
+  payments: true,
+  issuedRefunds: true,
+  approvedRefunds: true,
+  appliedDiscounts: true,
+  approvedDiscountOverrides: true,
+  expAdjustments: true,
+  awardedAchievements: true,
+  redeemedBenefits: true,
+  grantedBenefits: true,
+  recordedGames: true,
+  createdReservations: true,
+  openedShifts: true,
+  closedShifts: true,
+  dndSessionsRun: true,
+} as const;
+
 export const staffRouter = router({
   list: manageStaff().query(({ ctx }) => {
     return ctx.prisma.staff.findMany({
-      include: { role: true },
+      include: { role: true, _count: { select: STAFF_ACTIVITY_COUNTS } },
       orderBy: { createdAt: "asc" },
     });
   }),
@@ -71,6 +101,82 @@ export const staffRouter = router({
           startDate: new Date(),
         },
       });
+    }),
+
+  update: manageStaff()
+    .input(
+      z.object({
+        staffId: z.string(),
+        name: z.string().min(1).optional(),
+        loginId: z
+          .string()
+          .min(2)
+          .max(30)
+          .regex(/^[a-z0-9._-]+$/i, "Letters, numbers, . _ - only")
+          .optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { staffId, ...data } = input;
+      if (data.loginId) {
+        const existing = await ctx.prisma.staff.findUnique({ where: { loginId: data.loginId } });
+        if (existing && existing.id !== staffId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Login ID is taken." });
+        }
+      }
+      const before = await ctx.prisma.staff.findUnique({ where: { id: staffId } });
+      if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+      const updated = await ctx.prisma.staff.update({ where: { id: staffId }, data });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "STAFF_UPDATED",
+        entityType: "Staff",
+        entityId: staffId,
+        previousValue: { name: before.name, loginId: before.loginId },
+        newValue: data,
+      });
+      return updated;
+    }),
+
+  /**
+   * True delete — for a staff account that was created and never actually
+   * used (§delete the one I don't use), not for removing someone's real
+   * history. Only allowed when every relation in STAFF_ACTIVITY_COUNTS is
+   * zero; anyone who's ever taken an order, opened a shift, processed a
+   * payment, etc. can only be marked Inactive instead, same as the setStatus
+   * toggle already does — that activity is exactly what a bill/shift/report
+   * needs to keep saying who actually did it.
+   */
+  delete: manageStaff()
+    .input(z.object({ staffId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.staffId === ctx.staff.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "You can't delete the account you're currently signed in as.",
+        });
+      }
+      const staff = await ctx.prisma.staff.findUnique({
+        where: { id: input.staffId },
+        include: { _count: { select: STAFF_ACTIVITY_COUNTS } },
+      });
+      if (!staff) throw new TRPCError({ code: "NOT_FOUND" });
+      const totalActivity = Object.values(staff._count).reduce((a, b) => a + b, 0);
+      if (totalActivity > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${staff.name}" has activity on record (orders, shifts, payments, etc.) and can't be deleted — mark them Inactive instead.`,
+        });
+      }
+      await ctx.prisma.staff.delete({ where: { id: input.staffId } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "STAFF_DELETED",
+        entityType: "Staff",
+        entityId: input.staffId,
+        previousValue: { name: staff.name, loginId: staff.loginId },
+      });
+      return { ok: true };
     }),
 
   setStatus: manageStaff()
