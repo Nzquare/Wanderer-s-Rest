@@ -27,6 +27,7 @@ const NAV_ITEMS: { href: string; label: string; permission?: Permission }[] = [
   },
   { href: "/back-office/menu", label: "Menu", permission: Permission.MANAGE_MENU },
   { href: "/back-office/games", label: "Game Library", permission: Permission.MANAGE_GAMES },
+  { href: "/back-office/dnd", label: "D&D Sessions", permission: Permission.MANAGE_GAMES },
   { href: "/back-office/members", label: "Members", permission: Permission.MANAGE_MEMBERS },
   { href: "/back-office/classes", label: "Classes", permission: Permission.MANAGE_SETTINGS },
   { href: "/back-office/ranks", label: "Ranks", permission: Permission.MANAGE_SETTINGS },

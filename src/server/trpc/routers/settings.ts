@@ -6,6 +6,7 @@ import {
   membershipSettingsSchema,
   checkoutSettingsSchema,
   notificationSettingsSchema,
+  dndSettingsSchema,
 } from "@/server/settings/schema";
 
 const manage = () => permissionProcedure(Permission.MANAGE_SETTINGS);
@@ -47,4 +48,8 @@ export const settingsRouter = router({
   updateNotifications: manage()
     .input(notificationSettingsSchema.partial())
     .mutation(({ input }) => updateSettings("notifications", input)),
+
+  updateDnd: manage()
+    .input(dndSettingsSchema.partial())
+    .mutation(({ input }) => updateSettings("dnd", input)),
 });

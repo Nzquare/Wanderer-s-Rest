@@ -55,6 +55,7 @@ model Staff {
   createdReservations       Reservation[]
   openedShifts              Shift[]             @relation("ShiftOpenedBy")
   closedShifts              Shift[]             @relation("ShiftClosedBy")
+  dndSessionsRun            DndSession[]
 }
 
 enum Permission {
@@ -307,6 +308,7 @@ model TableSession {
   memberAchievements MemberAchievement[]
   receipt            Receipt?
   benefitRedemptions BenefitRedemption[] @relation("BenefitRelatedSession")
+  dndSessions        DndSession[]
 
   @@index([tableId, status])
 }
@@ -1070,6 +1072,79 @@ model GameSession {
   @@index([sessionId])
   @@index([gameId])
   @@index([memberId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// D&D sessions & DM commission (§D&D commission tracking)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum DndSessionType {
+  ONE_SHOT
+  CAMPAIGN
+}
+
+/**
+ * A running D&D campaign (e.g. "Curse of Strahd — Tuesdays"). Several can
+ * be active at once, each with its own session counter — DndSession below
+ * counts "session N" per campaign, not globally.
+ */
+model DndCampaign {
+  id        String   @id @default(cuid())
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions DndSession[]
+}
+
+/**
+ * One logged D&D run, for staff commission tracking — a standalone log
+ * (not the same record as GameSession's generic "games played" tally
+ * above), since a DM's commission needs its own type/campaign/session-
+ * number/commission fields that a board-game play record has no use for.
+ *
+ * Deliberately not FK-linked live to a table the way an order or a
+ * payment is — a DM picks an already-closed, paid bill once (to borrow
+ * its table-fee amount for the commission %), and everything the
+ * commission is actually owed on is snapshotted at that moment so it never
+ * silently changes later (§45 historical data): a bigger commission % set
+ * in Settings next month, or that bill being refunded after the fact,
+ * must never rewrite a commission already counted toward a past payout.
+ */
+model DndSession {
+  id   String         @id @default(cuid())
+  type DndSessionType
+
+  // Required for CAMPAIGN, left null for ONE_SHOT (enforced in the
+  // dnd.record mutation, not here — Prisma has no cross-field check).
+  campaignId String?
+  campaign   DndCampaign? @relation(fields: [campaignId], references: [id])
+  // 1-indexed running count within its own campaign, computed from how
+  // many sessions that campaign already had at creation time. Null for a
+  // one-shot, which has no running count to speak of.
+  sessionNumber Int?
+
+  // The DM this session's commission is owed to.
+  staffId String
+  staff   Staff  @relation(fields: [staffId], references: [id])
+
+  // The closed, paid bill this session's fee (and so its commission) was
+  // borrowed from — SetNull rather than Restrict so the snapshots below
+  // outlive the link, same reasoning as GameSession.gameId above.
+  tableSessionId String?
+  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
+
+  tableFeeAmount    Decimal @db.Decimal(12, 2)
+  commissionPercent Float
+  commissionAmount  Decimal @db.Decimal(12, 2)
+
+  notes    String?
+  playedAt DateTime @default(now())
+
+  @@index([campaignId])
+  @@index([staffId])
+  @@index([tableSessionId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

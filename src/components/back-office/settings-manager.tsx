@@ -140,6 +140,7 @@ function SettingsForm({ data }: { data: AllSettings }) {
   const [membership, setMembership] = useState(data.membership);
   const [checkout, setCheckout] = useState(data.checkout);
   const [notifications, setNotifications] = useState(data.notifications);
+  const [dnd, setDnd] = useState(data.dnd);
 
   const invalidate = () => utils.settings.getAll.invalidate();
   const saveCafe = trpc.settings.updateCafe.useMutation({ onSuccess: invalidate });
@@ -152,6 +153,7 @@ function SettingsForm({ data }: { data: AllSettings }) {
   const saveNotifications = trpc.settings.updateNotifications.useMutation({
     onSuccess: invalidate,
   });
+  const saveDnd = trpc.settings.updateDnd.useMutation({ onSuccess: invalidate });
 
   return (
     <div className="space-y-6">
@@ -423,6 +425,27 @@ function SettingsForm({ data }: { data: AllSettings }) {
           disabled={saveNotifications.isPending}
           onClick={() => saveNotifications.mutate(notifications)}
         >
+          Save
+        </Button>
+      </Card>
+
+      <Card className="space-y-3">
+        <p className="font-medium text-foreground">D&D Commission</p>
+        <p className="text-xs text-foreground-muted">
+          The % of a session&apos;s table fee paid out to the DM who ran it —
+          applied automatically whenever a session is logged in Back Office →
+          D&D Sessions. Already-logged sessions keep the rate they were
+          logged under, so changing this never rewrites past commission.
+        </p>
+        <Field label="Commission %">
+          <input
+            type="number"
+            className={inputCls}
+            value={dnd.commissionPercent}
+            onChange={(e) => setDnd({ ...dnd, commissionPercent: Number(e.target.value) })}
+          />
+        </Field>
+        <Button size="md" disabled={saveDnd.isPending} onClick={() => saveDnd.mutate(dnd)}>
           Save
         </Button>
       </Card>

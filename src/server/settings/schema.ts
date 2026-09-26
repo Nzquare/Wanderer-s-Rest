@@ -70,11 +70,18 @@ export const notificationSettingsSchema = z.object({
 });
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
+export const dndSettingsSchema = z.object({
+  /** % of a session's linked table fee paid out to the DM who ran it (§D&D commission tracking). */
+  commissionPercent: z.number().min(0).max(100).default(10),
+});
+export type DndSettings = z.infer<typeof dndSettingsSchema>;
+
 export const settingsSchemas = {
   cafe: cafeSettingsSchema,
   membership: membershipSettingsSchema,
   checkout: checkoutSettingsSchema,
   notifications: notificationSettingsSchema,
+  dnd: dndSettingsSchema,
 } as const;
 
 export type SettingsKey = keyof typeof settingsSchemas;
