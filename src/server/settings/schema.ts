@@ -72,7 +72,7 @@ export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 
 export const dndSettingsSchema = z.object({
   /** % of a session's linked table fee paid out to the DM who ran it (§D&D commission tracking). */
-  commissionPercent: z.number().min(0).max(100).default(10),
+  commissionPercent: z.number().min(0).max(100).default(5),
 });
 export type DndSettings = z.infer<typeof dndSettingsSchema>;
 

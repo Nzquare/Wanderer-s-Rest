@@ -308,7 +308,6 @@ model TableSession {
   memberAchievements MemberAchievement[]
   receipt            Receipt?
   benefitRedemptions BenefitRedemption[] @relation("BenefitRelatedSession")
-  dndSessions        DndSession[]
 
   @@index([tableId, status])
 }
@@ -1104,13 +1103,12 @@ model DndCampaign {
  * above), since a DM's commission needs its own type/campaign/session-
  * number/commission fields that a board-game play record has no use for.
  *
- * Deliberately not FK-linked live to a table the way an order or a
- * payment is — a DM picks an already-closed, paid bill once (to borrow
- * its table-fee amount for the commission %), and everything the
- * commission is actually owed on is snapshotted at that moment so it never
- * silently changes later (§45 historical data): a bigger commission % set
- * in Settings next month, or that bill being refunded after the fact,
- * must never rewrite a commission already counted toward a past payout.
+ * Not linked to a real table/bill at all — a manually-typed table fee
+ * amount instead (§no need to tie with table, there are bugs). The
+ * commission is still snapshotted at log time (tableFeeAmount,
+ * commissionPercent, commissionAmount), so a later change to the global
+ * % in Settings never rewrites a commission already counted toward a
+ * past payout.
  */
 model DndSession {
   id   String         @id @default(cuid())
@@ -1129,12 +1127,6 @@ model DndSession {
   staffId String
   staff   Staff  @relation(fields: [staffId], references: [id])
 
-  // The closed, paid bill this session's fee (and so its commission) was
-  // borrowed from — SetNull rather than Restrict so the snapshots below
-  // outlive the link, same reasoning as GameSession.gameId above.
-  tableSessionId String?
-  tableSession   TableSession? @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
-
   tableFeeAmount    Decimal @db.Decimal(12, 2)
   commissionPercent Float
   commissionAmount  Decimal @db.Decimal(12, 2)
@@ -1144,7 +1136,6 @@ model DndSession {
 
   @@index([campaignId])
   @@index([staffId])
-  @@index([tableSessionId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

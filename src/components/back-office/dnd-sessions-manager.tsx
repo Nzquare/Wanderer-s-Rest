@@ -10,7 +10,6 @@ import { StaffAssignSelect } from "@/components/ui/staff-assign-select";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type Campaign = RouterOutputs["dnd"]["listCampaigns"][number];
-type Bill = RouterOutputs["dnd"]["listUnlinkedBills"][number];
 
 const inputCls =
   "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500";
@@ -107,82 +106,22 @@ function CampaignsCard() {
 
 // ─── Log a session ──────────────────────────────────────────────────────
 
-function BillPicker({
-  selected,
-  onSelect,
-}: {
-  selected: Bill | null;
-  onSelect: (bill: Bill | null) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const { data: bills } = trpc.dnd.listUnlinkedBills.useQuery({ query });
-
-  if (selected) {
-    return (
-      <div className="flex items-center justify-between rounded-lg border border-teal-500 bg-teal-500/10 px-3 py-2 text-sm">
-        <span className="text-foreground">
-          {selected.table.name} ({selected.table.code}) ·{" "}
-          {selected.endTime ? new Date(selected.endTime).toLocaleString() : "—"} · table fee ฿
-          {selected.subtotalTableFee.toFixed(0)}
-        </span>
-        <button onClick={() => onSelect(null)} className="text-xs text-status-danger underline">
-          Change
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search table by name or code…"
-        className={inputCls}
-      />
-      <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border p-1.5">
-        {bills?.map((b: Bill) => (
-          <button
-            key={b.id}
-            onClick={() => onSelect(b)}
-            className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm hover:bg-black/5"
-          >
-            <span className="text-foreground">
-              {b.table.name} ({b.table.code}) ·{" "}
-              {b.endTime ? new Date(b.endTime).toLocaleDateString() : "—"}
-            </span>
-            <span className="text-foreground-muted">฿{b.subtotalTableFee.toFixed(0)}</span>
-          </button>
-        ))}
-        {bills?.length === 0 && (
-          <p className="px-2 py-1 text-sm text-foreground-muted">
-            No unlinked closed bills match — a table&apos;s bill has to be
-            checked out and paid, and not already logged against another
-            session, before it can be picked here.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function RecordSessionCard({ campaigns }: { campaigns: Campaign[] }) {
   const utils = trpc.useUtils();
   const { data: dndSettings } = trpc.settings.getAll.useQuery();
   const [type, setType] = useState<"ONE_SHOT" | "CAMPAIGN">("ONE_SHOT");
   const [campaignId, setCampaignId] = useState("");
   const [staffId, setStaffId] = useState("");
-  const [bill, setBill] = useState<Bill | null>(null);
+  const [tableFeeAmount, setTableFeeAmount] = useState("");
   const [notes, setNotes] = useState("");
 
   const record = trpc.dnd.record.useMutation({
     onSuccess: async () => {
-      setBill(null);
+      setTableFeeAmount("");
       setNotes("");
       setCampaignId("");
       await Promise.all([
         utils.dnd.listSessions.invalidate(),
-        utils.dnd.listUnlinkedBills.invalidate(),
         utils.dnd.listCampaigns.invalidate(),
         utils.dnd.commissionSummary.invalidate(),
       ]);
@@ -190,8 +129,9 @@ function RecordSessionCard({ campaigns }: { campaigns: Campaign[] }) {
   });
 
   const commissionPercent = dndSettings?.dnd.commissionPercent ?? 0;
-  const preview = bill ? Math.round(bill.subtotalTableFee * commissionPercent) / 100 : null;
-  const canSubmit = staffId && bill && (type === "ONE_SHOT" || campaignId);
+  const feeNumber = Number(tableFeeAmount);
+  const preview = feeNumber > 0 ? Math.round(feeNumber * commissionPercent) / 100 : null;
+  const canSubmit = staffId && feeNumber > 0 && (type === "ONE_SHOT" || campaignId);
 
   return (
     <Card className="space-y-3">
@@ -235,9 +175,17 @@ function RecordSessionCard({ campaigns }: { campaigns: Campaign[] }) {
 
       <div>
         <label className="text-xs text-foreground-muted">
-          Table bill (commission is {commissionPercent}% of its table fee)
+          Table fee (฿) — commission is {commissionPercent}% of this
         </label>
-        <BillPicker selected={bill} onSelect={setBill} />
+        <input
+          type="number"
+          min="0"
+          step="1"
+          className={inputCls}
+          value={tableFeeAmount}
+          onChange={(e) => setTableFeeAmount(e.target.value)}
+          placeholder="e.g. 200"
+        />
       </div>
 
       {preview != null && (
@@ -261,12 +209,11 @@ function RecordSessionCard({ campaigns }: { campaigns: Campaign[] }) {
         size="md"
         disabled={!canSubmit || record.isPending}
         onClick={() =>
-          bill &&
           record.mutate({
             type,
             campaignId: type === "CAMPAIGN" ? campaignId : undefined,
             staffId,
-            tableSessionId: bill.id,
+            tableFeeAmount: feeNumber,
             notes: notes.trim() || undefined,
           })
         }
@@ -286,7 +233,6 @@ function SessionsLogCard() {
     onSuccess: () =>
       Promise.all([
         utils.dnd.listSessions.invalidate(),
-        utils.dnd.listUnlinkedBills.invalidate(),
         utils.dnd.listCampaigns.invalidate(),
         utils.dnd.commissionSummary.invalidate(),
       ]),
@@ -306,7 +252,6 @@ function SessionsLogCard() {
               <th className="px-3 py-2 font-medium">Date</th>
               <th className="px-3 py-2 font-medium">DM</th>
               <th className="px-3 py-2 font-medium">Run</th>
-              <th className="px-3 py-2 font-medium">Table</th>
               <th className="px-3 py-2 text-right font-medium">Table fee</th>
               <th className="px-3 py-2 text-right font-medium">Commission</th>
               <th className="px-3 py-2"></th>
@@ -325,9 +270,6 @@ function SessionsLogCard() {
                   {s.type === "ONE_SHOT"
                     ? "One-shot"
                     : `${s.campaign?.name ?? "Deleted campaign"} — Session ${s.sessionNumber}`}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">
-                  {s.tableSession?.table.code ?? "—"}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
                   ฿{s.tableFeeAmount.toFixed(0)}

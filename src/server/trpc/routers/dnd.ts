@@ -51,48 +51,6 @@ export const dndRouter = router({
       return { ok: true };
     }),
 
-  /**
-   * Closed, actually-paid bills from the last 60 days that don't already
-   * have a D&D session logged against them — the "pick a bill" search for
-   * the record form (§commission is % of that bill's table fee). Only
-   * PAID (not VOIDED/REFUNDED) so a commission is never based on revenue
-   * that didn't really land.
-   */
-  listUnlinkedBills: manageDnd()
-    .input(z.object({ query: z.string().optional() }).optional())
-    .query(async ({ ctx, input }) => {
-      const q = input?.query?.trim();
-      const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-      const sessions = await ctx.prisma.tableSession.findMany({
-        where: {
-          status: "CLOSED",
-          paymentStatus: "PAID",
-          endTime: { gte: since },
-          dndSessions: { none: {} },
-          ...(q
-            ? {
-                table: {
-                  OR: [
-                    { code: { contains: q, mode: "insensitive" } },
-                    { name: { contains: q, mode: "insensitive" } },
-                  ],
-                },
-              }
-            : {}),
-        },
-        select: {
-          id: true,
-          endTime: true,
-          subtotalTableFee: true,
-          playerCount: true,
-          table: { select: { code: true, name: true } },
-        },
-        orderBy: { endTime: "desc" },
-        take: 30,
-      });
-      return sessions.map((s) => ({ ...s, subtotalTableFee: toNum(s.subtotalTableFee) }));
-    }),
-
   listSessions: manageDnd()
     .input(
       z
@@ -115,7 +73,6 @@ export const dndRouter = router({
         include: {
           campaign: { select: { name: true } },
           staff: { select: { name: true, displayName: true } },
-          tableSession: { select: { table: { select: { code: true, name: true } } } },
         },
         orderBy: { playedAt: "desc" },
       });
@@ -132,7 +89,7 @@ export const dndRouter = router({
         type: z.enum(["ONE_SHOT", "CAMPAIGN"]),
         campaignId: z.string().optional(),
         staffId: z.string(),
-        tableSessionId: z.string(),
+        tableFeeAmount: z.number().positive(),
         notes: z.string().optional(),
       }),
     )
@@ -141,20 +98,9 @@ export const dndRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Pick a campaign for a campaign session." });
       }
 
-      const tableSession = await ctx.prisma.tableSession.findUnique({
-        where: { id: input.tableSessionId },
-      });
-      if (!tableSession || tableSession.status !== "CLOSED" || tableSession.paymentStatus !== "PAID") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "That bill isn't a closed, paid table session.",
-        });
-      }
-
       const { commissionPercent } = await getSettings("dnd");
-      const tableFeeAmount = toNum(tableSession.subtotalTableFee);
       // tableFeeAmount * commissionPercent / 100, rounded to 2 decimals (satang).
-      const commissionAmount = Math.round(tableFeeAmount * commissionPercent) / 100;
+      const commissionAmount = Math.round(input.tableFeeAmount * commissionPercent) / 100;
 
       return ctx.prisma.$transaction(async (tx) => {
         let sessionNumber: number | null = null;
@@ -167,8 +113,7 @@ export const dndRouter = router({
             campaignId: input.type === "CAMPAIGN" ? input.campaignId : null,
             sessionNumber,
             staffId: input.staffId,
-            tableSessionId: input.tableSessionId,
-            tableFeeAmount,
+            tableFeeAmount: input.tableFeeAmount,
             commissionPercent,
             commissionAmount,
             notes: input.notes,
