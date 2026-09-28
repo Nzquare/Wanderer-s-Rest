@@ -5,8 +5,6 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ToggleButton } from "@/components/ui/toggle-button";
-import { PERMISSION_LABELS } from "@/server/rbac/permissions";
-import type { Permission } from "@/generated/prisma/enums";
 
 function CreateStaffForm({ roles }: { roles: { id: string; name: string }[] }) {
   const [name, setName] = useState("");
@@ -227,173 +225,14 @@ function StaffRow({
   );
 }
 
-function RoleEditor({
-  role,
-  allPermissions,
-}: {
-  role: {
-    id: string;
-    name: string;
-    permissions: { permission: Permission }[];
-    denyBackOfficeAccess: boolean;
-    denyCashierAccess: boolean;
-  };
-  allPermissions: Permission[];
-}) {
-  const [selected, setSelected] = useState<Set<Permission>>(
-    new Set(role.permissions.map((p) => p.permission)),
-  );
-  const [dirty, setDirty] = useState(false);
-  const [allowBackOffice, setAllowBackOffice] = useState(!role.denyBackOfficeAccess);
-  const [allowCashier, setAllowCashier] = useState(!role.denyCashierAccess);
-  const [appAccessDirty, setAppAccessDirty] = useState(false);
-  const utils = trpc.useUtils();
-  const save = trpc.staff.updateRolePermissions.useMutation({
-    onSuccess: async () => {
-      setDirty(false);
-      await utils.staff.listRoles.invalidate();
-    },
-  });
-  const saveAppAccess = trpc.staff.updateAppAccess.useMutation({
-    onSuccess: async () => {
-      setAppAccessDirty(false);
-      await utils.staff.listRoles.invalidate();
-    },
-  });
-
-  function toggle(p: Permission) {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(p)) next.delete(p);
-      else next.add(p);
-      return next;
-    });
-    setDirty(true);
-  }
-
-  return (
-    <Card className="space-y-2">
-      <p className="font-medium text-foreground">{role.name}</p>
-      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-        {allPermissions.map((p) => (
-          <label key={p} className="flex items-center gap-2 text-xs text-foreground-muted">
-            <input
-              type="checkbox"
-              checked={selected.has(p)}
-              onChange={() => toggle(p)}
-            />
-            {PERMISSION_LABELS[p]}
-          </label>
-        ))}
-      </div>
-      {dirty && (
-        <Button
-          size="md"
-          disabled={save.isPending}
-          onClick={() =>
-            save.mutate({ roleId: role.id, permissions: Array.from(selected) })
-          }
-        >
-          Save permissions
-        </Button>
-      )}
-
-      <div className="space-y-2 border-t border-border pt-2">
-        <p className="text-xs font-medium text-foreground-muted">
-          App access — overrides the permissions above. Staff Mobile is
-          always reachable; some permissions here (Manage games, Manage
-          members, Manage reservations, ...) are also needed for actions
-          on Staff Mobile, so unchecking a box below is the only way to
-          keep those while still locking this role out of that app.
-        </p>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-xs text-foreground-muted">
-            <input
-              type="checkbox"
-              checked={allowBackOffice}
-              onChange={(e) => {
-                setAllowBackOffice(e.target.checked);
-                setAppAccessDirty(true);
-              }}
-            />
-            Allow Back Office access
-          </label>
-          <label className="flex items-center gap-2 text-xs text-foreground-muted">
-            <input
-              type="checkbox"
-              checked={allowCashier}
-              onChange={(e) => {
-                setAllowCashier(e.target.checked);
-                setAppAccessDirty(true);
-              }}
-            />
-            Allow Cashier POS access
-          </label>
-        </div>
-        {appAccessDirty && (
-          <Button
-            size="md"
-            disabled={saveAppAccess.isPending}
-            onClick={() =>
-              saveAppAccess.mutate({
-                roleId: role.id,
-                denyBackOfficeAccess: !allowBackOffice,
-                denyCashierAccess: !allowCashier,
-              })
-            }
-          >
-            Save app access
-          </Button>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function CreateRoleForm() {
-  const [name, setName] = useState("");
-  const utils = trpc.useUtils();
-  const create = trpc.staff.createRole.useMutation({
-    onSuccess: async () => {
-      setName("");
-      await utils.staff.listRoles.invalidate();
-    },
-  });
-  return (
-    <Card className="flex items-end gap-2">
-      <div className="w-48">
-        <label className="text-xs text-foreground-muted">New role name</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Bar Lead"
-          className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-        />
-      </div>
-      {create.error && (
-        <p className="text-xs text-status-danger">{create.error.message}</p>
-      )}
-      <Button
-        size="md"
-        variant="outline"
-        disabled={!name || create.isPending}
-        onClick={() => create.mutate({ name })}
-      >
-        Add role
-      </Button>
-    </Card>
-  );
-}
-
-export function StaffRolesManager() {
+export function StaffManager() {
   const { data: staffList, error: staffError } = trpc.staff.list.useQuery();
   const { data: roles, error: rolesError } = trpc.staff.listRoles.useQuery();
-  const { data: allPermissions } = trpc.staff.allPermissions.useQuery();
   const { data: me } = trpc.staff.me.useQuery();
 
   // A FORBIDDEN here (no MANAGE_STAFF) used to just fall through to
   // `roles ?? []` on every list — an apparently-working but silently empty
-  // page (create form with nothing to pick from, no staff/roles listed, no
+  // page (create form with nothing to pick from, no staff listed, no
   // explanation) rather than a page that ever says why (§Back Office
   // permission-error visibility).
   const error = staffError ?? rolesError;
@@ -402,24 +241,13 @@ export function StaffRolesManager() {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Staff</h2>
-        <CreateStaffForm roles={roles ?? []} />
-        <div className="space-y-1">
-          {staffList?.map((s) => (
-            <StaffRow key={s.id} member={s} roles={roles ?? []} isSelf={s.id === me?.id} />
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Roles & permissions</h2>
-        <CreateRoleForm />
-        {roles?.map((role) => (
-          <RoleEditor key={role.id} role={role} allPermissions={allPermissions ?? []} />
+    <div className="space-y-3">
+      <CreateStaffForm roles={roles ?? []} />
+      <div className="space-y-1">
+        {staffList?.map((s) => (
+          <StaffRow key={s.id} member={s} roles={roles ?? []} isSelf={s.id === me?.id} />
         ))}
-      </section>
+      </div>
     </div>
   );
 }

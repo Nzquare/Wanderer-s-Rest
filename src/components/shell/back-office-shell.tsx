@@ -34,7 +34,8 @@ const NAV_ITEMS: { href: string; label: string; permission?: Permission }[] = [
   { href: "/back-office/achievements", label: "Achievements", permission: Permission.MANAGE_SETTINGS },
   { href: "/back-office/reservations", label: "Reservations", permission: Permission.MANAGE_RESERVATIONS },
   { href: "/back-office/promotions", label: "Promotions", permission: Permission.MANAGE_PROMOTIONS },
-  { href: "/back-office/staff", label: "Staff & Roles", permission: Permission.MANAGE_STAFF },
+  { href: "/back-office/staff", label: "Staff", permission: Permission.MANAGE_STAFF },
+  { href: "/back-office/roles", label: "Roles & Permissions", permission: Permission.MANAGE_STAFF },
   { href: "/back-office/reports", label: "Reports", permission: Permission.VIEW_REPORTS },
   { href: "/back-office/settings", label: "Settings", permission: Permission.MANAGE_SETTINGS },
 ];
