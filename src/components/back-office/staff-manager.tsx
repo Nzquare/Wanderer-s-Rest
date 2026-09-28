@@ -229,6 +229,13 @@ export function StaffManager() {
   const { data: staffList, error: staffError } = trpc.staff.list.useQuery();
   const { data: roles, error: rolesError } = trpc.staff.listRoles.useQuery();
   const { data: me } = trpc.staff.me.useQuery();
+  // Inactive is the real "remove" for a staff member with real activity on
+  // record — they can't be hard-deleted without erasing who actually
+  // processed a past order/payment/shift (§even the locked staff I need
+  // to delete). Hidden by default so a café that's cycled through a few
+  // part-timers doesn't end up scrolling past all of them forever; the
+  // toggle below brings them back into view without changing anything.
+  const [showInactive, setShowInactive] = useState(false);
 
   // A FORBIDDEN here (no MANAGE_STAFF) used to just fall through to
   // `roles ?? []` on every list — an apparently-working but silently empty
@@ -240,11 +247,24 @@ export function StaffManager() {
     return <p className="text-sm text-status-danger">{error.message}</p>;
   }
 
+  const inactiveCount = staffList?.filter((s) => s.status === "INACTIVE").length ?? 0;
+  const visibleStaff = staffList?.filter((s) => showInactive || s.status === "ACTIVE");
+
   return (
     <div className="space-y-3">
       <CreateStaffForm roles={roles ?? []} />
+      {inactiveCount > 0 && (
+        <label className="flex items-center gap-2 text-xs text-foreground-muted">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e) => setShowInactive(e.target.checked)}
+          />
+          Show {inactiveCount} inactive staff
+        </label>
+      )}
       <div className="space-y-1">
-        {staffList?.map((s) => (
+        {visibleStaff?.map((s) => (
           <StaffRow key={s.id} member={s} roles={roles ?? []} isSelf={s.id === me?.id} />
         ))}
       </div>

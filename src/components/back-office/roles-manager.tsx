@@ -14,9 +14,11 @@ function RoleEditor({
   role: {
     id: string;
     name: string;
+    isSystem: boolean;
     permissions: { permission: Permission }[];
     denyBackOfficeAccess: boolean;
     denyCashierAccess: boolean;
+    _count: { staff: number };
   };
   allPermissions: Permission[];
 }) {
@@ -27,19 +29,22 @@ function RoleEditor({
   const [allowBackOffice, setAllowBackOffice] = useState(!role.denyBackOfficeAccess);
   const [allowCashier, setAllowCashier] = useState(!role.denyCashierAccess);
   const [appAccessDirty, setAppAccessDirty] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const utils = trpc.useUtils();
+  const invalidate = () => utils.staff.listRoles.invalidate();
   const save = trpc.staff.updateRolePermissions.useMutation({
     onSuccess: async () => {
       setDirty(false);
-      await utils.staff.listRoles.invalidate();
+      await invalidate();
     },
   });
   const saveAppAccess = trpc.staff.updateAppAccess.useMutation({
     onSuccess: async () => {
       setAppAccessDirty(false);
-      await utils.staff.listRoles.invalidate();
+      await invalidate();
     },
   });
+  const remove = trpc.staff.deleteRole.useMutation({ onSuccess: invalidate });
 
   function toggle(p: Permission) {
     setSelected((s) => {
@@ -53,7 +58,45 @@ function RoleEditor({
 
   return (
     <Card className="space-y-2">
-      <p className="font-medium text-foreground">{role.name}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium text-foreground">{role.name}</p>
+        {role.isSystem ? (
+          <span
+            className="text-xs text-foreground-muted"
+            title="Built-in roles (Owner, Manager, GM, Tavern Keeper) can't be deleted."
+          >
+            🔒
+          </span>
+        ) : role._count.staff > 0 ? (
+          <span
+            className="text-xs text-foreground-muted"
+            title={`${role._count.staff} staff member(s) still have this role — reassign them first.`}
+          >
+            🔒
+          </span>
+        ) : confirmingDelete ? (
+          <span className="flex items-center gap-1.5 text-xs">
+            <button
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ roleId: role.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-xs text-status-danger underline"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+      {remove.error && <p className="text-xs text-status-danger">{remove.error.message}</p>}
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
         {allPermissions.map((p) => (
           <label key={p} className="flex items-center gap-2 text-xs text-foreground-muted">

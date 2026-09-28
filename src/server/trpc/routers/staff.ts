@@ -64,7 +64,7 @@ export const staffRouter = router({
 
   listRoles: manageStaff().query(({ ctx }) => {
     return ctx.prisma.role.findMany({
-      include: { permissions: true },
+      include: { permissions: true, _count: { select: { staff: true } } },
       orderBy: { createdAt: "asc" },
     });
   }),
@@ -249,6 +249,47 @@ export const staffRouter = router({
       // Custom roles start with no permissions — Owner/Manager grant them
       // deliberately from the editor, nothing sneaks in by default.
       return ctx.prisma.role.create({ data: { name: input.name } });
+    }),
+
+  /**
+   * Only for a role nobody currently holds — Staff.roleId is required, so
+   * a role assigned to even one staff member can't be dropped without
+   * leaving their account without a role at all. Reassign them first, or
+   * mark them Inactive. Built-in roles (Owner, Manager, GM, Tavern Keeper)
+   * can never be deleted regardless — losing the only role that can grant
+   * every permission would be a genuine lockout, not just an inconvenience.
+   * RolePermission rows cascade automatically (see schema), so no separate
+   * cleanup is needed there.
+   */
+  deleteRole: manageStaff()
+    .input(z.object({ roleId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await ctx.prisma.role.findUnique({
+        where: { id: input.roleId },
+        include: { _count: { select: { staff: true } } },
+      });
+      if (!role) throw new TRPCError({ code: "NOT_FOUND" });
+      if (role.isSystem) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${role.name}" is a built-in role and can't be deleted.`,
+        });
+      }
+      if (role._count.staff > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${role._count.staff} staff member(s) still have the "${role.name}" role — reassign them to a different role first.`,
+        });
+      }
+      await ctx.prisma.role.delete({ where: { id: input.roleId } });
+      await logAudit(ctx.prisma, {
+        staffId: ctx.staff.id,
+        action: "ROLE_DELETED",
+        entityType: "Role",
+        entityId: input.roleId,
+        previousValue: { name: role.name },
+      });
+      return { ok: true };
     }),
 
   updateRolePermissions: manageStaff()
