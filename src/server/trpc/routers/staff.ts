@@ -252,6 +252,22 @@ export const staffRouter = router({
     }),
 
   /**
+   * Renaming is allowed on every role, built-in or custom (§restructure
+   * the built-in roles) — nothing in the app matches a role by its name
+   * string at runtime (DEFAULT_ROLE_PERMISSIONS is only ever read once, at
+   * the very first seed), only isSystem gates deletion, not this.
+   */
+  updateRole: manageStaff()
+    .input(z.object({ roleId: z.string(), name: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.role.findUnique({ where: { name: input.name } });
+      if (existing && existing.id !== input.roleId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Role name is taken." });
+      }
+      return ctx.prisma.role.update({ where: { id: input.roleId }, data: { name: input.name } });
+    }),
+
+  /**
    * Only for a role nobody currently holds — Staff.roleId is required, so
    * a role assigned to even one staff member can't be dropped without
    * leaving their account without a role at all. Reassign them first, or

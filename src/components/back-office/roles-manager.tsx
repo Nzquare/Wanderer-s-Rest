@@ -45,6 +45,7 @@ function RoleEditor({
     },
   });
   const remove = trpc.staff.deleteRole.useMutation({ onSuccess: invalidate });
+  const rename = trpc.staff.updateRole.useMutation({ onSuccess: invalidate });
 
   function toggle(p: Permission) {
     setSelected((s) => {
@@ -59,7 +60,14 @@ function RoleEditor({
   return (
     <Card className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-foreground">{role.name}</p>
+        <input
+          defaultValue={role.name}
+          onBlur={(e) => {
+            const value = e.target.value.trim();
+            if (value && value !== role.name) rename.mutate({ roleId: role.id, name: value });
+          }}
+          className="rounded border border-transparent bg-transparent font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
+        />
         {role.isSystem ? (
           <span
             className="text-xs text-foreground-muted"
@@ -96,7 +104,9 @@ function RoleEditor({
           </button>
         )}
       </div>
-      {remove.error && <p className="text-xs text-status-danger">{remove.error.message}</p>}
+      {(remove.error || rename.error) && (
+        <p className="text-xs text-status-danger">{(remove.error ?? rename.error)?.message}</p>
+      )}
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
         {allPermissions.map((p) => (
           <label key={p} className="flex items-center gap-2 text-xs text-foreground-muted">
