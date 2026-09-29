@@ -187,14 +187,7 @@ function StaffRow({
             Reset PIN
           </button>
         )}
-        {isSelf ? null : hasActivity ? (
-          <span
-            className="text-xs text-foreground-muted"
-            title="This account has orders, shifts, payments, or other history — mark it Inactive instead of deleting."
-          >
-            🔒
-          </span>
-        ) : confirmingDelete ? (
+        {isSelf ? null : confirmingDelete ? (
           <span className="flex items-center gap-1.5 text-xs">
             <button
               disabled={remove.isPending}
@@ -216,6 +209,14 @@ function StaffRow({
           </button>
         )}
       </div>
+      {isSelf === false && confirmingDelete && hasActivity && (
+        <p className="w-full text-xs text-foreground-muted">
+          This account has orders, shifts, payments, or other history on
+          record — deleting it keeps every one of those, showing this
+          name as it was at the time, but the login itself is gone for
+          good.
+        </p>
+      )}
       {(update.error || remove.error) && (
         <p className="w-full text-xs text-status-danger">
           {(update.error ?? remove.error)?.message}

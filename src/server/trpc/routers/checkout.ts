@@ -416,7 +416,7 @@ export const checkoutRouter = router({
             promotionId: d.promotionId,
             label: d.label,
             amount: toNum(d.amount),
-            appliedByName: d.appliedBy.name,
+            appliedByName: d.appliedBy?.name ?? d.appliedByNameSnapshot ?? "Deleted staff",
             // FREE_ITEM's "amount" is the item's own price, offsetting a line
             // that's already in the order at full price — showing "-฿80"
             // next to something labeled "free" reads as a deduction rather
@@ -499,6 +499,7 @@ export const checkoutRouter = router({
           label,
           amount,
           appliedById: ctx.staff.id,
+          appliedByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
         },
       });
       await logAudit(ctx.prisma, {
@@ -717,6 +718,7 @@ export const checkoutRouter = router({
             label,
             amount,
             appliedById: ctx.staff.id,
+            appliedByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
             // Links this discount back to the specific reward it redeemed
             // (§Benefits) — the Adventurer Profile's Benefits section reads
             // this to show "Redeemed" instead of leaving it AVAILABLE forever.
@@ -836,7 +838,7 @@ export const checkoutRouter = router({
           promotionId: d.promotionId,
           label: d.label,
           amount: toNum(d.amount),
-          appliedByName: d.appliedBy.name,
+          appliedByName: d.appliedBy?.name ?? d.appliedByNameSnapshot ?? "Deleted staff",
           isFreeItem: d.promotion?.type === "FREE_ITEM",
           isExpBonus: d.promotion?.type === "EXP_BONUS",
           isRankDiscount: false,
@@ -955,6 +957,7 @@ export const checkoutRouter = router({
           label,
           amount,
           appliedById: ctx.staff.id,
+          appliedByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
         },
       });
       await logAudit(ctx.prisma, {
@@ -1113,6 +1116,7 @@ export const checkoutRouter = router({
             methodNameSnapshot: methodById.get(p.methodId)!.name,
             reference: p.reference,
             staffId: ctx.staff.id,
+            staffNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
           })),
         });
 

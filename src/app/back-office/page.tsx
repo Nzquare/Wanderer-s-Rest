@@ -126,7 +126,7 @@ export default async function BackOfficeDashboard() {
             <div>
               <p className="text-sm font-semibold text-status-success">Shift open</p>
               <p className="text-xs text-foreground-muted">
-                Opened by {openShift.openedBy.name} at{" "}
+                Opened by {openShift.openedBy?.name ?? openShift.openedByNameSnapshot ?? "Deleted staff"} at{" "}
                 {openShift.openedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
               </p>
             </div>

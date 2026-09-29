@@ -10,7 +10,7 @@ export const shiftsRouter = router({
     const shift = await ctx.prisma.shift.findFirst({
       where: { status: "OPEN" },
       orderBy: { openedAt: "desc" },
-      include: { openedBy: { select: { name: true } } },
+      select: { id: true, openedAt: true, startingCash: true, openedBy: { select: { name: true } }, openedByNameSnapshot: true },
     });
     if (!shift) return null;
 
@@ -56,7 +56,7 @@ export const shiftsRouter = router({
       id: shift.id,
       openedAt: shift.openedAt,
       startingCash: toNum(shift.startingCash),
-      openedByName: shift.openedBy.name,
+      openedByName: shift.openedBy?.name ?? shift.openedByNameSnapshot ?? "Deleted staff",
       byMethod,
       totalSales,
       expectedCash,
@@ -79,6 +79,7 @@ export const shiftsRouter = router({
       const shift = await ctx.prisma.shift.create({
         data: {
           openedById: ctx.staff.id,
+          openedByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
           startingCash: input.startingCash,
           notes: input.notes,
         },

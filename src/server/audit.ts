@@ -21,9 +21,17 @@ export async function logAudit(
   },
 ) {
   try {
+    // Looked up here rather than passed in, so none of this function's ~40
+    // call sites need to change (§force delete staff/roles) — a staff
+    // account deleted later still leaves every entry it ever wrote
+    // readable by name instead of falling back to "System".
+    const actor = entry.staffId
+      ? await db.staff.findUnique({ where: { id: entry.staffId }, select: { name: true } })
+      : null;
     await db.auditLog.create({
       data: {
         staffId: entry.staffId,
+        actorNameSnapshot: actor?.name,
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId,

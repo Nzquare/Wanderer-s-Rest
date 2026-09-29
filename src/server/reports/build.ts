@@ -470,7 +470,7 @@ export async function buildShiftReconciliationReport(prisma: PrismaClient, range
     id: s.id,
     openedAt: s.openedAt,
     closedAt: s.closedAt,
-    openedByName: s.openedBy.name,
+    openedByName: s.openedBy?.name ?? s.openedByNameSnapshot ?? "Deleted staff",
     closedByName: s.closedBy?.name ?? null,
     status: s.status,
     startingCash: toNum(s.startingCash),

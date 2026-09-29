@@ -184,6 +184,7 @@ export const gamesRouter = router({
           gameId: input.gameId,
           memberId: session?.memberId,
           staffId: ctx.staff.id,
+          staffNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
           notes: input.notes,
         },
       });

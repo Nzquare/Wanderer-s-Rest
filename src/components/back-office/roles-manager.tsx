@@ -68,14 +68,7 @@ function RoleEditor({
           }}
           className="rounded border border-transparent bg-transparent font-medium text-foreground hover:border-border focus:border-teal-500 focus:outline-none"
         />
-        {role.isSystem ? (
-          <span
-            className="text-xs text-foreground-muted"
-            title="Built-in roles (Owner, Manager, GM, Tavern Keeper) can't be deleted."
-          >
-            🔒
-          </span>
-        ) : role._count.staff > 0 ? (
+        {role._count.staff > 0 ? (
           <span
             className="text-xs text-foreground-muted"
             title={`${role._count.staff} staff member(s) still have this role — reassign them first.`}

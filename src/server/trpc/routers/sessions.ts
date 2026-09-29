@@ -363,6 +363,7 @@ export const sessionsRouter = router({
             memberId: input.memberId,
             notes: input.notes,
             createdById: ctx.staff.id,
+            createdByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
             players: {
               create: Array.from({ length: input.playerCount }, (_, i) => ({
                 label: `Player ${i + 1}`,
@@ -1017,6 +1018,7 @@ export const sessionsRouter = router({
               amount: payment.amount,
               reason: input.reason,
               staffId: assignedStaff.id,
+              staffNameSnapshot: assignedStaff.displayName ?? assignedStaff.name,
             },
           });
         }
@@ -1294,6 +1296,7 @@ export const sessionsRouter = router({
             packageId: session.packageId,
             notes: input.notes ?? `Split from ${session.table.code}`,
             createdById: ctx.staff.id,
+            createdByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
           },
         });
 

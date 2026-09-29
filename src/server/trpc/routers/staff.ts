@@ -8,12 +8,14 @@ import { logAudit } from "@/server/audit";
 const manageStaff = () => permissionProcedure(Permission.MANAGE_STAFF);
 
 /**
- * Every relation Staff is referenced from (§Staff delete) — a staff row
- * can only ever be hard-deleted if every one of these is zero, since all
- * of them are required (non-nullable) foreign keys elsewhere: an order,
- * payment, shift, etc. must always say who actually did it, so none of
- * that history can ever be reassigned or dropped just to allow a delete.
- * A staff member with any of this on record can only be marked Inactive.
+ * Every relation Staff is referenced from — informational only (§force
+ * delete staff/roles). Deleting a staff member with activity here is
+ * allowed; every one of these relations is nullable + SetNull, and each
+ * row keeps a permanent name snapshot taken when it was created (same
+ * pattern as Payment.methodNameSnapshot), so the delete never blanks out
+ * who actually did it in past orders/payments/shifts/etc. This is only
+ * used to warn ("this account has history") before the confirm step, not
+ * to block it.
  */
 const STAFF_ACTIVITY_COUNTS = {
   auditLogs: true,
@@ -156,18 +158,11 @@ export const staffRouter = router({
           message: "You can't delete the account you're currently signed in as.",
         });
       }
-      const staff = await ctx.prisma.staff.findUnique({
-        where: { id: input.staffId },
-        include: { _count: { select: STAFF_ACTIVITY_COUNTS } },
-      });
+      const staff = await ctx.prisma.staff.findUnique({ where: { id: input.staffId } });
       if (!staff) throw new TRPCError({ code: "NOT_FOUND" });
-      const totalActivity = Object.values(staff._count).reduce((a, b) => a + b, 0);
-      if (totalActivity > 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `"${staff.name}" has activity on record (orders, shifts, payments, etc.) and can't be deleted — mark them Inactive instead.`,
-        });
-      }
+      // Every order/payment/shift/etc. this account ever touched keeps its
+      // own name snapshot from when it was created, so this delete never
+      // erases who actually did it — it just removes the login itself.
       await ctx.prisma.staff.delete({ where: { id: input.staffId } });
       await logAudit(ctx.prisma, {
         staffId: ctx.staff.id,
@@ -201,18 +196,25 @@ export const staffRouter = router({
   setRole: manageStaff()
     .input(z.object({ staffId: z.string(), roleId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const before = await ctx.prisma.staff.findUnique({ where: { id: input.staffId } });
+      const before = await ctx.prisma.staff.findUnique({
+        where: { id: input.staffId },
+        include: { role: true },
+      });
+      const newRole = await ctx.prisma.role.findUnique({ where: { id: input.roleId } });
       const updated = await ctx.prisma.staff.update({
         where: { id: input.staffId },
         data: { roleId: input.roleId },
       });
+      // Role name snapshotted alongside the id (§force delete staff/roles)
+      // — a role can later be deleted once nobody holds it, and this audit
+      // entry should still read as a name, not a dangling id.
       await logAudit(ctx.prisma, {
         staffId: ctx.staff.id,
         action: "ROLE_CHANGE",
         entityType: "Staff",
         entityId: input.staffId,
-        previousValue: { roleId: before?.roleId },
-        newValue: { roleId: input.roleId },
+        previousValue: { roleId: before?.roleId, roleName: before?.role.name },
+        newValue: { roleId: input.roleId, roleName: newRole?.name },
       });
       return updated;
     }),
@@ -270,12 +272,12 @@ export const staffRouter = router({
   /**
    * Only for a role nobody currently holds — Staff.roleId is required, so
    * a role assigned to even one staff member can't be dropped without
-   * leaving their account without a role at all. Reassign them first, or
-   * mark them Inactive. Built-in roles (Owner, Manager, GM, Tavern Keeper)
-   * can never be deleted regardless — losing the only role that can grant
-   * every permission would be a genuine lockout, not just an inconvenience.
-   * RolePermission rows cascade automatically (see schema), so no separate
-   * cleanup is needed there.
+   * leaving their account without a role at all (delete the staff first,
+   * or reassign them, then the role has zero holders and this succeeds).
+   * Built-in roles (Owner, Manager, GM, Tavern Keeper) are deletable too
+   * (§force delete staff/roles) — nothing at runtime depends on any of
+   * their names or ids existing. RolePermission rows cascade automatically
+   * (see schema), so no separate cleanup is needed there.
    */
   deleteRole: manageStaff()
     .input(z.object({ roleId: z.string() }))
@@ -285,12 +287,6 @@ export const staffRouter = router({
         include: { _count: { select: { staff: true } } },
       });
       if (!role) throw new TRPCError({ code: "NOT_FOUND" });
-      if (role.isSystem) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `"${role.name}" is a built-in role and can't be deleted.`,
-        });
-      }
       if (role._count.staff > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",

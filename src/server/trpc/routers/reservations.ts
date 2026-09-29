@@ -91,6 +91,7 @@ export const reservationsRouter = router({
           notes: input.notes,
           status: "CONFIRMED",
           createdById: ctx.staff.id,
+          createdByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
         },
       });
     }),
@@ -154,6 +155,7 @@ export const reservationsRouter = router({
             reservationId: reservation.id,
             notes: reservation.notes,
             createdById: ctx.staff.id,
+            createdByNameSnapshot: ctx.staff.displayName ?? ctx.staff.name,
             players: {
               create: Array.from({ length: reservation.partySize }, (_, i) => ({
                 label: `Player ${i + 1}`,

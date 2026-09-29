@@ -98,6 +98,9 @@ export const dndRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Pick a campaign for a campaign session." });
       }
 
+      const dm = await ctx.prisma.staff.findUnique({ where: { id: input.staffId } });
+      if (!dm) throw new TRPCError({ code: "NOT_FOUND", message: "That staff member doesn't exist." });
+
       const { commissionPercent } = await getSettings("dnd");
       // tableFeeAmount * commissionPercent / 100, rounded to 2 decimals (satang).
       const commissionAmount = Math.round(input.tableFeeAmount * commissionPercent) / 100;
@@ -113,6 +116,7 @@ export const dndRouter = router({
             campaignId: input.type === "CAMPAIGN" ? input.campaignId : null,
             sessionNumber,
             staffId: input.staffId,
+            staffNameSnapshot: dm.displayName ?? dm.name,
             tableFeeAmount: input.tableFeeAmount,
             commissionPercent,
             commissionAmount,
@@ -141,18 +145,24 @@ export const dndRouter = router({
 
       const byStaff = new Map<
         string,
-        { staffId: string; name: string; sessionCount: number; totalCommission: number }
+        { staffId: string | null; name: string; sessionCount: number; totalCommission: number }
       >();
       for (const s of sessions) {
-        const existing = byStaff.get(s.staffId) ?? {
+        const name = s.staff?.displayName ?? s.staff?.name ?? s.staffNameSnapshot ?? "Deleted staff";
+        // A deleted DM has no staffId to group by anymore — fall back to
+        // grouping by their snapshotted name instead, so their past
+        // sessions still roll up into one payout line rather than one row
+        // per session.
+        const key = s.staffId ?? `deleted:${name}`;
+        const existing = byStaff.get(key) ?? {
           staffId: s.staffId,
-          name: s.staff.displayName ?? s.staff.name,
+          name,
           sessionCount: 0,
           totalCommission: 0,
         };
         existing.sessionCount += 1;
         existing.totalCommission += toNum(s.commissionAmount);
-        byStaff.set(s.staffId, existing);
+        byStaff.set(key, existing);
       }
       return Array.from(byStaff.values()).sort((a, b) => b.totalCommission - a.totalCommission);
     }),

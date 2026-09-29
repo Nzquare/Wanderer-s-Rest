@@ -112,6 +112,11 @@ model AuditLog {
   id            String   @id @default(cuid())
   staffId       String?
   staff         Staff?   @relation(fields: [staffId], references: [id])
+  // Snapshotted automatically by logAudit() at write time (§force delete
+  // staff/roles) — survives the actor being deleted later, so an entry
+  // never regresses from a real name down to "System" just because the
+  // staff account that did it is now gone.
+  actorNameSnapshot String?
   action        String
   entityType    String
   entityId      String?
@@ -291,8 +296,17 @@ model TableSession {
   totalAmount         Decimal @default(0) @db.Decimal(12, 2)
   expAwarded          Int     @default(0)
 
-  createdById String
-  createdBy   Staff   @relation("SessionCreatedBy", fields: [createdById], references: [id])
+  // Nullable + SetNull (rather than the default Restrict) so the staff
+  // account that opened this table can be truly deleted later — the bill
+  // itself is never deleted, it just falls back to its name snapshot
+  // below (§force delete staff/roles) instead of blocking the delete.
+  createdById String?
+  createdBy   Staff?  @relation("SessionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Snapshotted at creation, same pattern as Payment.methodNameSnapshot —
+  // survives createdBy being deleted later, so this bill's "who opened it"
+  // always shows the real name it had at the time, not a generic
+  // placeholder.
+  createdByNameSnapshot String?
   closedById  String?
   closedBy    Staff?  @relation("SessionClosedBy", fields: [closedById], references: [id])
 
@@ -618,8 +632,11 @@ model Payment {
   // the live `method` relation is only for flags (countsAsCash/
   // showQrCode) that only ever matter for the *current*, still-open shift.
   methodNameSnapshot String
-  staffId            String
-  staff              Staff               @relation(fields: [staffId], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as
+  // TableSession.createdById above.
+  staffId            String?
+  staff              Staff?              @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staffNameSnapshot  String?
   reference          String?
   notes              String?
   status             PaymentRecordStatus @default(COMPLETED)
@@ -638,8 +655,11 @@ model Refund {
   payment      Payment  @relation(fields: [paymentId], references: [id])
   amount       Decimal  @db.Decimal(12, 2)
   reason       String
-  staffId      String
-  staff        Staff    @relation("RefundStaff", fields: [staffId], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as
+  // TableSession.createdById above.
+  staffId           String?
+  staff             Staff?   @relation("RefundStaff", fields: [staffId], references: [id], onDelete: SetNull)
+  staffNameSnapshot String?
   approvedById String?
   approvedBy   Staff?   @relation("RefundApprovedBy", fields: [approvedById], references: [id])
   createdAt    DateTime @default(now())
@@ -720,8 +740,11 @@ model AppliedDiscount {
   benefitRedemption    BenefitRedemption? @relation(fields: [benefitRedemptionId], references: [id])
   label                String
   amount               Decimal            @db.Decimal(12, 2)
-  appliedById          String
-  appliedBy            Staff              @relation("DiscountAppliedBy", fields: [appliedById], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as
+  // TableSession.createdById above.
+  appliedById           String?
+  appliedBy             Staff?             @relation("DiscountAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+  appliedByNameSnapshot String?
   overrideApprovedById String?
   overrideApprovedBy   Staff?             @relation("DiscountOverrideApprovedBy", fields: [overrideApprovedById], references: [id])
   createdAt            DateTime           @default(now())
@@ -1063,8 +1086,10 @@ model GameSession {
   game      Game?        @relation(fields: [gameId], references: [id], onDelete: SetNull)
   memberId  String?
   member    Member?      @relation(fields: [memberId], references: [id])
-  staffId   String
-  staff     Staff        @relation(fields: [staffId], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as gameId above.
+  staffId           String?
+  staff             Staff?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staffNameSnapshot String?
   notes     String?
   playedAt  DateTime     @default(now())
 
@@ -1123,9 +1148,11 @@ model DndSession {
   // one-shot, which has no running count to speak of.
   sessionNumber Int?
 
-  // The DM this session's commission is owed to.
-  staffId String
-  staff   Staff  @relation(fields: [staffId], references: [id])
+  // The DM this session's commission is owed to. Nullable + SetNull
+  // (§force delete staff/roles) — same reasoning as GameSession.staffId.
+  staffId           String?
+  staff             Staff?  @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staffNameSnapshot String?
 
   tableFeeAmount    Decimal @db.Decimal(12, 2)
   commissionPercent Float
@@ -1193,8 +1220,11 @@ model Reservation {
   depositStatus           DepositStatus     @default(NOT_REQUIRED)
   notes                   String?
   status                  ReservationStatus @default(PENDING)
-  createdById             String
-  createdBy               Staff             @relation(fields: [createdById], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as
+  // TableSession.createdById above.
+  createdById             String?
+  createdBy               Staff?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdByNameSnapshot   String?
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
 
@@ -1215,8 +1245,11 @@ enum ShiftStatus {
 
 model Shift {
   id                String      @id @default(cuid())
-  openedById        String
-  openedBy          Staff       @relation("ShiftOpenedBy", fields: [openedById], references: [id])
+  // Nullable + SetNull (§force delete staff/roles) — same reasoning as
+  // TableSession.createdById above.
+  openedById        String?
+  openedBy          Staff?      @relation("ShiftOpenedBy", fields: [openedById], references: [id], onDelete: SetNull)
+  openedByNameSnapshot String?
   closedById        String?
   closedBy          Staff?      @relation("ShiftClosedBy", fields: [closedById], references: [id])
   openedAt          DateTime    @default(now())

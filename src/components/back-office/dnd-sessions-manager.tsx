@@ -264,7 +264,7 @@ function SessionsLogCard() {
                   {new Date(s.playedAt).toLocaleDateString()}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-foreground">
-                  {s.staff.displayName ?? s.staff.name}
+                  {s.staff?.displayName ?? s.staff?.name ?? s.staffNameSnapshot ?? "Deleted staff"}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-foreground-muted">
                   {s.type === "ONE_SHOT"
