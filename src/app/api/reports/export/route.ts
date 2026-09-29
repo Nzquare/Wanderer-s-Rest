@@ -15,6 +15,7 @@ import {
   buildVoidRefundReport,
   buildMemberCrmReport,
   buildPlaytimeByPricingTypeReport,
+  buildTimeClockReport,
   parseDateRange,
   type SummaryReport,
   type SalesByCategoryReport,
@@ -25,6 +26,7 @@ import {
   type VoidRefundReport,
   type MemberCrmReport,
   type PlaytimeByPricingTypeReport,
+  type TimeClockReport,
 } from "@/server/reports/build";
 
 /**
@@ -304,6 +306,27 @@ function buildMemberCrmSheet(workbook: ExcelJS.Workbook, rows: MemberCrmReport) 
   }
 }
 
+function buildTimeClockSheet(workbook: ExcelJS.Workbook, rows: TimeClockReport) {
+  const sheet = workbook.addWorksheet("Time Clock");
+  sheet.columns = [
+    { header: "Staff", key: "staffName", width: 18 },
+    { header: "Clock in", key: "clockIn", width: 20 },
+    { header: "Clock out", key: "clockOut", width: 20 },
+    { header: "Hours", key: "hours", width: 10 },
+    { header: "Notes", key: "notes", width: 30 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  for (const row of rows) {
+    sheet.addRow({
+      staffName: row.staffName,
+      clockIn: new Date(row.clockIn).toLocaleString(),
+      clockOut: row.clockOut ? new Date(row.clockOut).toLocaleString() : "Still clocked in",
+      hours: (row.durationMinutes / 60).toFixed(2),
+      notes: row.notes ?? "",
+    });
+  }
+}
+
 export async function GET(req: NextRequest) {
   const staff = await getCurrentStaff();
   if (!can(staff, Permission.VIEW_REPORTS)) {
@@ -322,6 +345,7 @@ export async function GET(req: NextRequest) {
     "shiftReconciliation",
     "voidRefund",
     "memberCrm",
+    "timeClock",
   ] as const;
   const rawType = searchParams.get("type");
   const type = (VALID_TYPES as readonly string[]).includes(rawType ?? "")
@@ -365,6 +389,9 @@ export async function GET(req: NextRequest) {
       break;
     case "memberCrm":
       buildMemberCrmSheet(workbook, await buildMemberCrmReport(prisma, range));
+      break;
+    case "timeClock":
+      buildTimeClockSheet(workbook, await buildTimeClockReport(prisma, range));
       break;
     default:
       buildSummarySheet(workbook, await buildSummaryReport(prisma, range));

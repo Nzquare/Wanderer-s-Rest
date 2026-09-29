@@ -47,7 +47,8 @@ type ExportType =
   | "shiftReconciliation"
   | "voidRefund"
   | "memberCrm"
-  | "playtimeByPricingType";
+  | "playtimeByPricingType"
+  | "timeClock";
 
 function ExcelDownloadLink({ type, from, to }: { type: ExportType; from: string; to: string }) {
   return (
@@ -553,6 +554,170 @@ function VoidRefundTable({ from, to }: { from: string; to: string }) {
   );
 }
 
+type TimeClockRowData = RouterOutputs["reports"]["timeClock"][number];
+
+/** HTML datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not the raw ISO string (which is UTC). */
+function toDatetimeLocalValue(date: string | Date) {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function TimeClockRow({ row, onChanged }: { row: TimeClockRowData; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [clockIn, setClockIn] = useState(toDatetimeLocalValue(row.clockIn));
+  const [clockOut, setClockOut] = useState(row.clockOut ? toDatetimeLocalValue(row.clockOut) : "");
+  const [notes, setNotes] = useState(row.notes ?? "");
+
+  const update = trpc.timeClock.update.useMutation({
+    onSuccess: () => {
+      setEditing(false);
+      onChanged();
+    },
+  });
+  const remove = trpc.timeClock.delete.useMutation({ onSuccess: onChanged });
+
+  if (editing) {
+    return (
+      <tr className="border-b border-border last:border-0 bg-background">
+        <td className="px-3 py-2" colSpan={6}>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="text-xs text-foreground-muted">Clock in</label>
+              <input
+                type="datetime-local"
+                value={clockIn}
+                onChange={(e) => setClockIn(e.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-foreground-muted">Clock out</label>
+              <input
+                type="datetime-local"
+                value={clockOut}
+                onChange={(e) => setClockOut(e.target.value)}
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-xs"
+              />
+            </div>
+            <div className="min-w-40 flex-1">
+              <label className="text-xs text-foreground-muted">Notes</label>
+              <input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs"
+              />
+            </div>
+            <Button
+              size="md"
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate({
+                  id: row.id,
+                  clockIn: new Date(clockIn).toISOString(),
+                  clockOut: clockOut ? new Date(clockOut).toISOString() : null,
+                  notes: notes.trim() || undefined,
+                })
+              }
+            >
+              Save
+            </Button>
+            <Button size="md" variant="outline" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+          {update.error && <p className="mt-1 text-xs text-status-danger">{update.error.message}</p>}
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="whitespace-nowrap px-3 py-2 text-foreground">{row.staffName}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+        {new Date(row.clockIn).toLocaleString()}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-xs text-foreground-muted">
+        {row.clockOut ? (
+          new Date(row.clockOut).toLocaleString()
+        ) : (
+          <span className="rounded-full bg-status-success/15 px-2 py-0.5 font-medium text-status-success">
+            Still clocked in
+          </span>
+        )}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right text-foreground-muted">
+        {(row.durationMinutes / 60).toFixed(1)}h
+      </td>
+      <td className="px-3 py-2 text-foreground-muted">{row.notes ?? "—"}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
+        {confirmingDelete ? (
+          <span className="flex items-center justify-end gap-1.5">
+            <button
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: row.id })}
+              className="font-medium text-status-danger underline"
+            >
+              Confirm
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-foreground-muted underline">
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <span className="flex items-center justify-end gap-3">
+            <button onClick={() => setEditing(true)} className="text-teal-600 underline">
+              Edit
+            </button>
+            <button onClick={() => setConfirmingDelete(true)} className="text-status-danger underline">
+              Delete
+            </button>
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function TimeClockTable({ from, to }: { from: string; to: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.reports.timeClock.useQuery({ from, to });
+  const onChanged = () => utils.reports.timeClock.invalidate();
+  if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
+
+  return (
+    <Card className="overflow-x-auto p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+        <p className="font-medium text-foreground">Time Clock ({data.length})</p>
+        <ExcelDownloadLink type="timeClock" from={from} to={to} />
+      </div>
+      {data.length === 0 ? (
+        <p className="p-4 text-sm text-foreground-muted">No clock-ins in range.</p>
+      ) : (
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-foreground-muted">
+              <th className="px-3 py-2 font-medium">Staff</th>
+              <th className="px-3 py-2 font-medium">Clock in</th>
+              <th className="px-3 py-2 font-medium">Clock out</th>
+              <th className="px-3 py-2 text-right font-medium">Hours</th>
+              <th className="px-3 py-2 font-medium">Notes</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <TimeClockRow key={row.id} row={row} onChanged={onChanged} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 function MemberCrmTable({ from, to }: { from: string; to: string }) {
   const { data, isLoading } = trpc.reports.memberCrm.useQuery({ from, to });
   if (isLoading || !data) return <p className="text-sm text-foreground-muted">Loading…</p>;
@@ -670,6 +835,7 @@ const REPORT_TABS = [
   { key: "shiftReconciliation", label: "Shift Reconciliation" },
   { key: "voidRefund", label: "Void & Refund" },
   { key: "memberCrm", label: "Member / CRM" },
+  { key: "timeClock", label: "Time Clock" },
   { key: "audit", label: "Audit Log" },
 ] as const;
 type ReportTab = (typeof REPORT_TABS)[number]["key"];
@@ -836,6 +1002,8 @@ export function ReportsView() {
       {tab === "voidRefund" && <VoidRefundTable from={from} to={to} />}
 
       {tab === "memberCrm" && <MemberCrmTable from={from} to={to} />}
+
+      {tab === "timeClock" && <TimeClockTable from={from} to={to} />}
 
       {tab === "audit" && <AuditLogTable />}
     </div>

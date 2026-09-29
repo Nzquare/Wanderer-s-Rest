@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   // one before anything else, rather than staff discovering the block
   // only after they've already tried to seat a table.
   { href: "/cashier/shift", label: "Shift" },
+  { href: "/cashier/clock", label: "Clock In/Out" },
   { href: "/cashier", label: "Tables" },
   { href: "/cashier/quick-sale", label: "Quick Sale" },
   { href: "/cashier/members", label: "Members" },

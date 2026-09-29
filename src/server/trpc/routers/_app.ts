@@ -20,6 +20,7 @@ import { benefitsRouter } from "./benefits";
 import { classesRouter } from "./classes";
 import { paymentMethodsRouter } from "./payment-methods";
 import { dndRouter } from "./dnd";
+import { timeClockRouter } from "./timeclock";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const })),
@@ -44,6 +45,7 @@ export const appRouter = router({
   classes: classesRouter,
   paymentMethods: paymentMethodsRouter,
   dnd: dndRouter,
+  timeClock: timeClockRouter,
 });
 
 export type AppRouter = typeof appRouter;

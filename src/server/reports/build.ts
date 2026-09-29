@@ -622,3 +622,33 @@ export async function buildPlaytimeByPricingTypeReport(prisma: PrismaClient, ran
 }
 
 export type PlaytimeByPricingTypeReport = Awaited<ReturnType<typeof buildPlaytimeByPricingTypeReport>>;
+
+/**
+ * Time Clock — one row per clock-in, filtered by clockIn falling in range
+ * (same "belongs to the selected period" convention as Shift's openedAt
+ * above). An entry with no clockOut yet is still on the clock right now —
+ * duration is computed against the current time for that one so the
+ * report always shows a live-so-far figure instead of blank.
+ */
+export async function buildTimeClockReport(prisma: PrismaClient, range: DateRange) {
+  const { from, to } = range;
+  const entries = await prisma.timeClockEntry.findMany({
+    where: { clockIn: { gte: from, lte: to } },
+    include: { staff: { select: { name: true } } },
+    orderBy: { clockIn: "desc" },
+  });
+
+  const now = new Date();
+  return entries.map((e) => ({
+    id: e.id,
+    staffId: e.staffId,
+    staffName: e.staff?.name ?? e.staffNameSnapshot,
+    clockIn: e.clockIn,
+    clockOut: e.clockOut,
+    stillClockedIn: e.clockOut == null,
+    durationMinutes: Math.round(((e.clockOut ?? now).getTime() - e.clockIn.getTime()) / 60_000),
+    notes: e.notes,
+  }));
+}
+
+export type TimeClockReport = Awaited<ReturnType<typeof buildTimeClockReport>>;

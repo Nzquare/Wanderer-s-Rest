@@ -56,6 +56,7 @@ model Staff {
   openedShifts              Shift[]             @relation("ShiftOpenedBy")
   closedShifts              Shift[]             @relation("ShiftClosedBy")
   dndSessionsRun            DndSession[]
+  timeClockEntries          TimeClockEntry[]
 }
 
 enum Permission {
@@ -1163,6 +1164,43 @@ model DndSession {
 
   @@index([campaignId])
   @@index([staffId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Staff time clock (§clock in/out for staff, in Cashier + a report)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * One clock-in/out pair for a staff member. Cashier POS is normally one
+ * shared terminal login, not one login per person, so clocking in/out
+ * re-verifies the picked staff member's own PIN at the moment of the
+ * action (same "pick who, then their PIN" shape as void/refund
+ * attribution) rather than trusting whoever happens to be signed into the
+ * terminal right now.
+ *
+ * staffId is nullable + SetNull (§force delete staff/roles) with a name
+ * snapshot taken at clock-in, so a staff account can be deleted later
+ * without losing this record of when they actually worked.
+ */
+model TimeClockEntry {
+  id                String   @id @default(cuid())
+  staffId           String?
+  staff             Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  staffNameSnapshot String
+
+  clockIn  DateTime
+  // Null while still clocked in — that's the signal used to find "is this
+  // person currently on the clock" and to block a second clock-in before
+  // the first clock-out.
+  clockOut DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([clockIn])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
