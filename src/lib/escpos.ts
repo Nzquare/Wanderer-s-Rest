@@ -72,6 +72,17 @@ class EscposBuilder {
     return this;
   }
 
+  /** ESC p m t1 t2 — kicks the cash drawer connected to the printer's
+   * own drawer port (nearly every thermal/receipt printer has one; the
+   * drawer itself has no network connection of its own, it just rides
+   * on the printer's kick-out cable). m=0 is drawer pin 2, the standard
+   * wiring; t1/t2 are the on/off pulse widths in 2ms units — 25/250
+   * (~50ms/~500ms) is the widely-used default every POS system ships. */
+  openDrawer(): this {
+    this.push(ESC, 0x70, 0x00, 25, 250);
+    return this;
+  }
+
   /** The standard Epson "2D barcode" QR command block (GS ( k ...),
    * cloned by virtually every ESC/POS thermal printer — the printer
    * itself renders the QR code from the raw URL text, so there's no
@@ -246,6 +257,14 @@ function formatPlaytimeHours(totalMinutes: number): string {
   const whole = Math.max(0, Math.round(totalMinutes));
   const h = Math.floor(whole / 60) + (whole % 60 > 15 ? 1 : 0);
   return `${h}h`;
+}
+
+/** Just the cash-drawer kick command (§automatic cash drawer open) — no
+ * paper is printed or fed, so init() is skipped too; the printer just
+ * relays the pulse out to the drawer the instant it gets this byte
+ * sequence. */
+export function buildOpenDrawerEscpos(): Uint8Array {
+  return new EscposBuilder().openDrawer().build();
 }
 
 export function buildKitchenTicketEscpos(

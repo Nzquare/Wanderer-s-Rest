@@ -13,7 +13,7 @@ import { MemberLinkPanel } from "./member-link-panel";
 import { PromotionPicker } from "./promotion-picker";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
-import { printInvoice, printPromptPayQr } from "@/lib/thermal-print";
+import { openCashDrawer, printInvoice, printPromptPayQr } from "@/lib/thermal-print";
 import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -182,6 +182,19 @@ export function CheckoutClient({
       pendingPrintCancels.current.forEach((cancel) => cancel());
       pendingPrintCancels.current = [];
       setResult(data);
+      // Pop the till the instant a cash payment actually goes through —
+      // not on every checkout, only when at least one of the payment
+      // rows just submitted was a cash-like method (§automatic cash
+      // drawer open). No-ops silently if no print bridge is configured,
+      // same as the rest of the network-printer features. No error
+      // surfaced on failure either — this page is about to be replaced
+      // by <ReceiptView> below, so there'd be nowhere left to show one,
+      // and a drawer that didn't pop is a minor hardware hiccup (staff
+      // can just open it by hand), not a payment/data problem worth
+      // interrupting the checkout flow over.
+      if (payments.some((p) => methodsById.get(effectiveMethodId(p))?.countsAsCash)) {
+        openCashDrawer(checkoutSettings);
+      }
       await Promise.all([
         utils.sessions.listTables.invalidate(),
         utils.sessions.getTableDetail.invalidate({ tableId }),

@@ -2,6 +2,7 @@ import { printOnce } from "./print-once";
 import {
   buildInvoiceEscpos,
   buildKitchenTicketEscpos,
+  buildOpenDrawerEscpos,
   buildPromptPayQrEscpos,
   buildQrSlipEscpos,
   buildReceiptEscpos,
@@ -136,4 +137,22 @@ export function printQrSlip(
     return () => {};
   }
   return printOnce(show, hide);
+}
+
+/**
+ * Kicks the cash drawer (§automatic cash drawer open) — unlike every
+ * other print* helper here, there's no browser fallback at all: a
+ * drawer has no AirPrint/print-dialog equivalent, it only ever opens
+ * via the printer's own kick-out port. So this is simply a no-op (not
+ * an error) when no bridge is configured — a café that never set one up
+ * just never gets this bonus, same as not printing kitchen tickets
+ * through it either.
+ */
+export function openCashDrawer(
+  settings: CheckoutSettings | undefined,
+  onBridgeError?: (message: string) => void,
+): void {
+  const target = bridgeTargetFrom(settings);
+  if (!target) return;
+  printViaBridge(buildOpenDrawerEscpos(), target).catch((err: Error) => onBridgeError?.(err.message));
 }
