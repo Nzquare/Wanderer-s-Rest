@@ -112,11 +112,20 @@ function ReceiptBody({
     snapshot.tableFeeLines && snapshot.tableFeeLines.length > 0
       ? Math.max(...snapshot.tableFeeLines.map((l) => l.billableMinutes))
       : null;
-  const playtimeLabel = showAllDay
-    ? "All day"
-    : playtimeMinutes != null
-      ? `Playtime (${formatPlaytimeHours(playtimeMinutes)})`
-      : "Playtime";
+  // Which pricing type actually billed this (Regular, Student, D&D
+  // Trial, ...) — only shown when every player agrees on one; mixed
+  // pricing per table already gets disambiguated in the per-player
+  // breakdown below instead.
+  const pricingNames = new Set(
+    (snapshot.tableFeeLines ?? []).map((l) => l.pricingTypeName).filter((n): n is string => !!n),
+  );
+  const pricingName = pricingNames.size === 1 ? [...pricingNames][0] : null;
+  const playtimeBase = showAllDay ? "All day" : "Playtime";
+  const playtimeWithName = pricingName ? `${playtimeBase} (${pricingName})` : playtimeBase;
+  const playtimeLabel =
+    !showAllDay && playtimeMinutes != null
+      ? `${playtimeWithName} ${formatPlaytimeHours(playtimeMinutes)}`
+      : playtimeWithName;
 
   return (
     <>
