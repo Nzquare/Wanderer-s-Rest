@@ -189,6 +189,120 @@ export function buildQrSlipEscpos(opts: {
   return b.build();
 }
 
+/** The customer-facing PromptPay "scan to pay" slip at checkout — same
+ * content as the browser print area in checkout-client.tsx. `qrValue`
+ * is the EMVCo-format PromptPay payload string (built by
+ * buildPromptPayPayload), not a URL — the printer's QR command encodes
+ * whatever text data it's given, so this is no different from the table
+ * QR slip above. */
+export function buildPromptPayQrEscpos(opts: {
+  cafeName: string;
+  tableCode: string;
+  qrAmount: number;
+  qrValue: string;
+}): Uint8Array {
+  const b = new EscposBuilder().init();
+  b.align("center")
+    .bold(true)
+    .line(opts.cafeName)
+    .bold(false)
+    .line(`Table ${opts.tableCode}`)
+    .feed(1)
+    .qrCode(opts.qrValue)
+    .feed(1)
+    .bold(true)
+    .line(`Scan to pay THB ${opts.qrAmount.toFixed(2)}`)
+    .bold(false)
+    .line("PromptPay - show staff once paid")
+    .feed(3)
+    .cut();
+  return b.build();
+}
+
+export interface EscposInvoiceSnapshot {
+  table: { code: string };
+  /** Caller computes these the same way the on-screen bill does
+   * (checkout-client.tsx's own isHourly/showAllDay) rather than this
+   * file re-deriving them from pricingModel, so both stay in sync with
+   * exactly one source of truth. */
+  isHourly: boolean;
+  showAllDay: boolean;
+  tableFeeLines: {
+    playerId: string;
+    billableMinutes: number;
+    fee: number;
+    cappedAtDailyCap?: boolean;
+    pricingTypeName?: string | null;
+  }[];
+  itemsByCategory: {
+    categoryName: string;
+    items: { nameEn: string; quantity: number; lineTotal: number }[];
+  }[];
+  appliedDiscounts: { label: string; amount: number; isFreeItem?: boolean; isExpBonus?: boolean }[];
+  bill: { subtotalTableFee: number; serviceChargeAmount: number; taxAmount: number; total: number };
+}
+
+/** The pre-payment "Print Invoice" slip at checkout (not a receipt — the
+ * guest reviews/pays at the counter, same wording as the on-screen
+ * card). Mirrors checkout-client.tsx's #invoice-print-area markup,
+ * built from the same checkout preview data. */
+export function buildInvoiceEscpos(
+  snapshot: EscposInvoiceSnapshot,
+  opts: { cafeName: string; printerWidthMm: number },
+): Uint8Array {
+  const cols = columnsFor(opts.printerWidthMm);
+  const b = new EscposBuilder().init();
+
+  b.align("center")
+    .bold(true)
+    .line(opts.cafeName)
+    .bold(false)
+    .line(`Invoice - Table ${snapshot.table.code}`)
+    .line(new Date().toLocaleString())
+    .align("left")
+    .hr(cols, "=");
+
+  b.line(row(snapshot.showAllDay ? "All day" : "Playtime", money(snapshot.bill.subtotalTableFee), cols));
+  if (snapshot.isHourly && snapshot.tableFeeLines.length > 1) {
+    snapshot.tableFeeLines.forEach((line, i) => {
+      const label = `  P${i + 1}${line.pricingTypeName ? ` (${line.pricingTypeName})` : ""}`;
+      const detail = line.cappedAtDailyCap ? "All day" : `${line.billableMinutes}min`;
+      b.line(row(`${label} ${detail}`, money(line.fee), cols));
+    });
+  }
+
+  for (const cat of snapshot.itemsByCategory) {
+    if (cat.items.length === 0) continue;
+    for (const item of cat.items) {
+      b.line(row(`${item.quantity}x ${item.nameEn}`, money(item.lineTotal), cols));
+    }
+  }
+
+  for (const d of snapshot.appliedDiscounts) {
+    if (d.isFreeItem) b.line(`+ ${d.label}`);
+    else if (d.isExpBonus) b.line(`* ${d.label}`);
+    else b.line(row(d.label, `-${money(d.amount)}`, cols));
+  }
+
+  if (snapshot.bill.serviceChargeAmount > 0) {
+    b.line(row("Service charge", money(snapshot.bill.serviceChargeAmount), cols));
+  }
+  if (snapshot.bill.taxAmount > 0) {
+    b.line(row("Tax", money(snapshot.bill.taxAmount), cols));
+  }
+
+  b.hr(cols, "=")
+    .bold(true)
+    .line(row("TOTAL", money(snapshot.bill.total), cols))
+    .bold(false)
+    .align("center")
+    .line("This is not a receipt - pay at the counter.")
+    .feed(3)
+    .cut();
+
+  return b.build();
+}
+
 export interface EscposReceiptSnapshot {
   receiptNumber: string;
   table: { code: string; name: string };

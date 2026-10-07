@@ -13,7 +13,7 @@ import { MemberLinkPanel } from "./member-link-panel";
 import { PromotionPicker } from "./promotion-picker";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
-import { printOnce } from "@/lib/print-once";
+import { printInvoice, printPromptPayQr } from "@/lib/thermal-print";
 import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -149,14 +149,7 @@ export function CheckoutClient({
   // queued would just delay the receipt's own auto-print behind it
   // (§confirm payment, nothing prints).
   const pendingPrintCancels = useRef<(() => void)[]>([]);
-  function printAs(mode: "invoice" | "promptpay") {
-    pendingPrintCancels.current.push(
-      printOnce(
-        () => setPrintMode(mode),
-        () => {},
-      ),
-    );
-  }
+  const [printBridgeError, setPrintBridgeError] = useState<string | null>(null);
 
   const applyDiscount = trpc.checkout.applyManualDiscount.useMutation({
     onSuccess: async () => {
@@ -206,6 +199,10 @@ export function CheckoutClient({
   if (isLoading || !preview) {
     return <p className="text-sm text-foreground-muted">Loading bill…</p>;
   }
+  // TS narrowing doesn't carry into a nested function body (printInvoiceNow/
+  // printPromptPayNow below close over this), but a const's own inferred
+  // type does — so this rebind, not `preview` directly, is what those use.
+  const previewData = preview;
 
   if (result) {
     return (
@@ -234,6 +231,38 @@ export function CheckoutClient({
     preview.tableFeeLines.every((l) => l.cappedAtDailyCap);
   const isHourly = preview.pricingModel === "HOURLY";
   const showAllDay = !isHourly || allLinesCapped;
+
+  function printInvoiceNow() {
+    pendingPrintCancels.current.push(
+      printInvoice(
+        {
+          table: previewData.table,
+          isHourly,
+          showAllDay,
+          tableFeeLines: previewData.tableFeeLines,
+          itemsByCategory: previewData.itemsByCategory,
+          appliedDiscounts: previewData.appliedDiscounts,
+          bill: previewData.bill,
+        },
+        { cafeName },
+        checkoutSettings,
+        () => setPrintMode("invoice"),
+        () => {},
+        setPrintBridgeError,
+      ),
+    );
+  }
+  function printPromptPayNow(qrValue: string, qrAmount: number) {
+    pendingPrintCancels.current.push(
+      printPromptPayQr(
+        { cafeName, tableCode: previewData.table.code, qrAmount, qrValue },
+        checkoutSettings,
+        () => setPrintMode("promptpay"),
+        () => {},
+        setPrintBridgeError,
+      ),
+    );
+  }
 
   const isSplitPayment = payments.length > 1;
   // A single payment — cash, PromptPay, card, or other — always covers
@@ -289,10 +318,14 @@ export function CheckoutClient({
         Checkout — {preview.table.code}
       </h1>
 
+      {printBridgeError && (
+        <p className="text-sm text-status-danger">Print failed: {printBridgeError}</p>
+      )}
+
       <Card className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-foreground-muted">Bill</p>
-          <Button size="md" variant="outline" onClick={() => printAs("invoice")}>
+          <Button size="md" variant="outline" onClick={printInvoiceNow}>
             Print Invoice
           </Button>
         </div>
@@ -721,7 +754,7 @@ export function CheckoutClient({
               <p className="text-sm text-foreground-muted">
                 Scan to pay ฿{qrAmount.toFixed(2)} — confirm once the transfer lands in your banking app.
               </p>
-              <Button variant="outline" size="md" onClick={() => printAs("promptpay")}>
+              <Button variant="outline" size="md" onClick={() => printPromptPayNow(qrValue, qrAmount)}>
                 Print QR for customer
               </Button>
 
