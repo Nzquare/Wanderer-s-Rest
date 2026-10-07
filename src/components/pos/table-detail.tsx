@@ -22,11 +22,22 @@ import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
 
-/** HTML datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not the raw ISO string (which is UTC). */
-function toDatetimeLocalValue(date: string | Date) {
+/** HTML time input wants "HH:mm" in local time. A player's start time
+ * is practically always being corrected within the same day it's being
+ * edited, so the picker only asks for the time — applyTimeToday below
+ * fills in today's date around whatever time is chosen. */
+function toTimeValue(date: string | Date) {
   const d = new Date(date);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Combines an "HH:mm" value with today's date, in local time. */
+function applyTimeToday(time: string): Date {
+  const [hours, minutes] = time.split(":").map(Number);
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d;
 }
 
 function PlayerRow({
@@ -85,7 +96,7 @@ function PlayerRow({
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editingStart, setEditingStart] = useState(false);
-  const [startDraft, setStartDraft] = useState(() => toDatetimeLocalValue(player.startTime));
+  const [startDraft, setStartDraft] = useState(() => toTimeValue(player.startTime));
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3">
@@ -108,7 +119,7 @@ function PlayerRow({
           {!locked && !editingStart && (
             <button
               onClick={() => {
-                setStartDraft(toDatetimeLocalValue(player.startTime));
+                setStartDraft(toTimeValue(player.startTime));
                 setEditingStart(true);
               }}
               className="mt-0.5 block text-xs text-foreground-muted underline"
@@ -119,7 +130,7 @@ function PlayerRow({
           {editingStart && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <input
-                type="datetime-local"
+                type="time"
                 value={startDraft}
                 onChange={(e) => setStartDraft(e.target.value)}
                 className="h-7 rounded-md border border-border bg-background px-1.5 text-xs"
@@ -132,7 +143,7 @@ function PlayerRow({
                 onClick={() =>
                   updateStartTime.mutate({
                     sessionPlayerId: player.id,
-                    startTime: new Date(startDraft).toISOString(),
+                    startTime: applyTimeToday(startDraft).toISOString(),
                   })
                 }
                 className="text-xs font-medium text-teal-600 underline"
