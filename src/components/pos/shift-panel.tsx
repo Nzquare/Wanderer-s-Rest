@@ -5,12 +5,14 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { isShiftStale, SHIFT_STALE_HOURS } from "@/lib/shift";
+import { openCashDrawer } from "@/lib/thermal-print";
 
 export function ShiftPanel() {
   const utils = trpc.useUtils();
   const { data: shift, isLoading } = trpc.shifts.getCurrent.useQuery(undefined, {
     refetchInterval: 15_000,
   });
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const [startingCash, setStartingCash] = useState("");
   const [actualCash, setActualCash] = useState("");
   const [closeResult, setCloseResult] = useState<{
@@ -28,6 +30,10 @@ export function ShiftPanel() {
   const open = trpc.shifts.open.useMutation({
     onSuccess: async () => {
       setStartingCash("");
+      // Pop the drawer for counting in the starting float (§automatic
+      // cash drawer open) — silently a no-op without a print bridge
+      // configured, same as every other network-printer feature.
+      openCashDrawer(checkoutSettings);
       await utils.shifts.getCurrent.invalidate();
     },
   });
@@ -35,6 +41,10 @@ export function ShiftPanel() {
     onSuccess: async (data) => {
       setCloseResult(data);
       setActualCash("");
+      // Same at close — but not on forceClose below, which is
+      // specifically for when nobody's around to count the drawer at
+      // all, so popping it open then would make no sense.
+      openCashDrawer(checkoutSettings);
       await utils.shifts.getCurrent.invalidate();
     },
   });
