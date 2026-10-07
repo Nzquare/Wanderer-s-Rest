@@ -92,6 +92,16 @@ its own separate context on iOS. The CA-profile approach fixes that: once
 installed, every context on the device trusts it, Home Screen icon
 included.
 
+One wrinkle: the bridge's day-to-day certificate (not the CA itself —
+just the one it presents on each connection) can't be valid for more
+than about two years at a time; Apple devices silently reject anything
+longer, even from a fully-trusted CA. This program handles that on its
+own, reissuing that certificate from the same already-trusted CA when
+needed, so nothing has to be reinstalled on any device. If printing ever
+stops out of nowhere after a long stretch of normal use, delete
+`cert.pem` and `key.pem` (NOT the `ca-*.pem` files) in this folder and
+restart — that's the self-service fix.
+
 ## Troubleshooting
 
 - **"Couldn't reach the print bridge"** — the computer running

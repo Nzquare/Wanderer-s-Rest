@@ -264,23 +264,32 @@ function buildMobileConfig(caCertPem) {
 `;
 }
 
+/** True if the certificate at `certPath` expires within 30 days (or
+ * can't be read/parsed at all) — used to auto-reissue the leaf
+ * certificate (never the CA) well before Apple's devices would start
+ * silently rejecting it, with no manual step needed on any device. */
+function isExpiringSoon(certPath) {
+  try {
+    const cert = new crypto.X509Certificate(fs.readFileSync(certPath));
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    return new Date(cert.validTo).getTime() - Date.now() < THIRTY_DAYS_MS;
+  } catch {
+    return true;
+  }
+}
+
 /**
- * Loads (or creates, once, then reuses from disk) a local Certificate
- * Authority and a server certificate signed by it. Both cached to disk
- * rather than regenerated on every start — a new CA would mean the
- * install-the-profile step on every device has to be redone, since the
- * device trusts this exact CA certificate, not "whatever the bridge
- * currently has".
+ * Loads (or creates once, then reuses from disk) the local Certificate
+ * Authority, and separately loads (or (re)creates) the server leaf
+ * certificate it signs. These are intentionally two independent caches,
+ * not one: regenerating the CA would mean the install-the-profile step
+ * on every device has to be redone (a device trusts this exact CA
+ * certificate, not "whatever the bridge currently has"), but the leaf
+ * certificate alone is expected to need reissuing occasionally — it
+ * can't be valid for more than ~820 days at a time (see below) — and
+ * that should never force every device to redo the CA install too.
  */
 async function loadOrCreateCertificates() {
-  if (
-    fs.existsSync(CA_CERT_PATH) &&
-    fs.existsSync(CA_KEY_PATH) &&
-    fs.existsSync(CERT_PATH) &&
-    fs.existsSync(KEY_PATH)
-  ) {
-    return { cert: fs.readFileSync(CERT_PATH, "utf8"), key: fs.readFileSync(KEY_PATH, "utf8") };
-  }
   let selfsigned;
   try {
     selfsigned = require("selfsigned");
@@ -288,25 +297,53 @@ async function loadOrCreateCertificates() {
     return null;
   }
 
-  const ca = await selfsigned.generate([{ name: "commonName", value: CA_NAME }], {
-    keySize: 2048,
-    days: 3650,
-    algorithm: "sha256",
-    extensions: [
-      { name: "basicConstraints", cA: true, critical: true },
-      { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
-    ],
-  });
-  fs.writeFileSync(CA_CERT_PATH, ca.cert);
-  fs.writeFileSync(CA_KEY_PATH, ca.private);
+  const notBefore = new Date();
+  const addDays = (days) => new Date(notBefore.getTime() + days * 24 * 60 * 60 * 1000);
+
+  let ca;
+  if (fs.existsSync(CA_CERT_PATH) && fs.existsSync(CA_KEY_PATH)) {
+    ca = { cert: fs.readFileSync(CA_CERT_PATH, "utf8"), private: fs.readFileSync(CA_KEY_PATH, "utf8") };
+  } else {
+    // selfsigned v5 has no "days" option (older docs/versions did) — it's
+    // notBeforeDate/notAfterDate only, defaulting to just 365 days if
+    // omitted, so this has to be explicit.
+    ca = await selfsigned.generate([{ name: "commonName", value: CA_NAME }], {
+      keySize: 2048,
+      notBeforeDate: notBefore,
+      notAfterDate: addDays(3650),
+      algorithm: "sha256",
+      extensions: [
+        { name: "basicConstraints", cA: true, critical: true },
+        { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
+      ],
+    });
+    fs.writeFileSync(CA_CERT_PATH, ca.cert);
+    fs.writeFileSync(CA_KEY_PATH, ca.private);
+  }
+
+  if (fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH) && !isExpiringSoon(CERT_PATH)) {
+    return { cert: fs.readFileSync(CERT_PATH, "utf8"), key: fs.readFileSync(KEY_PATH, "utf8") };
+  }
 
   const ips = localIPv4Addresses();
   const server = await selfsigned.generate([{ name: "commonName", value: "print-bridge.local" }], {
     keySize: 2048,
-    days: 3650,
+    // Apple enforces a ~825-day maximum validity on any TLS server
+    // certificate it evaluates — even one chaining to a CA you've
+    // manually installed and fully trusted — and silently rejects
+    // anything longer (no warning, just a failed connection). The CA
+    // certificate itself is exempt from that rule (it's a root, not a
+    // server cert), so only this leaf needs to stay under the limit.
+    notBeforeDate: notBefore,
+    notAfterDate: addDays(820),
     algorithm: "sha256",
     extensions: [
       { name: "basicConstraints", cA: false },
+      { name: "keyUsage", digitalSignature: true, keyEncipherment: true, critical: true },
+      // Also required by Apple's trust evaluation for a server
+      // certificate — without it, iOS rejects the cert the same
+      // silent way as the validity issue above.
+      { name: "extKeyUsage", serverAuth: true },
       {
         name: "subjectAltName",
         altNames: [
