@@ -238,6 +238,16 @@ function formatMinutesShort(totalMinutes: number): string {
   return `${h}h ${m}m`;
 }
 
+/** Whole hours only, for the receipt's playtime display — more than 15
+ * minutes past the hour mark rounds up to the next hour, matching how
+ * staff think about it ("just over 2 hours, call it 3") rather than
+ * showing the exact minutes. */
+function formatPlaytimeHours(totalMinutes: number): string {
+  const whole = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(whole / 60) + (whole % 60 > 15 ? 1 : 0);
+  return `${h}h`;
+}
+
 export function buildKitchenTicketEscpos(
   entries: KitchenTicketEntry[],
   printerWidthMm: number,
@@ -509,13 +519,13 @@ export async function buildReceiptEscpos(
     const playtimeLabel = snapshot.showAllDay
       ? "All day"
       : playtimeMinutes != null
-        ? `Playtime (${formatMinutesShort(playtimeMinutes)})`
+        ? `Playtime (${formatPlaytimeHours(playtimeMinutes)})`
         : "Playtime";
     b.line(row(playtimeLabel, money(snapshot.bill.subtotalTableFee), cols));
     if (snapshot.isHourly && snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1) {
       snapshot.tableFeeLines.forEach((l, i) => {
         const label = `  P${i + 1}${l.pricingTypeName ? ` (${l.pricingTypeName})` : ""}`;
-        const detail = l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes);
+        const detail = l.cappedAtDailyCap ? "All day" : formatPlaytimeHours(l.billableMinutes);
         b.line(row(`${label} ${detail}`, money(l.fee), cols));
       });
     }

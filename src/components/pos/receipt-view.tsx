@@ -5,7 +5,15 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/client";
 import { printReceipt } from "@/lib/thermal-print";
-import { formatMinutesShort } from "./live-timer";
+/** Whole hours only, for the receipt's playtime display — more than 15
+ * minutes past the hour mark rounds up to the next hour, matching how
+ * staff think about it ("just over 2 hours, call it 3") rather than
+ * showing the exact minutes. */
+function formatPlaytimeHours(totalMinutes: number): string {
+  const whole = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(whole / 60) + (whole % 60 > 15 ? 1 : 0);
+  return `${h}h`;
+}
 
 interface ReceiptSnapshot {
   receiptNumber: string;
@@ -107,7 +115,7 @@ function ReceiptBody({
   const playtimeLabel = showAllDay
     ? "All day"
     : playtimeMinutes != null
-      ? `Playtime (${formatMinutesShort(playtimeMinutes)})`
+      ? `Playtime (${formatPlaytimeHours(playtimeMinutes)})`
       : "Playtime";
 
   return (
@@ -161,7 +169,7 @@ function ReceiptBody({
               <span>
                 P{i + 1}
                 {line.pricingTypeName ? ` (${line.pricingTypeName})` : ""}{" "}
-                {line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes)}
+                {line.cappedAtDailyCap ? "All day" : formatPlaytimeHours(line.billableMinutes)}
               </span>
               <span>฿{line.fee.toFixed(0)}</span>
             </div>
