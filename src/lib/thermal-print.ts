@@ -56,10 +56,14 @@ export function printKitchenTicket<T extends KitchenTicketEntry[]>(
   );
 }
 
-/** Same idea as printKitchenTicket, for the receipt. */
+/** Same idea as printKitchenTicket, for the receipt. Building the bytes
+ * is async here (unlike the other print*  helpers) since it may need to
+ * fetch/rasterize the café logo — still returns its cancel function
+ * synchronously, matching every other call in this file, since there's
+ * nothing meaningful to cancel either way once the bridge path is taken. */
 export function printReceipt(
   snapshot: EscposReceiptSnapshot,
-  receiptOpts: { cafeName: string; receiptFooter: string },
+  receiptOpts: { cafeName: string; receiptFooter: string; logoUrl?: string | null },
   settings: CheckoutSettings | undefined,
   show: () => void,
   hide: () => void,
@@ -67,11 +71,12 @@ export function printReceipt(
 ): () => void {
   const target = bridgeTargetFrom(settings);
   if (target) {
-    const bytes = buildReceiptEscpos(snapshot, {
+    buildReceiptEscpos(snapshot, {
       ...receiptOpts,
       printerWidthMm: settings?.printerWidthMm ?? 80,
-    });
-    printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
+    })
+      .then((bytes) => printViaBridge(bytes, target))
+      .catch((err: Error) => onBridgeError?.(err.message));
     return () => {};
   }
   return printOnce(show, hide);

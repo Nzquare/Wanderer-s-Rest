@@ -96,6 +96,25 @@ class EscposBuilder {
     return this;
   }
 
+  /** GS v 0 — prints a 1-bit monochrome raster image (the café logo).
+   * `widthBytes` is the row width in BYTES (8 px/byte, MSB first), not
+   * pixels — see rasterizeLogo below, which already produces data in
+   * this packed form. */
+  rasterImage(widthBytes: number, heightPx: number, bits: Uint8Array): this {
+    this.push(
+      GS,
+      0x76,
+      0x30,
+      0x00,
+      widthBytes & 0xff,
+      (widthBytes >> 8) & 0xff,
+      heightPx & 0xff,
+      (heightPx >> 8) & 0xff,
+    );
+    this.chunks.push(bits);
+    return this;
+  }
+
   build(): Uint8Array {
     const total = this.chunks.reduce((n, c) => n + c.length, 0);
     const out = new Uint8Array(total);
@@ -121,6 +140,97 @@ function money(amount: number): string {
 function row(label: string, amount: string, width: number): string {
   const gap = Math.max(1, width - label.length - amount.length);
   return label.slice(0, width - amount.length - 1) + " ".repeat(gap) + amount;
+}
+
+/** Same rounding/formatting as receipt-view.tsx's formatMinutesShort —
+ * duplicated here (rather than imported) since that one lives in a React
+ * component module and this file has no React dependency otherwise.
+ * billableMinutes/elapsed-time values carry fractional minutes (computed
+ * from a live duration in ms), so printing them raw showed up as e.g.
+ * "21.54195 min" instead of a clean whole number. */
+interface LogoRaster {
+  widthBytes: number;
+  heightPx: number;
+  bits: Uint8Array;
+}
+
+/**
+ * Loads the café logo and converts it to a 1-bit monochrome ESC/POS
+ * raster image (see EscposBuilder.rasterImage), resized to fit
+ * `maxWidthPx` wide. There's no "print an image" ESC/POS command — this
+ * is the actual command set's own way of putting a picture on the
+ * paper, so the logo isn't just left off the thermal receipt the way an
+ * unsupported Thai character would be.
+ *
+ * Runs entirely in the browser (Canvas API) since the print bridge only
+ * relays bytes — it has no way to decode or resize an image itself,
+ * so all of that has to happen client-side before the bytes are sent.
+ * Returns null (never throws) if the image can't be loaded — a missing
+ * file or a remote URL blocked by CORS shouldn't stop the rest of the
+ * receipt from printing, just the logo.
+ */
+async function rasterizeLogo(url: string, maxWidthPx: number): Promise<LogoRaster | null> {
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.crossOrigin = "anonymous";
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("logo image failed to load"));
+      el.src = url;
+    });
+    if (!img.naturalWidth || !img.naturalHeight) return null;
+
+    const scale = Math.min(1, maxWidthPx / img.naturalWidth);
+    const drawWidthPx = Math.max(1, Math.round(img.naturalWidth * scale));
+    const heightPx = Math.max(1, Math.round(img.naturalHeight * scale));
+    // Raster rows are byte-packed, 8 pixels per byte — round the canvas
+    // width up to a multiple of 8 (padded with white) rather than
+    // distort the image to fit exactly.
+    const widthBytes = Math.ceil(drawWidthPx / 8);
+    const widthPx = widthBytes * 8;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = widthPx;
+    canvas.height = heightPx;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, widthPx, heightPx);
+    ctx.drawImage(img, 0, 0, drawWidthPx, heightPx);
+    const { data } = ctx.getImageData(0, 0, widthPx, heightPx);
+
+    const bits = new Uint8Array(widthBytes * heightPx);
+    for (let y = 0; y < heightPx; y++) {
+      for (let xByte = 0; xByte < widthBytes; xByte++) {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = xByte * 8 + bit;
+          const idx = (y * widthPx + x) * 4;
+          const alpha = data[idx + 3];
+          // Transparent pixels (common around a logo's edges) count as
+          // blank/white, not black — a plain luminance threshold
+          // otherwise. No dithering: a logo's bold shapes read fine on
+          // a 1-bit thermal printer without it, and dithering would
+          // just add noise at this resolution.
+          const luminance = alpha === 0 ? 255 : 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          if (luminance < 128) byte |= 0x80 >> bit;
+        }
+        bits[y * widthBytes + xByte] = byte;
+      }
+    }
+    return { widthBytes, heightPx, bits };
+  } catch {
+    return null;
+  }
+}
+
+function formatMinutesShort(totalMinutes: number): string {
+  const whole = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(whole / 60);
+  const m = whole % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
 
 export function buildKitchenTicketEscpos(
@@ -266,7 +376,7 @@ export function buildInvoiceEscpos(
   if (snapshot.isHourly && snapshot.tableFeeLines.length > 1) {
     snapshot.tableFeeLines.forEach((line, i) => {
       const label = `  P${i + 1}${line.pricingTypeName ? ` (${line.pricingTypeName})` : ""}`;
-      const detail = line.cappedAtDailyCap ? "All day" : `${line.billableMinutes}min`;
+      const detail = line.cappedAtDailyCap ? "All day" : formatMinutesShort(line.billableMinutes);
       b.line(row(`${label} ${detail}`, money(line.fee), cols));
     });
   }
@@ -307,53 +417,93 @@ export interface EscposReceiptSnapshot {
   receiptNumber: string;
   table: { code: string; name: string };
   players: number;
-  tableFeeLines?: { playerId: string; billableMinutes: number; fee: number }[];
+  tableFeeLines?: {
+    playerId: string;
+    billableMinutes: number;
+    fee: number;
+    cappedAtDailyCap?: boolean;
+    pricingTypeName?: string | null;
+  }[];
   pricingModel?: string;
+  /** Computed by the caller the same way the on-screen receipt computes
+   * them (receipt-view.tsx's own isHourly/showAllDay), rather than
+   * re-derived here, so both stay in sync with one source of truth. */
+  isHourly: boolean;
+  showAllDay: boolean;
   itemsByCategory?: {
     categoryName: string;
     subtotal: number;
     items: { nameEn: string; quantity: number; lineTotal: number }[];
   }[];
   foodDrinkItems?: { nameEn: string; quantity: number; lineTotal: number }[];
-  discounts: { label: string; amount: number }[];
+  discounts: { label: string; amount: number; isFreeItem?: boolean; isExpBonus?: boolean }[];
   bill: {
     subtotalTableFee: number;
     subtotalFoodDrink: number;
-    discountTotal: number;
     serviceChargeAmount: number;
     taxAmount: number;
     total: number;
   };
   payments: { method: string; amount: number; cashReceived?: number; change?: number }[];
-  member: { adventurerName: string; memberCode?: string } | null;
+  member: {
+    adventurerName: string;
+    memberCode?: string;
+    classNameEn?: string | null;
+  } | null;
   expAwarded: number;
+  lifetimeExpAfter?: number | null;
+  levelAfter?: number | null;
+  rankNameAfter?: string | null;
+  unlockedAchievements?: { nameEn: string }[];
   staff: string;
   closedAt: string;
 }
 
-export function buildReceiptEscpos(
+export async function buildReceiptEscpos(
   snapshot: EscposReceiptSnapshot,
-  opts: { cafeName: string; receiptFooter: string; printerWidthMm: number },
-): Uint8Array {
+  opts: { cafeName: string; receiptFooter: string; printerWidthMm: number; logoUrl?: string | null },
+): Promise<Uint8Array> {
   const cols = columnsFor(opts.printerWidthMm);
   const b = new EscposBuilder().init();
 
-  b.align("center")
-    .bold(true)
-    .big(true)
+  b.align("center");
+  if (opts.logoUrl) {
+    // 576/384 dots is the standard 203dpi print width for 80mm/58mm
+    // paper — leaves a small margin either side rather than filling the
+    // printer's absolute maximum.
+    const maxWidthPx = opts.printerWidthMm === 58 ? 320 : 480;
+    const logo = await rasterizeLogo(opts.logoUrl, maxWidthPx);
+    if (logo) b.rasterImage(logo.widthBytes, logo.heightPx, logo.bits).feed(1);
+  }
+  b.bold(true)
     .line(opts.cafeName)
-    .big(false)
     .bold(false)
     .line(`Receipt #${snapshot.receiptNumber}`)
-    .line(`Table ${snapshot.table.code} · ${snapshot.players} player${snapshot.players === 1 ? "" : "s"}`)
     .line(new Date(snapshot.closedAt).toLocaleString())
     .align("left")
     .hr(cols, "=");
 
-  if (snapshot.tableFeeLines && snapshot.tableFeeLines.length > 0) {
-    b.line("Table fee");
-    for (const l of snapshot.tableFeeLines) {
-      b.line(row(`  ${l.billableMinutes} min`, money(l.fee), cols));
+  b.line(`Table ${snapshot.table.code} - ${snapshot.players} player${snapshot.players === 1 ? "" : "s"}`);
+  b.line(`Staff: ${snapshot.staff}`);
+  if (snapshot.member) {
+    b.line(`Member: ${snapshot.member.adventurerName}`);
+    if (snapshot.member.classNameEn) b.line(`Class: ${snapshot.member.classNameEn}`);
+    b.bold(true).line(`+${snapshot.expAwarded} EXP`).bold(false);
+    if (snapshot.lifetimeExpAfter != null && snapshot.levelAfter != null) {
+      const rank = snapshot.rankNameAfter ? ` - ${snapshot.rankNameAfter}` : "";
+      b.line(`Total ${snapshot.lifetimeExpAfter} EXP - Level ${snapshot.levelAfter}${rank}`);
+    }
+  }
+  b.hr(cols, "-");
+
+  if (snapshot.bill.subtotalTableFee > 0) {
+    b.line(row(snapshot.showAllDay ? "All day" : "Playtime", money(snapshot.bill.subtotalTableFee), cols));
+    if (snapshot.isHourly && snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1) {
+      snapshot.tableFeeLines.forEach((l, i) => {
+        const label = `  P${i + 1}${l.pricingTypeName ? ` (${l.pricingTypeName})` : ""}`;
+        const detail = l.cappedAtDailyCap ? "All day" : formatMinutesShort(l.billableMinutes);
+        b.line(row(`${label} ${detail}`, money(l.fee), cols));
+      });
     }
   }
 
@@ -364,28 +514,20 @@ export function buildReceiptEscpos(
       : []);
   for (const cat of categories) {
     if (cat.items.length === 0) continue;
-    b.hr(cols, "-").line(cat.categoryName);
+    b.line(row(cat.categoryName, money(cat.subtotal), cols));
     for (const item of cat.items) {
       b.line(row(`  ${item.quantity}x ${item.nameEn}`, money(item.lineTotal), cols));
     }
   }
 
-  if (snapshot.discounts.length > 0) {
-    b.hr(cols, "-");
-    for (const d of snapshot.discounts) {
-      b.line(row(d.label, `-${money(d.amount)}`, cols));
-    }
-  }
+  b.bold(true)
+    .line(row("Subtotal", money(snapshot.bill.subtotalTableFee + snapshot.bill.subtotalFoodDrink), cols))
+    .bold(false);
 
-  b.hr(cols, "=");
-  if (snapshot.bill.subtotalTableFee > 0) {
-    b.line(row("Table fee subtotal", money(snapshot.bill.subtotalTableFee), cols));
-  }
-  if (snapshot.bill.subtotalFoodDrink > 0) {
-    b.line(row("Food/drink subtotal", money(snapshot.bill.subtotalFoodDrink), cols));
-  }
-  if (snapshot.bill.discountTotal > 0) {
-    b.line(row("Discount", `-${money(snapshot.bill.discountTotal)}`, cols));
+  for (const d of snapshot.discounts.filter((d) => d.isFreeItem)) b.line(`+ ${d.label}`);
+  for (const d of snapshot.discounts.filter((d) => d.isExpBonus)) b.line(`* ${d.label}`);
+  for (const d of snapshot.discounts.filter((d) => !d.isFreeItem && !d.isExpBonus)) {
+    b.line(row(d.label, `-${money(d.amount)}`, cols));
   }
   if (snapshot.bill.serviceChargeAmount > 0) {
     b.line(row("Service charge", money(snapshot.bill.serviceChargeAmount), cols));
@@ -393,22 +535,30 @@ export function buildReceiptEscpos(
   if (snapshot.bill.taxAmount > 0) {
     b.line(row("Tax", money(snapshot.bill.taxAmount), cols));
   }
-  b.bold(true).big(true).line(row("TOTAL", money(snapshot.bill.total), cols)).big(false).bold(false);
 
-  b.hr(cols, "-");
+  b.hr(cols, "=")
+    .bold(true)
+    .line(row("TOTAL", money(snapshot.bill.total), cols))
+    .bold(false)
+    .hr(cols, "-");
+
   for (const p of snapshot.payments) {
     b.line(row(p.method, money(p.amount), cols));
-    if (p.cashReceived != null) b.line(row("  Cash received", money(p.cashReceived), cols));
-    if (p.change != null) b.line(row("  Change", money(p.change), cols));
+    if (p.cashReceived != null) b.line(row("  Received", money(p.cashReceived), cols));
+    if (p.change != null && p.change > 0) b.line(row("  Change", money(p.change), cols));
   }
 
   if (snapshot.member) {
-    b.hr(cols, "-")
-      .line(`Member: ${snapshot.member.adventurerName}`)
-      .line(`+${snapshot.expAwarded} EXP`);
+    b.hr(cols, "-").align("center").line(`EXP earned: +${snapshot.expAwarded}`).align("left");
   }
 
-  b.hr(cols, "=").align("center").line(`Served by ${snapshot.staff}`);
+  if (snapshot.unlockedAchievements && snapshot.unlockedAchievements.length > 0) {
+    b.hr(cols, "-").align("center").bold(true).line("Achievement Unlocked").bold(false);
+    for (const a of snapshot.unlockedAchievements) b.line(a.nameEn);
+    b.align("left");
+  }
+
+  b.align("center");
   if (opts.receiptFooter) b.line(opts.receiptFooter);
   b.feed(3).cut();
 

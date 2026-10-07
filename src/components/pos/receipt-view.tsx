@@ -306,6 +306,26 @@ export function ReceiptView({
   // brand-new install prints exactly what it did before this.
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
   const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
+  // Optional logo (Back Office → Settings → Café, §Receipt/light-
+  // background logo) — shown above the name instead of replacing it, so
+  // the café name still prints even if the image fails to load/print.
+  // Receipt paper is white, so this prefers the dedicated
+  // dark/black-on-transparent receiptLogoUrl over the light-background
+  // logoUrl (which is meant for the dark customer-facing pages, and would
+  // print as a filled block rather than clean line art here); falls back
+  // to logoUrl only if a receipt-specific one was never uploaded.
+  const logoUrl = cafeSettings?.receiptLogoUrl ?? cafeSettings?.logoUrl;
+
+  // Once every fee line hit the daily cap, the bill was pinned flat for the
+  // rest of the day just like FIXED/PACKAGE pricing — show "All day"
+  // instead of a duration that no longer means anything (mirrors the live
+  // checkout bill, §7).
+  const isHourly = (snapshot.pricingModel ?? "HOURLY") === "HOURLY";
+  const allCapped =
+    !!snapshot.tableFeeLines &&
+    snapshot.tableFeeLines.length > 0 &&
+    snapshot.tableFeeLines.every((l) => l.cappedAtDailyCap);
+  const showAllDay = !isHourly || allCapped;
 
   // Gates a dedicated print-only copy of the receipt (see ReceiptBody
   // above), separate from the always-visible on-screen confirmation card.
@@ -347,35 +367,15 @@ export function ReceiptView({
     if (notificationSettings.autoPrintReceipt) {
       autoPrinted.current = true;
       cancelPrintRef.current = printReceipt(
-        snapshot,
-        { cafeName, receiptFooter },
+        { ...snapshot, isHourly, showAllDay },
+        { cafeName, receiptFooter, logoUrl },
         checkoutSettings,
         () => setPrintArmed(true),
         () => setPrintArmed(false),
         setBridgeError,
       );
     }
-  }, [notificationSettings, snapshot, cafeName, receiptFooter, checkoutSettings]);
-  // Optional logo (Back Office → Settings → Café, §Receipt/light-
-  // background logo) — shown above the name instead of replacing it, so
-  // the café name still prints even if the image fails to load/print.
-  // Receipt paper is white, so this prefers the dedicated
-  // dark/black-on-transparent receiptLogoUrl over the light-background
-  // logoUrl (which is meant for the dark customer-facing pages, and would
-  // print as a filled block rather than clean line art here); falls back
-  // to logoUrl only if a receipt-specific one was never uploaded.
-  const logoUrl = cafeSettings?.receiptLogoUrl ?? cafeSettings?.logoUrl;
-
-  // Once every fee line hit the daily cap, the bill was pinned flat for the
-  // rest of the day just like FIXED/PACKAGE pricing — show "All day"
-  // instead of a duration that no longer means anything (mirrors the live
-  // checkout bill, §7).
-  const isHourly = (snapshot.pricingModel ?? "HOURLY") === "HOURLY";
-  const allCapped =
-    !!snapshot.tableFeeLines &&
-    snapshot.tableFeeLines.length > 0 &&
-    snapshot.tableFeeLines.every((l) => l.cappedAtDailyCap);
-  const showAllDay = !isHourly || allCapped;
+  }, [notificationSettings, snapshot, isHourly, showAllDay, cafeName, receiptFooter, logoUrl, checkoutSettings]);
 
   const bodyProps = { snapshot, cafeName, logoUrl, receiptFooter, isHourly, showAllDay };
   const sizeClasses =
@@ -459,8 +459,8 @@ export function ReceiptView({
           className="flex-1"
           onClick={() => {
             cancelPrintRef.current = printReceipt(
-              snapshot,
-              { cafeName, receiptFooter },
+              { ...snapshot, isHourly, showAllDay },
+              { cafeName, receiptFooter, logoUrl },
               checkoutSettings,
               () => setPrintArmed(true),
               () => setPrintArmed(false),
