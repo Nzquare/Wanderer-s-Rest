@@ -22,6 +22,13 @@ import { cn } from "@/lib/cn";
 
 type PlayerStatus = "ACTIVE" | "PAUSED" | "STOPPED";
 
+/** HTML datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not the raw ISO string (which is UTC). */
+function toDatetimeLocalValue(date: string | Date) {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function PlayerRow({
   player,
   tableId,
@@ -63,16 +70,25 @@ function PlayerRow({
     ]);
   const pause = trpc.sessions.pausePlayer.useMutation({ onSuccess: invalidate });
   const resume = trpc.sessions.resumePlayer.useMutation({ onSuccess: invalidate });
-  const stop = trpc.sessions.stopPlayer.useMutation({ onSuccess: invalidate });
   const restart = trpc.sessions.restartPlayer.useMutation({ onSuccess: invalidate });
   const updatePricingType = trpc.sessions.updatePlayerPricingType.useMutation({
     onSuccess: invalidate,
   });
-  const pending =
-    pause.isPending || resume.isPending || stop.isPending || restart.isPending;
+  const remove = trpc.sessions.removePlayer.useMutation({ onSuccess: invalidate });
+  const updateStartTime = trpc.sessions.updatePlayerStartTime.useMutation({
+    onSuccess: () => {
+      invalidate();
+      setEditingStart(false);
+    },
+  });
+  const pending = pause.isPending || resume.isPending || restart.isPending;
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editingStart, setEditingStart] = useState(false);
+  const [startDraft, setStartDraft] = useState(() => toDatetimeLocalValue(player.startTime));
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3">
       <div className="flex items-center gap-3">
         <span
           className={cn(
@@ -89,6 +105,48 @@ function PlayerRow({
           <p className="text-lg font-semibold tabular-nums text-foreground">
             <LiveTimer timer={player} />
           </p>
+          {!locked && !editingStart && (
+            <button
+              onClick={() => {
+                setStartDraft(toDatetimeLocalValue(player.startTime));
+                setEditingStart(true);
+              }}
+              className="mt-0.5 block text-xs text-foreground-muted underline"
+            >
+              Edit start time
+            </button>
+          )}
+          {editingStart && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <input
+                type="datetime-local"
+                value={startDraft}
+                onChange={(e) => setStartDraft(e.target.value)}
+                className="h-7 rounded-md border border-border bg-background px-1.5 text-xs"
+              />
+              {updateStartTime.error && (
+                <p className="w-full text-xs text-status-danger">{updateStartTime.error.message}</p>
+              )}
+              <button
+                disabled={updateStartTime.isPending || !startDraft}
+                onClick={() =>
+                  updateStartTime.mutate({
+                    sessionPlayerId: player.id,
+                    startTime: new Date(startDraft).toISOString(),
+                  })
+                }
+                className="text-xs font-medium text-teal-600 underline"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingStart(false)}
+                className="text-xs text-foreground-muted underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           {/* Per-player pricing-type override (§Mixed pricing per table)
               — e.g. one table split between Student and Regular. Left
               at "" (inherit the table's own type) unless staff picks one
@@ -117,49 +175,29 @@ function PlayerRow({
           )}
         </div>
       </div>
-      <div className="flex gap-1.5">
+      <div className="flex items-center gap-1.5">
         {player.status === "ACTIVE" && (
-          <>
-            <Button
-              size="md"
-              variant="outline"
-              disabled={pending}
-              onClick={() => pause.mutate({ sessionPlayerId: player.id })}
-            >
-              Pause
-            </Button>
-            <Button
-              size="md"
-              variant="outline"
-              disabled={pending}
-              onClick={() => stop.mutate({ sessionPlayerId: player.id })}
-            >
-              Stop
-            </Button>
-          </>
+          <Button
+            size="md"
+            variant="outline"
+            disabled={pending}
+            onClick={() => pause.mutate({ sessionPlayerId: player.id })}
+          >
+            Pause
+          </Button>
         )}
         {player.status === "PAUSED" && notStarted && (
           <span className="text-xs text-foreground-muted">Waiting to start</span>
         )}
         {player.status === "PAUSED" && !notStarted && (
-          <>
-            <Button
-              size="md"
-              variant="primary"
-              disabled={pending}
-              onClick={() => resume.mutate({ sessionPlayerId: player.id })}
-            >
-              Resume
-            </Button>
-            <Button
-              size="md"
-              variant="outline"
-              disabled={pending}
-              onClick={() => stop.mutate({ sessionPlayerId: player.id })}
-            >
-              Stop
-            </Button>
-          </>
+          <Button
+            size="md"
+            variant="primary"
+            disabled={pending}
+            onClick={() => resume.mutate({ sessionPlayerId: player.id })}
+          >
+            Resume
+          </Button>
         )}
         {player.status === "STOPPED" && !locked && (
           <Button
@@ -171,7 +209,35 @@ function PlayerRow({
             Restart
           </Button>
         )}
+        {!locked &&
+          (confirmingDelete ? (
+            <span className="flex items-center gap-1.5 text-xs">
+              <button
+                disabled={remove.isPending}
+                onClick={() => remove.mutate({ sessionPlayerId: player.id })}
+                className="font-medium text-status-danger underline"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="text-foreground-muted underline"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="text-xs text-status-danger underline"
+            >
+              Delete
+            </button>
+          ))}
       </div>
+      {confirmingDelete && remove.error && (
+        <p className="w-full text-xs text-status-danger">{remove.error.message}</p>
+      )}
     </div>
   );
 }

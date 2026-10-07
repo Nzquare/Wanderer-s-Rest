@@ -386,7 +386,17 @@ export const sessionsRouter = router({
     }),
 
   addPlayer: permissionProcedure(Permission.MANAGE_TIMERS)
-    .input(z.object({ sessionId: z.string(), label: z.string().optional() }))
+    .input(
+      z.object({
+        sessionId: z.string(),
+        label: z.string().optional(),
+        // Lets staff back-date a player who was actually playing before
+        // they got around to adding them in the app, rather than always
+        // billing from the moment of the click (§manually define
+        // starting time). Defaults to now, same as before this existed.
+        startTime: z.coerce.date().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const session = await ctx.prisma.tableSession.findUnique({
         where: { id: input.sessionId },
@@ -400,18 +410,21 @@ export const sessionsRouter = router({
               : "Session is not open.",
         });
       }
+      const now = new Date();
+      if (input.startTime && input.startTime.getTime() > now.getTime() + 60_000) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Start time can't be in the future." });
+      }
       // A player added while the table is PAUSED — whether that's a
       // genuine mid-game pause or the table hasn't started playing yet
       // (§Start Playing) — joins in that same paused state instead of
       // running while everyone else is stopped.
-      const now = new Date();
       const paused = session.status === "PAUSED";
       await ctx.prisma.$transaction([
         ctx.prisma.sessionPlayer.create({
           data: {
             sessionId: session.id,
             label: input.label ?? `Player ${session.playerCount + 1}`,
-            startTime: now,
+            startTime: input.startTime ?? now,
             pausedAt: paused ? now : null,
             status: paused ? "PAUSED" : "ACTIVE",
             addedById: ctx.staff.id,
@@ -420,6 +433,71 @@ export const sessionsRouter = router({
         ctx.prisma.tableSession.update({
           where: { id: session.id },
           data: { playerCount: { increment: 1 } },
+        }),
+      ]);
+      return { ok: true };
+    }),
+
+  /** Corrects a player's start time after the fact (§manually define
+   * starting time) — e.g. they were actually playing for a while before
+   * staff got around to adding them, or a mistaken start time needs
+   * fixing. Separate from addPlayer's own optional startTime so it can
+   * be corrected after the fact too, not just set once at creation. */
+  updatePlayerStartTime: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionPlayerId: z.string(), startTime: z.coerce.date() }))
+    .mutation(async ({ ctx, input }) => {
+      const player = await ctx.prisma.sessionPlayer.findUnique({
+        where: { id: input.sessionPlayerId },
+        include: { session: { select: { status: true } } },
+      });
+      if (!player) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["OPEN", "PAUSED"].includes(player.session.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Table is locked for checkout — use Back to Table first.",
+        });
+      }
+      if (input.startTime.getTime() > Date.now() + 60_000) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Start time can't be in the future." });
+      }
+      await ctx.prisma.sessionPlayer.update({
+        where: { id: player.id },
+        data: { startTime: input.startTime },
+      });
+      return { ok: true };
+    }),
+
+  /** Removes a player added by mistake (§delete wrong player count) —
+   * a hard delete, not a status change, since there's nothing left to
+   * bill or show once it was never a real player at this table. Blocked
+   * once the table's locked for checkout, same as every other timer
+   * action, and when it's the last player — void the table instead if
+   * the whole thing was opened by mistake. */
+  removePlayer: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionPlayerId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const player = await ctx.prisma.sessionPlayer.findUnique({
+        where: { id: input.sessionPlayerId },
+        include: { session: { select: { id: true, status: true, playerCount: true } } },
+      });
+      if (!player) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["OPEN", "PAUSED"].includes(player.session.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Table is locked for checkout — use Back to Table first.",
+        });
+      }
+      if (player.session.playerCount <= 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Can't remove the last player — void the table instead if it was opened by mistake.",
+        });
+      }
+      await ctx.prisma.$transaction([
+        ctx.prisma.sessionPlayer.delete({ where: { id: player.id } }),
+        ctx.prisma.tableSession.update({
+          where: { id: player.session.id },
+          data: { playerCount: { decrement: 1 } },
         }),
       ]);
       return { ok: true };
