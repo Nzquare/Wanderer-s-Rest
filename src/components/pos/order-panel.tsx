@@ -5,7 +5,7 @@ import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { playChime } from "@/lib/chime";
-import { printOnce } from "@/lib/print-once";
+import { printKitchenTicket } from "@/lib/thermal-print";
 import {
   KitchenTicket,
   splitTicketByStation,
@@ -113,6 +113,7 @@ export function OrderPanel({
   // Staff/Customer-QR orders, so the kitchen ticket has to fire right here).
   const pendingTicket = useRef<KitchenTicketOrder | null>(null);
   const [printEntries, setPrintEntries] = useState<KitchenTicketEntry[] | null>(null);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
 
   const submit = trpc.orders.add.useMutation({
     onSuccess: async () => {
@@ -132,9 +133,14 @@ export function OrderPanel({
           // category), but still just one printOnce job/window.print()
           // call for the whole order — KitchenTicket renders every
           // split entry as its own page inside that one print area.
-          printOnce(
-            () => setPrintEntries(splitTicketByStation(ticket)),
+          // Goes through the network print bridge instead when one's
+          // configured (§Network thermal printer / print bridge).
+          printKitchenTicket(
+            splitTicketByStation(ticket),
+            checkoutSettings,
+            setPrintEntries,
             () => setPrintEntries(null),
+            setBridgeError,
           );
         }
       }
@@ -294,6 +300,11 @@ export function OrderPanel({
           </div>
           {submit.error && (
             <p className="text-sm text-status-danger">{submit.error.message}</p>
+          )}
+          {bridgeError && (
+            <p className="text-sm text-status-danger">
+              Kitchen ticket print failed: {bridgeError}
+            </p>
           )}
           <Button
             size="lg"

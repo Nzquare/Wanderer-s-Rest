@@ -337,6 +337,43 @@ function SettingsForm({ data }: { data: AllSettings }) {
           Set a PromptPay ID to show a real scan-to-pay QR code at checkout
           whenever PromptPay is selected as the payment method.
         </p>
+
+        <p className="pt-2 font-medium text-foreground">Network thermal printer</p>
+        <p className="text-xs text-foreground-muted">
+          For a WiFi thermal printer that only speaks raw printing (no
+          AirPrint) — it won&apos;t show up in an iPad or browser print
+          picker at all. Set these to send kitchen tickets and receipts
+          through a small bridge program running on a PC/Mac on the same
+          network instead. Leave blank for normal browser printing.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <Field label="Print bridge URL">
+            <input
+              className={inputCls}
+              placeholder="http://192.168.1.50:9123"
+              value={checkout.printBridgeUrl}
+              onChange={(e) => setCheckout({ ...checkout, printBridgeUrl: e.target.value })}
+            />
+          </Field>
+          <Field label="Printer IP">
+            <input
+              className={inputCls}
+              placeholder="192.168.1.60"
+              value={checkout.thermalPrinterIp}
+              onChange={(e) => setCheckout({ ...checkout, thermalPrinterIp: e.target.value })}
+            />
+          </Field>
+          <Field label="Printer port">
+            <input
+              type="number"
+              className={inputCls}
+              value={checkout.thermalPrinterPort}
+              onChange={(e) =>
+                setCheckout({ ...checkout, thermalPrinterPort: Number(e.target.value) })
+              }
+            />
+          </Field>
+        </div>
         <Button
           size="md"
           disabled={saveCheckout.isPending}

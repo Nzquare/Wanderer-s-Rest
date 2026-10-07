@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { trpc } from "@/lib/trpc/client";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/trpc/routers/_app";
 import { playChime } from "@/lib/chime";
-import { printOnce } from "@/lib/print-once";
+import { printKitchenTicket } from "@/lib/thermal-print";
 import { cn } from "@/lib/cn";
 import { KitchenTicket, splitTicketByStation, type KitchenTicketEntry } from "./kitchen-ticket";
 
@@ -44,6 +44,7 @@ export function OrderAlertBanner() {
   const [printEntries, setPrintEntries] = useState<KitchenTicketEntry<PendingOrder>[] | null>(
     null,
   );
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
 
   // An order can span more than one menu category (§Separate kitchen
   // ticket by category — food vs drinks, say) — splits it first, but
@@ -51,14 +52,16 @@ export function OrderAlertBanner() {
   // order: KitchenTicket renders every split entry as its own page
   // inside that one print area. Queuing a separate printOnce job per
   // category here instead used to land as some tickets printing blank
-  // (§confirm payment, nothing prints and its sequels).
-  function printTicket(order: PendingOrder) {
-    const entries = splitTicketByStation(order);
-    printOnce(
-      () => setPrintEntries(entries),
-      () => setPrintEntries(null),
-    );
-  }
+  // (§confirm payment, nothing prints and its sequels). Goes through the
+  // network print bridge instead when one's configured (§Network
+  // thermal printer / print bridge).
+  const printTicket = useCallback(
+    (order: PendingOrder) => {
+      const entries = splitTicketByStation(order);
+      printKitchenTicket(entries, checkoutSettings, setPrintEntries, () => setPrintEntries(null), setBridgeError);
+    },
+    [checkoutSettings],
+  );
 
   useEffect(() => {
     if (!pending || !notificationSettings) return;
@@ -84,12 +87,20 @@ export function OrderAlertBanner() {
       const toAutoPrint = newOnes.find(notifiable);
       if (toAutoPrint) printTicket(toAutoPrint);
     }
-  }, [pending, notificationSettings]);
+  }, [pending, notificationSettings, printTicket]);
 
   if (!pending || pending.length === 0) return null;
 
   return (
     <div className="border-b border-teal-500/30 bg-teal-500/10">
+      {bridgeError && (
+        <div className="flex items-center justify-between gap-2 bg-status-danger/10 px-4 py-1.5 text-xs text-status-danger">
+          <span>Kitchen ticket print failed: {bridgeError}</span>
+          <button onClick={() => setBridgeError(null)} className="font-medium">
+            Dismiss
+          </button>
+        </div>
+      )}
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-medium text-teal-700 dark:text-teal-300"

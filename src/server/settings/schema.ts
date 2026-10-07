@@ -48,6 +48,17 @@ export const checkoutSettingsSchema = z.object({
   printerWidthMm: z.union([z.literal(58), z.literal(80)]).default(80),
   /** Phone number, 13-digit national/tax ID, or e-Wallet ID registered for PromptPay (§20) — used to generate the scan-to-pay QR at checkout. Blank = QR not shown. */
   promptpayId: z.string().default(""),
+  /** Local "print bridge" HTTP server address (§Network thermal printer /
+   * print bridge) — for a WiFi thermal printer that only speaks raw
+   * ESC/POS over a TCP port, not AirPrint, so it never shows up in an
+   * iPad's or any browser's print picker. When this and
+   * thermalPrinterIp are both set, kitchen tickets and receipts are sent
+   * as raw ESC/POS bytes to this bridge (see print-bridge/server.js)
+   * instead of opening the normal browser print dialog. Blank = browser
+   * printing as before. */
+  printBridgeUrl: z.string().default(""),
+  thermalPrinterIp: z.string().default(""),
+  thermalPrinterPort: z.number().default(9100),
 });
 export type CheckoutSettings = z.infer<typeof checkoutSettingsSchema>;
 

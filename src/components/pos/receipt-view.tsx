@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc/client";
-import { printOnce } from "@/lib/print-once";
+import { printReceipt } from "@/lib/thermal-print";
 import { formatMinutesShort } from "./live-timer";
 
 interface ReceiptSnapshot {
@@ -298,6 +298,14 @@ export function ReceiptView({
   const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
   const { data: notificationSettings } = trpc.settings.getNotifications.useQuery();
   const printerWidthMm = checkoutSettings?.printerWidthMm ?? 80;
+  // Back Office → Settings has real inputs for both of these (café name,
+  // receipt footer) — the printed receipt used to ignore them entirely and
+  // print a hardcoded "Wanderer's Rest" / "Thank you for visiting..." no
+  // matter what was saved there (§Receipt settings wiring). Falls back to
+  // the same schema defaults those settings already default to, so a
+  // brand-new install prints exactly what it did before this.
+  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
+  const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
 
   // Gates a dedicated print-only copy of the receipt (see ReceiptBody
   // above), separate from the always-visible on-screen confirmation card.
@@ -333,24 +341,21 @@ export function ReceiptView({
   // too long) doesn't delay whatever prints next on a completely
   // different page (§confirm payment, nothing prints).
   const cancelPrintRef = useRef<(() => void) | null>(null);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
   useEffect(() => {
     if (autoPrinted.current || !notificationSettings) return;
     if (notificationSettings.autoPrintReceipt) {
       autoPrinted.current = true;
-      cancelPrintRef.current = printOnce(
+      cancelPrintRef.current = printReceipt(
+        snapshot,
+        { cafeName, receiptFooter },
+        checkoutSettings,
         () => setPrintArmed(true),
         () => setPrintArmed(false),
+        setBridgeError,
       );
     }
-  }, [notificationSettings]);
-  // Back Office → Settings has real inputs for both of these (café name,
-  // receipt footer) — the printed receipt used to ignore them entirely and
-  // print a hardcoded "Wanderer's Rest" / "Thank you for visiting..." no
-  // matter what was saved there (§Receipt settings wiring). Falls back to
-  // the same schema defaults those settings already default to, so a
-  // brand-new install prints exactly what it did before this.
-  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
-  const receiptFooter = checkoutSettings?.receiptFooterEn ?? "Thank you for visiting Wanderer's Rest!";
+  }, [notificationSettings, snapshot, cafeName, receiptFooter, checkoutSettings]);
   // Optional logo (Back Office → Settings → Café, §Receipt/light-
   // background logo) — shown above the name instead of replacing it, so
   // the café name still prints even if the image fails to load/print.
@@ -443,14 +448,23 @@ export function ReceiptView({
         </div>
       </div>
 
+      {bridgeError && (
+        <p className="text-sm text-status-danger print:hidden">
+          Receipt print failed: {bridgeError}
+        </p>
+      )}
       <div className="flex gap-2 print:hidden">
         <Button
           variant="outline"
           className="flex-1"
           onClick={() => {
-            cancelPrintRef.current = printOnce(
+            cancelPrintRef.current = printReceipt(
+              snapshot,
+              { cafeName, receiptFooter },
+              checkoutSettings,
               () => setPrintArmed(true),
               () => setPrintArmed(false),
+              setBridgeError,
             );
           }}
         >

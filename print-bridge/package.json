@@ -1,0 +1,13 @@
+{
+  "name": "wanderers-rest-print-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local bridge relaying ESC/POS print jobs from Wanderer's Rest to a WiFi thermal printer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc/client";
-import { printOnce } from "@/lib/print-once";
+import { printKitchenTicket } from "@/lib/thermal-print";
 import {
   KitchenTicket,
   splitTicketByStation,
@@ -81,6 +81,7 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
 export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: string }) {
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const [printEntries, setPrintEntries] = useState<KitchenTicketEntry[] | null>(null);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
 
   if (orders.length === 0) {
     return (
@@ -92,6 +93,11 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
 
   return (
     <div className="space-y-2">
+      {bridgeError && (
+        <p className="text-sm text-status-danger">
+          Kitchen ticket print failed: {bridgeError}
+        </p>
+      )}
       {orders.map((order) => (
         <Card key={order.id} className="space-y-1">
           <div className="flex items-center justify-between gap-2">
@@ -112,11 +118,16 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
                   // category), but still just one printOnce job/
                   // window.print() call for the reprint — KitchenTicket
                   // renders every split entry as its own page inside
-                  // that one print area.
+                  // that one print area. Goes through the network print
+                  // bridge instead when one's configured (§Network
+                  // thermal printer / print bridge).
                   const entries = splitTicketByStation(toTicketOrder(order, tableCode));
-                  printOnce(
-                    () => setPrintEntries(entries),
+                  printKitchenTicket(
+                    entries,
+                    checkoutSettings,
+                    setPrintEntries,
                     () => setPrintEntries(null),
+                    setBridgeError,
                   );
                 }}
                 title="Reprint kitchen ticket"
