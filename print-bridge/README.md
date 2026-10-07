@@ -35,14 +35,22 @@ WiFi), and it relays those bytes to the printer over a raw TCP socket
    Leave this window open — closing it stops the bridge. Note the IP
    address it printed (yours will be different).
 4. **If Wanderer's Rest opens with `https://` in the address bar** (true
-   for the normal hosted version) — do this one-time step on the
-   iPad/tablet:
-   - Open Safari and go to `https://<the IP from step 3>:9124/health`
-   - You'll see a warning that the connection isn't private — this is
-     expected (it's a self-signed certificate, not a sign anything's
-     wrong). Tap **Show Details**, then **visit this website**, and
-     confirm. You should see `{"ok":true}`.
-   - You only need to do this once per device, not every time.
+   for the normal hosted version) — do this one-time setup on each
+   iPad/tablet (works for Safari tabs *and* a Home Screen icon):
+   - On the device, open Safari and go to
+     `http://<the IP from step 3>:9123/ca-profile` (plain `http://`, not
+     `https://`, and port **9123**) — it'll prompt to download a
+     configuration profile. Tap **Allow**.
+   - Open the **Settings** app (the iPad's own Settings, not Wanderer's
+     Rest) → **General** → **VPN & Device Management** → tap the
+     downloaded profile → **Install** (enter your passcode if asked) →
+     **Install** again to confirm.
+   - Still in Settings: **General** → **About** → **Certificate Trust
+     Settings** → turn on full trust for **"Wanderer's Rest Print Bridge
+     CA"**.
+   - That's it — this device now trusts this specific bridge everywhere
+     (any Safari tab, and a Home Screen icon too), permanently, with no
+     more warning screens. You only need to do this once per device.
 5. In Wanderer's Rest, go to **Back Office → Settings → Checkout →
    Network thermal printer** and set:
    - **Print bridge URL**:
@@ -68,14 +76,21 @@ setting to allow it. That's "mixed content" blocking, and it's the most
 common reason printing silently fails even when the IP/port are all
 correct.
 
-To get around that, this program also starts an HTTPS listener using a
-certificate it generates for itself the first time it runs (saved as
-`cert.pem`/`key.pem` in this folder — don't delete those, or you'll have
-to redo the one-time Safari trust step). Because it signs its own
-certificate instead of getting one from a trusted authority, every
-browser will show a warning the first time — that's normal and expected
-for a private, local-only tool like this; the "visit this website" step
-in Setup above tells Safari to remember trusting this one bridge.
+To get around that, this program also starts an HTTPS listener, using a
+small private Certificate Authority (CA) it generates for itself the
+first time it runs (saved as `ca-cert.pem`/`ca-key.pem` and
+`cert.pem`/`key.pem` in this folder — don't delete those, or every
+device will need the install-the-profile step redone). Installing that
+CA's certificate as a trusted profile (step 4 above) is what makes the
+device trust the bridge's certificate — a one-time **device-level**
+setting, rather than a per-browser-tab "trust this site" exception. That
+matters because a plain self-signed certificate's "trust this once"
+warning, if you just click through it in Safari without installing a
+profile, only applies to that one Safari browsing context — it does
+*not* carry over to a web app added to the Home Screen, which runs in
+its own separate context on iOS. The CA-profile approach fixes that: once
+installed, every context on the device trusts it, Home Screen icon
+included.
 
 ## Troubleshooting
 

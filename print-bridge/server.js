@@ -18,33 +18,42 @@
  * Why HTTPS too: Wanderer's Rest is served over https:// in production.
  * A page loaded over https:// is blocked by the browser (mixed content)
  * from fetching a plain http:// address, even to another device on the
- * same WiFi, with no user-facing override — this is what "kitchen ticket
- * print failed: couldn't reach the print bridge" usually means even when
- * the IP/port are correct. So on first run this also generates a
- * self-signed certificate and starts a second, HTTPS listener; visiting
- * that address once in Safari (see below) tells it to trust this
- * specific bridge, after which fetches from the https:// app succeed.
+ * same WiFi, with no user-facing override — this is what "couldn't reach
+ * the print bridge" usually means even when the IP/port are correct.
+ *
+ * Why a local CA instead of just a self-signed cert: a self-signed
+ * certificate you manually "trust this once" in Safari only grants that
+ * exception to the regular Safari browsing context — it does NOT carry
+ * over to a web app added to the Home Screen (a separate, standalone
+ * context on iOS), so printing from the Home Screen icon kept failing
+ * even after trusting the warning in Safari. Issuing the bridge's own
+ * certificate from a locally-generated Certificate Authority, and
+ * installing *that CA* once as a trusted profile (a real iOS device
+ * setting, not a per-site browser exception), makes every context on
+ * the device — Safari tabs, Home Screen icons, everything — trust it
+ * permanently, with no more warning screens at all.
  *
  * Setup:
  *   1. In this folder, run `npm install` once (pulls in a small library
- *      used only to generate the self-signed certificate below).
+ *      used only to generate certificates below).
  *   2. Run this on a PC/Mac that's always on and on the same WiFi as the
  *      printer (and as the iPad/tablet using the POS):
  *        node server.js
- *   3. Find that computer's LAN IP (e.g. `ipconfig` on Windows, `ifconfig`
- *      / System Settings → Wi-Fi → Details on Mac) — also printed by this
- *      program itself on startup.
- *   4. If the app is loaded over https:// (the normal case): on the
- *      iPad/tablet, open Safari and visit https://<that IP>:9124/health
- *      once. Tap "Show Details" → "visit this website" to accept the
- *      one-time warning (it's just because the certificate is
- *      self-signed, not because anything's actually wrong). You only
- *      need to do this once per device.
+ *   3. It prints this computer's LAN IP and a URL for the next step.
+ *   4. If the app is loaded over https:// (the normal case) — on the
+ *      iPad/tablet, once per device: open Safari and visit
+ *      http://<that IP>:9123/ca-profile, tap "Allow" to download the
+ *      profile, then go to Settings app -> General -> VPN & Device
+ *      Management -> tap the downloaded profile -> Install (enter your
+ *      passcode). Then go to Settings -> General -> About -> Certificate
+ *      Trust Settings, and turn on full trust for "Wanderer's Rest Print
+ *      Bridge CA". That's it — permanently, on that device, for this
+ *      bridge, in every app including a Home Screen icon.
  *   5. In Wanderer's Rest → Back Office → Settings → Checkout → Network
  *      thermal printer, set:
  *        Print bridge URL: https://<that computer's LAN IP>:9124
  *          (or http://<IP>:9123 if the app itself is loaded over plain
- *          http://, e.g. testing locally — then step 4 isn't needed)
+ *          http:// — e.g. testing locally — then step 4 isn't needed)
  *        Printer IP / Port: the thermal printer's own WiFi IP (and its
  *          raw-printing port — check the printer's own network settings
  *          page/manual; 9100 is the common default, used here too).
@@ -56,6 +65,7 @@ const net = require("net");
 const os = require("os");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const PORT = process.env.PRINT_BRIDGE_PORT ? Number(process.env.PRINT_BRIDGE_PORT) : 9123;
 const HTTPS_PORT = process.env.PRINT_BRIDGE_HTTPS_PORT
@@ -63,8 +73,11 @@ const HTTPS_PORT = process.env.PRINT_BRIDGE_HTTPS_PORT
   : 9124;
 const PRINT_TIMEOUT_MS = 5000;
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
+const CA_CERT_PATH = path.join(__dirname, "ca-cert.pem");
+const CA_KEY_PATH = path.join(__dirname, "ca-key.pem");
 const CERT_PATH = path.join(__dirname, "cert.pem");
 const KEY_PATH = path.join(__dirname, "key.pem");
+const CA_NAME = "Wanderer's Rest Print Bridge CA";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -136,6 +149,29 @@ function handlePrint(req, res) {
   });
 }
 
+/** The CA profile only needs to be reachable over plain HTTP — a direct
+ * Safari address-bar visit/download is a top-level navigation, not a
+ * page fetch()/subresource load, so the https-page mixed-content rule
+ * that blocks /print and /health from the app doesn't apply here. That
+ * also sidesteps the chicken-and-egg problem of needing HTTPS trust
+ * before you've installed the thing that grants HTTPS trust. */
+function handleCaProfile(req, res) {
+  let caCertPem;
+  try {
+    caCertPem = fs.readFileSync(CA_CERT_PATH, "utf8");
+  } catch {
+    sendJson(res, 404, { error: "No CA certificate yet — restart the bridge after npm install" });
+    return;
+  }
+  const profile = buildMobileConfig(caCertPem);
+  res.writeHead(200, {
+    "Content-Type": "application/x-apple-aspen-config",
+    "Content-Disposition": 'attachment; filename="wanderers-rest-print-bridge.mobileconfig"',
+    ...CORS_HEADERS,
+  });
+  res.end(profile);
+}
+
 function requestHandler(req, res) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS_HEADERS);
@@ -144,6 +180,10 @@ function requestHandler(req, res) {
   }
   if (req.method === "GET" && req.url === "/health") {
     sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/ca-profile") {
+    handleCaProfile(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/print") {
@@ -167,15 +207,78 @@ function localIPv4Addresses() {
   return addresses;
 }
 
+/** A device-installable configuration profile (.mobileconfig — an Apple
+ * property-list XML format) carrying just the CA's PUBLIC certificate
+ * (never its private key) as a trusted root. The PEM's base64 body is
+ * already the base64 of the DER-encoded certificate iOS expects inside
+ * a <data> element — no re-encoding needed, just strip the PEM header/
+ * footer lines. */
+function buildMobileConfig(caCertPem) {
+  const base64 = caCertPem
+    .split("\n")
+    .filter((line) => line && !line.startsWith("-----"))
+    .join("\n");
+  const certUuid = crypto.randomUUID().toUpperCase();
+  const profileUuid = crypto.randomUUID().toUpperCase();
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadCertificateFileName</key>
+      <string>ca.cer</string>
+      <key>PayloadContent</key>
+      <data>${base64}</data>
+      <key>PayloadDescription</key>
+      <string>Trusts the local print bridge so kitchen tickets and receipts can print, from any browser tab or Home Screen icon.</string>
+      <key>PayloadDisplayName</key>
+      <string>${CA_NAME}</string>
+      <key>PayloadIdentifier</key>
+      <string>com.wanderersrest.printbridge.ca</string>
+      <key>PayloadType</key>
+      <string>com.apple.security.root</string>
+      <key>PayloadUUID</key>
+      <string>${certUuid}</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>Trusts this cafe's local print bridge for Wanderer's Rest.</string>
+  <key>PayloadDisplayName</key>
+  <string>Wanderer's Rest Print Bridge</string>
+  <key>PayloadIdentifier</key>
+  <string>com.wanderersrest.printbridge</string>
+  <key>PayloadRemovable</key>
+  <true/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>${profileUuid}</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
+`;
+}
+
 /**
- * Generates (once, then reuses from disk) a self-signed certificate for
- * the HTTPS listener. Cached to disk rather than regenerated on every
- * start — a new certificate would mean the "trust this device once" step
- * in Safari has to be redone after every restart, since Safari's
- * exception is tied to the exact certificate.
+ * Loads (or creates, once, then reuses from disk) a local Certificate
+ * Authority and a server certificate signed by it. Both cached to disk
+ * rather than regenerated on every start — a new CA would mean the
+ * install-the-profile step on every device has to be redone, since the
+ * device trusts this exact CA certificate, not "whatever the bridge
+ * currently has".
  */
-async function loadOrCreateCertificate() {
-  if (fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH)) {
+async function loadOrCreateCertificates() {
+  if (
+    fs.existsSync(CA_CERT_PATH) &&
+    fs.existsSync(CA_KEY_PATH) &&
+    fs.existsSync(CERT_PATH) &&
+    fs.existsSync(KEY_PATH)
+  ) {
     return { cert: fs.readFileSync(CERT_PATH, "utf8"), key: fs.readFileSync(KEY_PATH, "utf8") };
   }
   let selfsigned;
@@ -184,13 +287,26 @@ async function loadOrCreateCertificate() {
   } catch {
     return null;
   }
-  const ips = localIPv4Addresses();
-  const pems = await selfsigned.generate([{ name: "commonName", value: "print-bridge.local" }], {
+
+  const ca = await selfsigned.generate([{ name: "commonName", value: CA_NAME }], {
     keySize: 2048,
     days: 3650,
     algorithm: "sha256",
     extensions: [
-      { name: "basicConstraints", cA: true },
+      { name: "basicConstraints", cA: true, critical: true },
+      { name: "keyUsage", keyCertSign: true, cRLSign: true, critical: true },
+    ],
+  });
+  fs.writeFileSync(CA_CERT_PATH, ca.cert);
+  fs.writeFileSync(CA_KEY_PATH, ca.private);
+
+  const ips = localIPv4Addresses();
+  const server = await selfsigned.generate([{ name: "commonName", value: "print-bridge.local" }], {
+    keySize: 2048,
+    days: 3650,
+    algorithm: "sha256",
+    extensions: [
+      { name: "basicConstraints", cA: false },
       {
         name: "subjectAltName",
         altNames: [
@@ -200,10 +316,11 @@ async function loadOrCreateCertificate() {
         ],
       },
     ],
+    ca: { key: ca.private, cert: ca.cert },
   });
-  fs.writeFileSync(CERT_PATH, pems.cert);
-  fs.writeFileSync(KEY_PATH, pems.private);
-  return { cert: pems.cert, key: pems.private };
+  fs.writeFileSync(CERT_PATH, server.cert);
+  fs.writeFileSync(KEY_PATH, server.private);
+  return { cert: server.cert, key: server.private };
 }
 
 async function main() {
@@ -212,22 +329,29 @@ async function main() {
 
   const ips = localIPv4Addresses();
   const ipList = ips.length > 0 ? ips.join(", ") : "(couldn't detect a LAN IP — run ipconfig/ifconfig)";
+  const primaryIp = ips[0] ?? "<this computer's IP>";
 
   console.log(`Print bridge (HTTP) listening on http://0.0.0.0:${PORT}`);
   console.log(`This computer's LAN IP address(es): ${ipList}`);
 
-  const cert = await loadOrCreateCertificate();
+  const cert = await loadOrCreateCertificates();
   if (cert) {
     const httpsServer = https.createServer(cert, requestHandler);
     httpsServer.listen(HTTPS_PORT, () => {
       console.log(`Print bridge (HTTPS) listening on https://0.0.0.0:${HTTPS_PORT}`);
       console.log("");
-      console.log("If Wanderer's Rest loads as https:// in your browser (the normal case):");
-      console.log(`  1. On the iPad/tablet, open Safari and visit https://<this computer's IP>:${HTTPS_PORT}/health`);
-      console.log('     once, then tap "Show Details" -> "visit this website" on the warning.');
-      console.log(`  2. Set "Print bridge URL" in Settings to https://<this computer's IP>:${HTTPS_PORT}`);
+      console.log("If Wanderer's Rest loads as https:// in your browser (the normal case),");
+      console.log("do this once per device (works for Safari tabs AND Home Screen icons):");
+      console.log(`  1. On the iPad/tablet, open Safari and visit http://${primaryIp}:${PORT}/ca-profile`);
+      console.log('     — tap "Allow" to download the profile.');
+      console.log("  2. Open the Settings app -> General -> VPN & Device Management -> tap the");
+      console.log('     downloaded profile -> Install (enter your passcode).');
+      console.log("  3. Then Settings -> General -> About -> Certificate Trust Settings, and turn");
+      console.log(`     on full trust for "${CA_NAME}".`);
+      console.log(`  4. Set "Print bridge URL" in Settings to https://${primaryIp}:${HTTPS_PORT}`);
       console.log("");
-      console.log("If it loads as plain http://, just use the HTTP address/port above instead.");
+      console.log("If it loads as plain http://, just use the HTTP address/port above instead —");
+      console.log("none of the above is needed then.");
     });
   } else {
     console.log("");
