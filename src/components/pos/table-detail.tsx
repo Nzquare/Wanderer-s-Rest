@@ -12,7 +12,7 @@ import { LiveTimer, formatMinutesShort } from "./live-timer";
 import { OpenTableForm } from "./open-table-form";
 import { MemberLinkPanel } from "./member-link-panel";
 import { OrderPanel } from "./order-panel";
-import { printOnce } from "@/lib/print-once";
+import { printQrSlip } from "@/lib/thermal-print";
 import { OrderList } from "./order-list";
 import { GameLogPanel } from "./game-log-panel";
 import { SplitBillModal } from "./split-bill-modal";
@@ -313,9 +313,11 @@ export function TableDetail({
     { refetchInterval: 15_000 },
   );
   const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
+  const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   // Same fallback as receipt-view.tsx/checkout-client.tsx — matches what
   // this setting already defaults to (§Receipt settings wiring).
   const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
+  const [qrBridgeError, setQrBridgeError] = useState<string | null>(null);
   // For each PlayerRow's own pricing-type override picker (§Mixed
   // pricing per table).
   const { data: pricingTypes } = trpc.pricingTypes.list.useQuery();
@@ -414,9 +416,12 @@ export function TableDetail({
               size="md"
               variant="outline"
               onClick={() =>
-                printOnce(
+                printQrSlip(
+                  { cafeName, tableCode: table.code, url: `${origin}/t/${table.qrToken}` },
+                  checkoutSettings,
                   () => setShowQrPrint(true),
                   () => setShowQrPrint(false),
+                  setQrBridgeError,
                 )
               }
             >
@@ -426,6 +431,10 @@ export function TableDetail({
           <TableStatusBadge status={table.status} />
         </div>
       </div>
+
+      {qrBridgeError && (
+        <p className="text-sm text-status-danger">QR slip print failed: {qrBridgeError}</p>
+      )}
 
       {/* Printed slip — hidden on screen, shown only by @media print, and
           only while showQrPrint is on (see printOnce above) — this page

@@ -72,6 +72,30 @@ class EscposBuilder {
     return this;
   }
 
+  /** The standard Epson "2D barcode" QR command block (GS ( k ...),
+   * cloned by virtually every ESC/POS thermal printer — the printer
+   * itself renders the QR code from the raw URL text, so there's no
+   * image to rasterize or embed. moduleSize is the dot size in printer
+   * units (1-16; 4-8 is a typical readable range on receipt paper). */
+  qrCode(data: string, moduleSize = 6, errorCorrection: "L" | "M" | "Q" | "H" = "M"): this {
+    const ecLevel = { L: 48, M: 49, Q: 50, H: 51 }[errorCorrection];
+    const dataBytes = new TextEncoder().encode(data);
+
+    this.push(GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00); // select model 2
+    this.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize); // module size
+    this.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, ecLevel); // error correction level
+
+    // Store the data to print — a variable-length command, so its pL/pH
+    // length prefix (low byte, high byte) covers everything after pH:
+    // cn + fn + m + the data itself.
+    const storeLen = dataBytes.length + 3;
+    this.push(GS, 0x28, 0x6b, storeLen & 0xff, (storeLen >> 8) & 0xff, 0x31, 0x50, 0x30);
+    this.chunks.push(dataBytes);
+
+    this.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30); // print the stored QR code
+    return this;
+  }
+
   build(): Uint8Array {
     const total = this.chunks.reduce((n, c) => n + c.length, 0);
     const out = new Uint8Array(total);
@@ -141,6 +165,28 @@ function writeTicket(b: EscposBuilder, order: KitchenTicketOrder, station: strin
   if (order.notes) {
     b.hr(cols, "-").line(`Order note: ${order.notes}`);
   }
+}
+
+/** A table's customer-facing "scan to order" slip (§6) — same content as
+ * the browser print area in table-detail.tsx, printed via the bridge
+ * instead when configured. The printer renders the QR code itself from
+ * the URL text (see EscposBuilder.qrCode above), not an embedded image. */
+export function buildQrSlipEscpos(opts: {
+  cafeName: string;
+  tableCode: string;
+  url: string;
+}): Uint8Array {
+  const b = new EscposBuilder().init();
+  b.align("center")
+    .bold(true)
+    .line(opts.cafeName)
+    .bold(false)
+    .line(`Table ${opts.tableCode} - Scan to order`)
+    .feed(1)
+    .qrCode(opts.url)
+    .feed(3)
+    .cut();
+  return b.build();
 }
 
 export interface EscposReceiptSnapshot {

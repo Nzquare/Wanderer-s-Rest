@@ -1,6 +1,7 @@
 import { printOnce } from "./print-once";
 import {
   buildKitchenTicketEscpos,
+  buildQrSlipEscpos,
   buildReceiptEscpos,
   printViaBridge,
   type EscposReceiptSnapshot,
@@ -67,6 +68,23 @@ export function printReceipt(
       ...receiptOpts,
       printerWidthMm: settings?.printerWidthMm ?? 80,
     });
+    printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
+    return () => {};
+  }
+  return printOnce(show, hide);
+}
+
+/** Same idea as printKitchenTicket, for a table's "scan to order" QR slip. */
+export function printQrSlip(
+  slip: { cafeName: string; tableCode: string; url: string },
+  settings: CheckoutSettings | undefined,
+  show: () => void,
+  hide: () => void,
+  onBridgeError?: (message: string) => void,
+): () => void {
+  const target = bridgeTargetFrom(settings);
+  if (target) {
+    const bytes = buildQrSlipEscpos(slip);
     printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
     return () => {};
   }
