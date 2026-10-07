@@ -132,8 +132,13 @@ function columnsFor(printerWidthMm: number): number {
   return printerWidthMm === 58 ? 32 : 48;
 }
 
+/** Whole baht, no decimals — matches every on-screen bill/receipt figure
+ * in the app (all use .toFixed(0)), unlike this printer's own raw
+ * numbers (e.g. a rank discount computed as a straight percentage —
+ * ฿175 * 5% — comes out to 8.75, not a whole number) which would
+ * otherwise print with decimals the app itself never shows. */
 function money(amount: number): string {
-  return amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return Math.round(amount).toLocaleString();
 }
 
 /** Right-pads/truncates a label and right-aligns an amount within `width` columns. */
@@ -497,7 +502,16 @@ export async function buildReceiptEscpos(
   b.hr(cols, "-");
 
   if (snapshot.bill.subtotalTableFee > 0) {
-    b.line(row(snapshot.showAllDay ? "All day" : "Playtime", money(snapshot.bill.subtotalTableFee), cols));
+    const playtimeMinutes =
+      snapshot.tableFeeLines && snapshot.tableFeeLines.length > 0
+        ? Math.max(...snapshot.tableFeeLines.map((l) => l.billableMinutes))
+        : null;
+    const playtimeLabel = snapshot.showAllDay
+      ? "All day"
+      : playtimeMinutes != null
+        ? `Playtime (${formatMinutesShort(playtimeMinutes)})`
+        : "Playtime";
+    b.line(row(playtimeLabel, money(snapshot.bill.subtotalTableFee), cols));
     if (snapshot.isHourly && snapshot.tableFeeLines && snapshot.tableFeeLines.length > 1) {
       snapshot.tableFeeLines.forEach((l, i) => {
         const label = `  P${i + 1}${l.pricingTypeName ? ` (${l.pricingTypeName})` : ""}`;

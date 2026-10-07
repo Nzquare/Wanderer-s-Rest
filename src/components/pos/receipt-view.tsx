@@ -96,6 +96,20 @@ function ReceiptBody({
   isHourly: boolean;
   showAllDay: boolean;
 }) {
+  // The table's overall playtime, shown next to the summary line itself
+  // (not just in the per-player breakdown below, which only appears for
+  // more than one player) — the common case of a single player used to
+  // show a ฿ figure with no duration at all.
+  const playtimeMinutes =
+    snapshot.tableFeeLines && snapshot.tableFeeLines.length > 0
+      ? Math.max(...snapshot.tableFeeLines.map((l) => l.billableMinutes))
+      : null;
+  const playtimeLabel = showAllDay
+    ? "All day"
+    : playtimeMinutes != null
+      ? `Playtime (${formatMinutesShort(playtimeMinutes)})`
+      : "Playtime";
+
   return (
     <>
       <div className="text-center">
@@ -137,7 +151,7 @@ function ReceiptBody({
       </div>
       <div className="border-t border-dashed border-border pt-2 space-y-1">
         <div className="flex justify-between">
-          <span>{showAllDay ? "All day" : "Playtime"}</span>
+          <span>{playtimeLabel}</span>
           <span>฿{snapshot.bill.subtotalTableFee.toFixed(0)}</span>
         </div>
         {isHourly &&
