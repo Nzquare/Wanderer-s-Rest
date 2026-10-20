@@ -287,10 +287,13 @@ function writeTicket(b: EscposBuilder, order: KitchenTicketOrder, station: strin
     CUSTOMER_QR: "Customer order",
     CASHIER: "Cashier order",
   };
-  b.align("center")
-    .bold(true)
-    .line(`${station.toUpperCase()} ORDER`)
-    .bold(false)
+  b.align("center").bold(true);
+  if (order.cancelled) {
+    b.line(`*** CANCELLED - ${station.toUpperCase()} ***`);
+  } else {
+    b.line(`${station.toUpperCase()} ORDER`);
+  }
+  b.bold(false)
     .big(true)
     .line(`TABLE ${order.tableCode}`)
     .big(false)
@@ -304,6 +307,10 @@ function writeTicket(b: EscposBuilder, order: KitchenTicketOrder, station: strin
     for (const name of item.modifierNames) b.line(`  + ${name}`);
     for (const cs of item.comboSelections) b.line(`  ${cs.slotNameEn}: ${cs.nameEn}`);
     if (item.notes) b.line(`  Note: ${item.notes}`);
+  }
+
+  if (order.cancelled) {
+    b.hr(cols, "-").align("center").bold(true).line("DO NOT PREPARE - DISCARD").bold(false).align("left");
   }
 
   if (order.notes) {

@@ -772,6 +772,7 @@ export function TableDetail({
                 Orders
               </p>
               <OrderList
+                tableId={tableId}
                 tableCode={table.code}
                 orders={session.orders.map((o) => ({
                   id: o.id,

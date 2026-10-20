@@ -47,7 +47,7 @@ const SOURCE_LABEL: Record<Order["source"], string> = {
 
 /** Same order shape the kitchen ticket needs, built once per order here
  * rather than re-fetched — every field it needs is already on hand. */
-function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
+function toTicketOrder(order: Order, tableCode: string, cancelled = false): KitchenTicketOrder {
   return {
     id: order.id,
     tableCode,
@@ -55,6 +55,7 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
     staffName: order.staffName ?? null,
     createdAt: order.createdAt,
     notes: order.notes ?? null,
+    cancelled,
     items: order.items.map((item) => ({
       id: item.id,
       nameEn: item.nameSnapshotEn,
@@ -78,10 +79,48 @@ function toTicketOrder(order: Order, tableCode: string): KitchenTicketOrder {
  * status or how it was originally printed — any order here can be
  * reprinted any time, independent of the alert banner's one-shot flow.
  */
-export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: string }) {
+export function OrderList({
+  orders,
+  tableCode,
+  tableId,
+}: {
+  orders: Order[];
+  tableCode: string;
+  tableId: string;
+}) {
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
   const [printEntries, setPrintEntries] = useState<KitchenTicketEntry[] | null>(null);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
+  // Only one order's Cancel can be mid-confirm at a time — good enough
+  // for a list someone's looking straight at, same as every other
+  // confirm/cancel control in the app.
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
+
+  const utils = trpc.useUtils();
+  const cancelOrder = trpc.orders.cancel.useMutation({
+    onSuccess: (_data, variables) => {
+      setConfirmingCancelId(null);
+      const cancelled = orders.find((o) => o.id === variables.orderId);
+      if (cancelled) {
+        // Prints a "CANCELLED" notice ticket for the kitchen (§Cancel
+        // order) from the same order data already on hand here — the
+        // cancel mutation itself only flips the status, no need to
+        // round-trip the order's items back out of it.
+        const entries = splitTicketByStation(toTicketOrder(cancelled, tableCode, true));
+        printKitchenTicket(
+          entries,
+          checkoutSettings,
+          setPrintEntries,
+          () => setPrintEntries(null),
+          setBridgeError,
+        );
+      }
+      return Promise.all([
+        utils.sessions.getTableDetail.invalidate({ tableId }),
+        utils.sessions.listTables.invalidate(),
+      ]);
+    },
+  });
 
   if (orders.length === 0) {
     return (
@@ -97,6 +136,9 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
         <p className="text-sm text-status-danger">
           Kitchen ticket print failed: {bridgeError}
         </p>
+      )}
+      {cancelOrder.error && (
+        <p className="text-sm text-status-danger">{cancelOrder.error.message}</p>
       )}
       {orders.map((order) => (
         <Card key={order.id} className="space-y-1">
@@ -135,6 +177,31 @@ export function OrderList({ orders, tableCode }: { orders: Order[]; tableCode: s
               >
                 🖨️ Reprint
               </button>
+              {confirmingCancelId === order.id ? (
+                <span className="flex items-center gap-1.5 text-xs">
+                  <button
+                    disabled={cancelOrder.isPending}
+                    onClick={() => cancelOrder.mutate({ orderId: order.id })}
+                    className="font-medium text-status-danger underline"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => setConfirmingCancelId(null)}
+                    className="text-foreground-muted underline"
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => setConfirmingCancelId(order.id)}
+                  title="Cancel this order — prints a CANCELLED notice for the kitchen"
+                  className="rounded-lg border border-status-danger px-2 py-0.5 text-xs font-medium text-status-danger"
+                >
+                  Cancel order
+                </button>
+              )}
             </div>
           </div>
           {order.items.map((item) => (

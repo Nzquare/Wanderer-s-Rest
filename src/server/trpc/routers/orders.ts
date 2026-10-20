@@ -264,4 +264,39 @@ export const ordersRouter = router({
       });
       return { ok: true };
     }),
+
+  /**
+   * Cancels an order placed by mistake, or one the customer changed
+   * their mind on, after it's already gone to the kitchen (§Cancel
+   * order). Every orders fetch in the app (here, the table page, the
+   * live bill, checkout) already filters to status SUBMITTED, so
+   * cancelling one is enough on its own to drop it from the bill and
+   * the order list — the caller is responsible for printing the
+   * "CANCELLED" kitchen ticket itself (it already has the order's full
+   * item/modifier detail on hand from the same list this came from, no
+   * need to round-trip it back out of this mutation).
+   */
+  cancel: permissionProcedure(Permission.TAKE_ORDERS)
+    .input(z.object({ orderId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.prisma.order.findUnique({
+        where: { id: input.orderId },
+        include: { session: { select: { status: true } } },
+      });
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      if (order.status === "CANCELLED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This order is already cancelled." });
+      }
+      if (!OPEN_ORDER_STATUSES.includes(order.session.status as (typeof OPEN_ORDER_STATUSES)[number])) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Table is locked for checkout — use Back to Table first.",
+        });
+      }
+      await ctx.prisma.order.update({
+        where: { id: order.id },
+        data: { status: "CANCELLED" },
+      });
+      return { ok: true };
+    }),
 });

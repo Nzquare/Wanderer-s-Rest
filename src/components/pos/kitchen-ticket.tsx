@@ -13,6 +13,12 @@ export interface KitchenTicketOrder {
   staffName: string | null;
   createdAt: string | Date;
   notes: string | null;
+  /** True for the notice printed when an order is cancelled after
+   * already going to the kitchen (§Cancel order) — same ticket layout,
+   * but with a bold "CANCELLED" banner up top instead of the usual
+   * "<Station> Order" line, so it reads unmistakably as "stop/discard
+   * this", not a second copy of the same order. */
+  cancelled?: boolean;
   items: {
     id: string;
     nameEn: string;
@@ -82,7 +88,13 @@ function TicketContent({ order, station }: { order: KitchenTicketOrder; station:
           number or any item line. */}
       <div style={{ height: "18mm" }} aria-hidden />
       <div className="space-y-0.5 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em]">{station} Order</p>
+        {order.cancelled ? (
+          <p className="text-xl font-bold uppercase tracking-[0.2em] text-status-danger">
+            *** Cancelled — {station} ***
+          </p>
+        ) : (
+          <p className="text-xs font-semibold uppercase tracking-[0.2em]">{station} Order</p>
+        )}
         <p className="text-3xl font-bold">Table {order.tableCode}</p>
         <p className="text-xs">
           {SOURCE_LABEL[order.source] ?? order.source}
@@ -110,6 +122,11 @@ function TicketContent({ order, station }: { order: KitchenTicketOrder; station:
           </div>
         ))}
       </div>
+      {order.cancelled && (
+        <div className="border-t border-dashed border-black pt-2 text-center text-sm font-bold uppercase text-status-danger">
+          Do not prepare — discard
+        </div>
+      )}
       {order.notes && (
         <div className="border-t border-dashed border-black pt-2 text-sm italic">
           Order note: {order.notes}
