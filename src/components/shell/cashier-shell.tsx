@@ -6,6 +6,7 @@ import { canAccessBackOffice } from "@/server/rbac/can";
 import { pickLogo } from "@/lib/pick-logo";
 import { OrderAlertBanner } from "@/components/pos/order-alert-banner";
 import { StaleShiftBanner } from "@/components/pos/stale-shift-banner";
+import { NavLink } from "./nav-link";
 
 const NAV_ITEMS = [
   // Shift leads the nav (§Shift-first nav) — opening a table requires an
@@ -46,13 +47,17 @@ export function CashierShell({
           </span>
           <nav className="hidden gap-1 sm:flex">
             {NAV_ITEMS.map((item) => (
-              <Link
+              <NavLink
                 key={item.href}
                 href={item.href}
-                className="rounded-lg px-3 py-2 text-sm text-white/80 hover:bg-white/10 hover:text-white"
+                exact={item.href === "/cashier"}
+                activeMatchPrefix={item.href === "/cashier" ? "/cashier/tables" : undefined}
+                className="rounded-lg px-3 py-2 text-sm"
+                activeClassName="bg-teal-500/15 text-teal-300 font-medium"
+                inactiveClassName="text-white/80 hover:bg-white/10 hover:text-white"
               >
                 {item.label}
-              </Link>
+              </NavLink>
             ))}
           </nav>
         </div>
@@ -74,13 +79,17 @@ export function CashierShell({
       </header>
       <nav className="flex gap-1 border-b border-border bg-surface px-2 py-2 sm:hidden">
         {NAV_ITEMS.map((item) => (
-          <Link
+          <NavLink
             key={item.href}
             href={item.href}
-            className="flex-1 rounded-lg px-2 py-2 text-center text-sm font-medium text-foreground-muted hover:bg-black/5"
+            exact={item.href === "/cashier"}
+            activeMatchPrefix={item.href === "/cashier" ? "/cashier/tables" : undefined}
+            className="flex-1 rounded-lg px-2 py-2 text-center text-sm font-medium"
+            activeClassName="bg-teal-500/10 text-teal-700 dark:text-teal-300"
+            inactiveClassName="text-foreground-muted hover:bg-black/5"
           >
             {item.label}
-          </Link>
+          </NavLink>
         ))}
       </nav>
       <StaleShiftBanner />

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { NavLink } from "./nav-link";
 
 /**
  * The mobile header's "Menu" used to just be a plain `<Link href="/">` —
@@ -59,14 +60,17 @@ export function BackOfficeMobileNav({
             </div>
             <div className="flex-1 space-y-0.5">
               {items.map((item) => (
-                <Link
+                <NavLink
                   key={item.href}
                   href={item.href}
+                  exact={item.href === "/back-office"}
                   onClick={close}
-                  className="block rounded-lg px-3 py-2.5 text-sm text-white/75 hover:bg-white/10 hover:text-white"
+                  className="block rounded-lg px-3 py-2.5 text-sm"
+                  activeClassName="bg-teal-500/15 text-teal-300 font-medium"
+                  inactiveClassName="text-white/75 hover:bg-white/10 hover:text-white"
                 >
                   {item.label}
-                </Link>
+                </NavLink>
               ))}
             </div>
             {(showCashier || showStaffMobile) && (

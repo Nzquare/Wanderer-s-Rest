@@ -6,6 +6,7 @@ import { canAccessCashier, canAccessStaffMobile, can } from "@/server/rbac/can";
 import { Permission } from "@/generated/prisma/enums";
 import { pickLogo } from "@/lib/pick-logo";
 import { BackOfficeMobileNav } from "./back-office-mobile-nav";
+import { NavLink } from "./nav-link";
 
 // Each page's own data query is gated behind one of these (see the
 // matching router's `manage()`/permissionProcedure call) — canAccessBackOffice
@@ -94,13 +95,16 @@ export function BackOfficeShell({
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
           {visibleNavItems.map((item) => (
-            <Link
+            <NavLink
               key={item.href}
               href={item.href}
-              className="block rounded-lg px-3 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+              exact={item.href === "/back-office"}
+              className="block rounded-lg px-3 py-2.5 text-sm transition-colors"
+              activeClassName="bg-teal-500/15 text-teal-300 font-medium"
+              inactiveClassName="text-white/75 hover:bg-white/10 hover:text-white"
             >
               {item.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
         <div className="border-t border-white/10 px-3 py-4">

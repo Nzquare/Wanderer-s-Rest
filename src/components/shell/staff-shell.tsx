@@ -4,6 +4,7 @@ import type { CurrentStaff } from "@/server/auth/current-user";
 import type { CafeSettings } from "@/server/settings/schema";
 import { canAccessBackOffice, canAccessCashier } from "@/server/rbac/can";
 import { pickLogo } from "@/lib/pick-logo";
+import { NavLink } from "./nav-link";
 
 const NAV_ITEMS = [
   { href: "/staff", label: "Tables" },
@@ -52,13 +53,17 @@ export function StaffShell({
       </header>
       <nav className="flex gap-1 border-b border-border bg-surface px-2 py-2">
         {NAV_ITEMS.map((item) => (
-          <Link
+          <NavLink
             key={item.href}
             href={item.href}
-            className="flex-1 rounded-lg px-2 py-2 text-center text-sm font-medium text-foreground-muted hover:bg-black/5"
+            exact={item.href === "/staff"}
+            activeMatchPrefix={item.href === "/staff" ? "/staff/tables" : undefined}
+            className="flex-1 rounded-lg px-2 py-2 text-center text-sm font-medium"
+            activeClassName="bg-teal-500/10 text-teal-700 dark:text-teal-300"
+            inactiveClassName="text-foreground-muted hover:bg-black/5"
           >
             {item.label}
-          </Link>
+          </NavLink>
         ))}
       </nav>
       <main className="flex-1 p-3">{children}</main>
