@@ -303,7 +303,12 @@ function writeTicket(b: EscposBuilder, order: KitchenTicketOrder, station: strin
     .hr(cols, "=");
 
   for (const item of order.items) {
-    b.bold(true).line(`${item.quantity}x ${item.nameEn}`).bold(false);
+    // Big bold item lines (§Kitchen order printing) — kitchen staff read
+    // this fast, from a distance, same reasoning as the on-screen
+    // ticket's own text-lg item lines. Modifiers/combo picks/notes stay
+    // normal size, indented, so they're legible but don't compete with
+    // the item name for attention.
+    b.bold(true).big(true).line(`${item.quantity}x ${item.nameEn}`).big(false).bold(false);
     for (const name of item.modifierNames) b.line(`  + ${name}`);
     for (const cs of item.comboSelections) b.line(`  ${cs.slotNameEn}: ${cs.nameEn}`);
     if (item.notes) b.line(`  Note: ${item.notes}`);
