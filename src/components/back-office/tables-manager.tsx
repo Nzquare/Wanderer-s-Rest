@@ -16,6 +16,13 @@ import { QrCodeImage } from "./qr-code-image";
  * receipt-width @page CSS (src/app/globals.css), open a standalone print
  * window with its own document — no app stylesheet, no @page override, so
  * it just uses the browser/printer's normal page size.
+ *
+ * Used to call window.print() immediately on open — but that jumps
+ * straight into the native print/share sheet with no chance to just
+ * save the image instead (§just want the pic), especially on iOS where
+ * there's no "cancel and look at the page first" moment. Now it just
+ * shows the image with its own Print/Save buttons, so printing is still
+ * one tap away but isn't forced.
  */
 async function printBigTableQr(table: { code: string; qrToken: string }, origin: string) {
   const url = `${origin}/t/${table.qrToken}`;
@@ -33,6 +40,21 @@ async function printBigTableQr(table: { code: string; qrToken: string }, origin:
   p.sub { color: #555; margin: 0 0 24px; font-size: 18px; }
   img { width: 400px; height: 400px; }
   p.url { color: #888; margin-top: 16px; font-size: 12px; word-break: break-all; }
+  p.hint { color: #888; margin-top: 8px; font-size: 13px; }
+  .actions { margin-top: 20px; }
+  .actions button, .actions a {
+    display: inline-block;
+    margin: 0 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    border-radius: 8px;
+    border: 1px solid #0d9488;
+    color: #0d9488;
+    background: #fff;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  @media print { .actions, p.hint { display: none; } }
 </style>
 </head>
 <body>
@@ -40,11 +62,15 @@ async function printBigTableQr(table: { code: string; qrToken: string }, origin:
   <p class="sub">Table ${table.code} — Scan to order</p>
   <img src="${dataUrl}" alt="Table QR code" />
   <p class="url">${url}</p>
+  <p class="hint">Press and hold the image above to save it as a picture, or use the buttons below.</p>
+  <div class="actions">
+    <a href="${dataUrl}" download="table-${table.code}-qr.png">Save as image</a>
+    <button onclick="window.print()">Print</button>
+  </div>
 </body>
 </html>`);
   win.document.close();
   win.focus();
-  win.print();
 }
 
 function CreateTableForm() {
