@@ -45,7 +45,6 @@ function PlayerRow({
   tableId,
   locked,
   notStarted,
-  tableDefaultPricingTypeName,
   pricingTypes,
 }: {
   player: {
@@ -66,11 +65,6 @@ function PlayerRow({
    * rejects it anyway) in favor of the one table-level Start Playing
    * action, which resumes everyone together. */
   notStarted: boolean;
-  /** What "Default" resolves to for this table right now — shown in the
-   * per-player pricing-type picker's own label (§Mixed pricing per
-   * table) so it's clear what "not overridden" actually means, rather
-   * than a bare "Default" with nothing to compare against. */
-  tableDefaultPricingTypeName: string | null;
   pricingTypes: { id: string; name: string }[];
 }) {
   const utils = trpc.useUtils();
@@ -208,12 +202,10 @@ function PlayerRow({
             </div>
           )}
           {/* Per-player pricing-type override (§Mixed pricing per table)
-              — e.g. one table split between Student and Regular. Left
-              at "" (inherit the table's own type) unless staff picks one
-              for this specific customer. Before the table has started
-              playing there's no table-wide type yet to inherit, so
-              "Default" would mean nothing — hidden until notStarted
-              clears (§Default meaningless pre-start). */}
+              — e.g. one table split between Student and Regular. Always
+              shows one of the real pricing types, never a "Default" that
+              inherits the table's own type (§Default removed everywhere)
+              — staff picks explicitly for every player instead. */}
           {!locked && (
             <select
               value={player.pricingTypeId ?? ""}
@@ -226,11 +218,6 @@ function PlayerRow({
               }
               className="mt-1 h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground-muted"
             >
-              {!notStarted && (
-                <option value="">
-                  Default{tableDefaultPricingTypeName ? ` (${tableDefaultPricingTypeName})` : ""}
-                </option>
-              )}
               {pricingTypes.map((pt) => (
                 <option key={pt.id} value={pt.id}>
                   {pt.name}
@@ -803,7 +790,6 @@ export function TableDetail({
                     tableId={tableId}
                     locked={locked}
                     notStarted={notStarted}
-                    tableDefaultPricingTypeName={session.pricingType?.name ?? null}
                     pricingTypes={pricingTypes ?? []}
                     player={{
                       id: p.id,
