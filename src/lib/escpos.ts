@@ -396,6 +396,11 @@ export interface EscposInvoiceSnapshot {
   }[];
   appliedDiscounts: { label: string; amount: number; isFreeItem?: boolean; isExpBonus?: boolean }[];
   bill: { subtotalTableFee: number; serviceChargeAmount: number; taxAmount: number; total: number };
+  /** Appends a scan-to-pay PromptPay QR to this same slip (§Combine
+   * invoice + PromptPay QR into one bill) instead of a separate printout
+   * — one physical slip a guest can both review and pay from. Omitted
+   * when no PromptPay ID is configured (see checkout-client.tsx). */
+  promptPay?: { qrValue: string; qrAmount: number } | null;
 }
 
 /** The pre-payment "Print Invoice" slip at checkout (not a receipt — the
@@ -451,10 +456,19 @@ export function buildInvoiceEscpos(
     .bold(true)
     .line(row("TOTAL", money(snapshot.bill.total), cols))
     .bold(false)
-    .align("center")
-    .line("This is not a receipt - pay at the counter.")
-    .feed(3)
-    .cut();
+    .align("center");
+
+  if (snapshot.promptPay) {
+    b.feed(1)
+      .qrCode(snapshot.promptPay.qrValue)
+      .feed(1)
+      .bold(true)
+      .line(`Scan to pay THB ${snapshot.promptPay.qrAmount.toFixed(2)}`)
+      .bold(false)
+      .line("PromptPay - show staff once paid");
+  }
+
+  b.line("This is not a receipt - pay at the counter.").feed(3).cut();
 
   return b.build();
 }

@@ -256,6 +256,12 @@ export function CheckoutClient({
           itemsByCategory: previewData.itemsByCategory,
           appliedDiscounts: previewData.appliedDiscounts,
           bill: previewData.bill,
+          promptPay: checkoutSettings?.promptpayId
+            ? {
+                qrValue: buildPromptPayPayload(checkoutSettings.promptpayId, previewData.bill.total),
+                qrAmount: previewData.bill.total,
+              }
+            : null,
         },
         { cafeName },
         checkoutSettings,
@@ -514,6 +520,21 @@ export function CheckoutClient({
             <span>Total</span>
             <span>฿{preview.bill.total.toFixed(0)}</span>
           </div>
+          {/* Same PromptPay QR as the thermal-bridge invoice (§Combine
+              invoice + PromptPay QR into one bill) — one slip to both
+              review and pay from, printed or not. */}
+          {checkoutSettings?.promptpayId && (
+            <div className="flex flex-col items-center gap-1 border-t border-dashed border-border pt-2">
+              <QrCodeImage
+                value={buildPromptPayPayload(checkoutSettings.promptpayId, preview.bill.total)}
+                size={160}
+              />
+              <p className="text-center text-xs font-semibold">
+                Scan to pay ฿{preview.bill.total.toFixed(2)}
+              </p>
+              <p className="text-center text-xs">PromptPay — show staff once paid</p>
+            </div>
+          )}
           <p className="pt-2 text-center text-xs">This is not a receipt — pay at the counter.</p>
         </div>
       </div>
