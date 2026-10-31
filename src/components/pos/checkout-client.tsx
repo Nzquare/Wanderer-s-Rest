@@ -13,7 +13,7 @@ import { MemberLinkPanel } from "./member-link-panel";
 import { PromotionPicker } from "./promotion-picker";
 import { QrCodeImage } from "@/components/back-office/qr-code-image";
 import { buildPromptPayPayload } from "@/lib/promptpay";
-import { openCashDrawer, printInvoice, printPromptPayQr } from "@/lib/thermal-print";
+import { openCashDrawer, printInvoice } from "@/lib/thermal-print";
 import { formatMinutesShort } from "./live-timer";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -124,21 +124,25 @@ export function CheckoutClient({
   const defaultMethodId = paymentMethods?.[0]?.id ?? "";
   const effectiveMethodId = (p: PaymentRow) => p.methodId || defaultMethodId;
   const [result, setResult] = useState<CheckoutResult | null>(null);
-  // Which hidden print area is "armed" for the next window.print() —
-  // invoice and the PromptPay QR slip can both be in the DOM at once on
-  // this page, so only one may carry the print:block class at a time (see
-  // printAs below). Starts at null, not defaulted to "invoice" — this
-  // used to default straight to "invoice" armed, which meant the invoice
-  // area already carried print-area/print:block the instant the page
-  // loaded, before the cashier ever clicked a print button (§sometimes
-  // wrong thing printed) — any print triggered on this page for any
-  // other reason (notably the Cashier shell's OrderAlertBanner
-  // auto-printing an unrelated kitchen ticket) would print the invoice
-  // right along with it. Routed through the shared printOnce queue for
-  // the same reason — this page keeps that banner mounted too, so
-  // without the shared queue an auto-print could still land mid-print
-  // and swap which area actually goes to the printer.
-  const [printMode, setPrintMode] = useState<"invoice" | "promptpay" | null>(null);
+  // Whether the invoice print area is "armed" for the next window.print()
+  // (see printAs below). Both "Print Invoice" and "Print QR for customer"
+  // share this one area now (§Same bill format for both print triggers).
+  // Starts at null, not true — this used to default straight to armed,
+  // which meant the invoice area already carried print-area/print:block
+  // the instant the page loaded, before the cashier ever clicked a print
+  // button (§sometimes wrong thing printed) — any print triggered on this
+  // page for any other reason (notably the Cashier shell's
+  // OrderAlertBanner auto-printing an unrelated kitchen ticket) would
+  // print the invoice right along with it. Routed through the shared
+  // printOnce queue for the same reason — this page keeps that banner
+  // mounted too, so without the shared queue an auto-print could still
+  // land mid-print and swap which area actually goes to the printer.
+  const [printMode, setPrintMode] = useState<"invoice" | null>(null);
+  // Which amount the invoice's embedded PromptPay QR is for — the full
+  // bill.total for the plain "Print Invoice" button, or one payment row's
+  // own (possibly split) amount for "Print QR for customer", set right
+  // before that print fires (see printInvoiceNow).
+  const [invoiceQrAmount, setInvoiceQrAmount] = useState<number | null>(null);
   // Every printAs call's own cancel handle (see print-once.ts) — held onto
   // so recordPayment's onSuccess below can release them the instant
   // payment is confirmed. This page's invoice/QR print areas are about to
@@ -212,9 +216,9 @@ export function CheckoutClient({
   if (isLoading || !preview) {
     return <p className="text-sm text-foreground-muted">Loading bill…</p>;
   }
-  // TS narrowing doesn't carry into a nested function body (printInvoiceNow/
-  // printPromptPayNow below close over this), but a const's own inferred
-  // type does — so this rebind, not `preview` directly, is what those use.
+  // TS narrowing doesn't carry into a nested function body (printInvoiceNow
+  // below closes over this), but a const's own inferred type does — so
+  // this rebind, not `preview` directly, is what that uses.
   const previewData = preview;
 
   if (result) {
@@ -245,7 +249,14 @@ export function CheckoutClient({
   const isHourly = preview.pricingModel === "HOURLY";
   const showAllDay = !isHourly || allLinesCapped;
 
-  function printInvoiceNow() {
+  // Also doubles as "Print QR for customer" (§Same bill format for both
+  // print triggers) — passing a specific payment row's amount instead of
+  // the full bill.total is the only difference, so both buttons print the
+  // exact same itemized-bill-plus-QR slip rather than two different
+  // formats (one itemized, one a bare QR).
+  function printInvoiceNow(qrAmountOverride?: number) {
+    const qrAmount = qrAmountOverride ?? previewData.bill.total;
+    setInvoiceQrAmount(qrAmount);
     pendingPrintCancels.current.push(
       printInvoice(
         {
@@ -258,25 +269,14 @@ export function CheckoutClient({
           bill: previewData.bill,
           promptPay: checkoutSettings?.promptpayId
             ? {
-                qrValue: buildPromptPayPayload(checkoutSettings.promptpayId, previewData.bill.total),
-                qrAmount: previewData.bill.total,
+                qrValue: buildPromptPayPayload(checkoutSettings.promptpayId, qrAmount),
+                qrAmount,
               }
             : null,
         },
         { cafeName },
         checkoutSettings,
         () => setPrintMode("invoice"),
-        () => {},
-        setPrintBridgeError,
-      ),
-    );
-  }
-  function printPromptPayNow(qrValue: string, qrAmount: number) {
-    pendingPrintCancels.current.push(
-      printPromptPayQr(
-        { cafeName, tableCode: previewData.table.code, qrAmount, qrValue },
-        checkoutSettings,
-        () => setPrintMode("promptpay"),
         () => {},
         setPrintBridgeError,
       ),
@@ -344,7 +344,7 @@ export function CheckoutClient({
       <Card className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-foreground-muted">Bill</p>
-          <Button size="md" variant="outline" onClick={printInvoiceNow}>
+          <Button size="md" variant="outline" onClick={() => printInvoiceNow()}>
             Print Invoice
           </Button>
         </div>
@@ -520,17 +520,22 @@ export function CheckoutClient({
             <span>Total</span>
             <span>฿{preview.bill.total.toFixed(0)}</span>
           </div>
-          {/* Same PromptPay QR as the thermal-bridge invoice (§Combine
-              invoice + PromptPay QR into one bill) — one slip to both
-              review and pay from, printed or not. */}
+          {/* Same PromptPay QR whichever button triggered this print —
+              "Print Invoice" for the full bill, "Print QR for customer"
+              for one payment row's own amount (§Same bill format for both
+              print triggers) — one slip to both review and pay from,
+              printed or not. */}
           {checkoutSettings?.promptpayId && (
             <div className="flex flex-col items-center gap-1 border-t border-dashed border-border pt-2">
               <QrCodeImage
-                value={buildPromptPayPayload(checkoutSettings.promptpayId, preview.bill.total)}
+                value={buildPromptPayPayload(
+                  checkoutSettings.promptpayId,
+                  invoiceQrAmount ?? preview.bill.total,
+                )}
                 size={160}
               />
               <p className="text-center text-xs font-semibold">
-                Scan to pay ฿{preview.bill.total.toFixed(2)}
+                Scan to pay ฿{(invoiceQrAmount ?? preview.bill.total).toFixed(2)}
               </p>
               <p className="text-center text-xs">PromptPay — show staff once paid</p>
             </div>
@@ -781,36 +786,19 @@ export function CheckoutClient({
           }
           if (qrAmount <= 0) return null;
           const qrValue = buildPromptPayPayload(checkoutSettings.promptpayId, qrAmount);
-          const printerWidthMm = checkoutSettings.printerWidthMm ?? 80;
           return (
             <div className="flex flex-col items-center gap-3 rounded-xl bg-background p-4">
               <QrCodeImage value={qrValue} size={180} />
               <p className="text-sm text-foreground-muted">
                 Scan to pay ฿{qrAmount.toFixed(2)} — confirm once the transfer lands in your banking app.
               </p>
-              <Button variant="outline" size="md" onClick={() => printPromptPayNow(qrValue, qrAmount)}>
+              {/* Same itemized-bill-plus-QR slip as "Print Invoice" above
+                  (§Same bill format for both print triggers), just for this
+                  row's own amount instead of the full bill.total — reuses
+                  the same invoice print area, not a separate bare-QR slip. */}
+              <Button variant="outline" size="md" onClick={() => printInvoiceNow(qrAmount)}>
                 Print QR for customer
               </Button>
-
-              {/* Printed slip — hidden on screen, shown only by @media print
-                  (see globals.css #promptpay-print-area). Kept separate from
-                  the on-screen QR above so the printout can carry its own
-                  compact layout without affecting what staff see live. */}
-              <div
-                id="promptpay-print-area"
-                style={{ "--receipt-print-width": `${printerWidthMm}mm` } as CSSProperties}
-                className={printMode === "promptpay" ? "print-area hidden print:block" : "hidden"}
-              >
-                <div className="mx-auto max-w-xs space-y-2 p-4 text-center font-mono text-sm">
-                  <p className="font-semibold">{cafeName}</p>
-                  <p className="text-xs">Table {preview.table.code}</p>
-                  <div className="flex justify-center py-2">
-                    <QrCodeImage value={qrValue} size={220} />
-                  </div>
-                  <p className="font-semibold">Scan to pay ฿{qrAmount.toFixed(2)}</p>
-                  <p className="text-xs">PromptPay — show staff once paid</p>
-                </div>
-              </div>
             </div>
           );
         })()}

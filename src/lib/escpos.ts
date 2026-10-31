@@ -345,36 +345,6 @@ export function buildQrSlipEscpos(opts: {
   return b.build();
 }
 
-/** The customer-facing PromptPay "scan to pay" slip at checkout — same
- * content as the browser print area in checkout-client.tsx. `qrValue`
- * is the EMVCo-format PromptPay payload string (built by
- * buildPromptPayPayload), not a URL — the printer's QR command encodes
- * whatever text data it's given, so this is no different from the table
- * QR slip above. */
-export function buildPromptPayQrEscpos(opts: {
-  cafeName: string;
-  tableCode: string;
-  qrAmount: number;
-  qrValue: string;
-}): Uint8Array {
-  const b = new EscposBuilder().init();
-  b.align("center")
-    .bold(true)
-    .line(opts.cafeName)
-    .bold(false)
-    .line(`Table ${opts.tableCode}`)
-    .feed(1)
-    .qrCode(opts.qrValue)
-    .feed(1)
-    .bold(true)
-    .line(`Scan to pay THB ${opts.qrAmount.toFixed(2)}`)
-    .bold(false)
-    .line("PromptPay - show staff once paid")
-    .feed(3)
-    .cut();
-  return b.build();
-}
-
 export interface EscposInvoiceSnapshot {
   table: { code: string };
   /** Caller computes these the same way the on-screen bill does

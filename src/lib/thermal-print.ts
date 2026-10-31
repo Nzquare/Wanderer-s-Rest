@@ -3,7 +3,6 @@ import {
   buildInvoiceEscpos,
   buildKitchenTicketEscpos,
   buildOpenDrawerEscpos,
-  buildPromptPayQrEscpos,
   buildQrSlipEscpos,
   buildReceiptEscpos,
   printViaBridge,
@@ -110,24 +109,6 @@ export function printInvoice(
       ...invoiceOpts,
       printerWidthMm: settings?.printerWidthMm ?? 80,
     });
-    printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
-    return () => {};
-  }
-  return printOnce(show, hide);
-}
-
-/** Same idea as printKitchenTicket, for the customer-facing PromptPay
- * "scan to pay" slip. */
-export function printPromptPayQr(
-  slip: { cafeName: string; tableCode: string; qrAmount: number; qrValue: string },
-  settings: CheckoutSettings | undefined,
-  show: () => void,
-  hide: () => void,
-  onBridgeError?: (message: string) => void,
-): () => void {
-  const target = bridgeTargetFrom(settings);
-  if (target) {
-    const bytes = buildPromptPayQrEscpos(slip);
     printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
     return () => {};
   }
