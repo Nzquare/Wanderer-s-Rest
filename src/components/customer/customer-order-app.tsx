@@ -296,12 +296,17 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
                 })}
               </p>
               {order.items.map((item) => (
-                <p key={item.id} className="text-sm text-white/90">
-                  {item.quantity} × {item.nameEn}
-                  {item.modifiers.length > 0 && (
-                    <span className="text-white/60"> ({item.modifiers.join(", ")})</span>
-                  )}
-                </p>
+                <div key={item.id} className="flex items-start justify-between gap-2 text-sm text-white/90">
+                  <p>
+                    {item.quantity} × {item.nameEn}
+                    {item.modifiers.length > 0 && (
+                      <span className="text-white/60"> ({item.modifiers.join(", ")})</span>
+                    )}
+                  </p>
+                  <p className="shrink-0 text-white/90">
+                    ฿{(item.unitPrice * item.quantity).toFixed(0)}
+                  </p>
+                </div>
               ))}
             </div>
           ))}
