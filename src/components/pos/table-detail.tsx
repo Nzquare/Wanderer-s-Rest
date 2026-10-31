@@ -92,11 +92,19 @@ function PlayerRow({
       setEditingStart(false);
     },
   });
+  const updateLabel = trpc.sessions.updatePlayerLabel.useMutation({
+    onSuccess: () => {
+      invalidate();
+      setEditingLabel(false);
+    },
+  });
   const pending = pause.isPending || resume.isPending || restart.isPending;
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editingStart, setEditingStart] = useState(false);
   const [startDraft, setStartDraft] = useState(() => toTimeValue(player.startTime));
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(() => player.label ?? "");
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3">
@@ -110,9 +118,50 @@ function PlayerRow({
           )}
         />
         <div>
-          <p className="text-sm font-medium text-foreground">
-            {player.label ?? "Player"}
-          </p>
+          {!editingLabel ? (
+            <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              {player.label ?? "Player"}
+              {!locked && (
+                <button
+                  onClick={() => {
+                    setLabelDraft(player.label ?? "");
+                    setEditingLabel(true);
+                  }}
+                  className="text-xs font-normal text-foreground-muted underline"
+                >
+                  Edit
+                </button>
+              )}
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <input
+                type="text"
+                value={labelDraft}
+                onChange={(e) => setLabelDraft(e.target.value)}
+                maxLength={60}
+                className="h-7 w-32 rounded-md border border-border bg-background px-1.5 text-sm"
+              />
+              <button
+                disabled={updateLabel.isPending || !labelDraft.trim()}
+                onClick={() =>
+                  updateLabel.mutate({ sessionPlayerId: player.id, label: labelDraft.trim() })
+                }
+                className="text-xs font-medium text-teal-600 underline"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingLabel(false)}
+                className="text-xs text-foreground-muted underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {updateLabel.error && (
+            <p className="text-xs text-status-danger">{updateLabel.error.message}</p>
+          )}
           <p className="text-lg font-semibold tabular-nums text-foreground">
             <LiveTimer timer={player} />
           </p>

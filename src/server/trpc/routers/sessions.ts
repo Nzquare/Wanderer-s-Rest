@@ -467,6 +467,33 @@ export const sessionsRouter = router({
       return { ok: true };
     }),
 
+  /** Renames a player after the fact — e.g. fixing the generic "Player 2"
+   * placeholder to an actual customer name, or correcting a typo. Same
+   * open/paused-only guard as every other per-player timer edit. */
+  updatePlayerLabel: permissionProcedure(Permission.MANAGE_TIMERS)
+    .input(z.object({ sessionPlayerId: z.string(), label: z.string().trim().max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      const player = await ctx.prisma.sessionPlayer.findUnique({
+        where: { id: input.sessionPlayerId },
+        include: { session: { select: { status: true } } },
+      });
+      if (!player) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["OPEN", "PAUSED"].includes(player.session.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Table is locked for checkout — use Back to Table first.",
+        });
+      }
+      if (!input.label) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Name can't be empty." });
+      }
+      await ctx.prisma.sessionPlayer.update({
+        where: { id: player.id },
+        data: { label: input.label },
+      });
+      return { ok: true };
+    }),
+
   /** Removes a player added by mistake (§delete wrong player count) —
    * a hard delete, not a status change, since there's nothing left to
    * bill or show once it was never a real player at this table. Blocked
