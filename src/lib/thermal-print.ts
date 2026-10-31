@@ -72,12 +72,24 @@ export function printReceipt(
 ): () => void {
   const target = bridgeTargetFrom(settings);
   if (target) {
-    buildReceiptEscpos(snapshot, {
-      ...receiptOpts,
-      printerWidthMm: settings?.printerWidthMm ?? 80,
-    })
-      .then((bytes) => printViaBridge(bytes, target))
-      .catch((err: Error) => onBridgeError?.(err.message));
+    const opts = { ...receiptOpts, printerWidthMm: settings?.printerWidthMm ?? 80 };
+    // One copy for the customer to take, one for the café's own records
+    // (§auto-print two receipt copies) — raw ESC/POS printers have no
+    // printer-side "copies" command, so this is two full print jobs back
+    // to back rather than one job printed twice.
+    (async () => {
+      try {
+        const customerCopy = await buildReceiptEscpos(snapshot, {
+          ...opts,
+          copyLabel: "CUSTOMER COPY",
+        });
+        await printViaBridge(customerCopy, target);
+        const cafeCopy = await buildReceiptEscpos(snapshot, { ...opts, copyLabel: "CAFE COPY" });
+        await printViaBridge(cafeCopy, target);
+      } catch (err) {
+        onBridgeError?.((err as Error).message);
+      }
+    })();
     return () => {};
   }
   return printOnce(show, hide);

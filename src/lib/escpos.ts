@@ -507,7 +507,15 @@ export interface EscposReceiptSnapshot {
 
 export async function buildReceiptEscpos(
   snapshot: EscposReceiptSnapshot,
-  opts: { cafeName: string; receiptFooter: string; printerWidthMm: number; logoUrl?: string | null },
+  opts: {
+    cafeName: string;
+    receiptFooter: string;
+    printerWidthMm: number;
+    logoUrl?: string | null;
+    /** "CUSTOMER COPY" / "CAFE COPY" banner (§auto-print two receipt
+     * copies) — omitted entirely for a single, unlabeled print. */
+    copyLabel?: string;
+  },
 ): Promise<Uint8Array> {
   const cols = columnsFor(opts.printerWidthMm);
   const b = new EscposBuilder().init();
@@ -525,9 +533,11 @@ export async function buildReceiptEscpos(
     .line(opts.cafeName)
     .bold(false)
     .line(`Receipt #${snapshot.receiptNumber}`)
-    .line(new Date(snapshot.closedAt).toLocaleString())
-    .align("left")
-    .hr(cols, "=");
+    .line(new Date(snapshot.closedAt).toLocaleString());
+  if (opts.copyLabel) {
+    b.bold(true).line(`*** ${opts.copyLabel} ***`).bold(false);
+  }
+  b.align("left").hr(cols, "=");
 
   b.line(`Table ${snapshot.table.code} - ${snapshot.players} player${snapshot.players === 1 ? "" : "s"}`);
   b.line(`Staff: ${snapshot.staff}`);
