@@ -122,13 +122,24 @@ restart — that's the self-service fix.
 ## Keeping it running automatically
 
 For everyday use, you'll want this running in the background without
-having to remember to start it:
+having to remember to start it, or leave a Command Prompt window open.
 
-- **Windows**: create a shortcut to `node server.js` (run from this
-  folder) in `shell:startup` so it launches at login, or use Task
-  Scheduler.
+- **Windows**: after the one-time setup above (steps 1–2, so `npm
+  install` has already run), double-click **`install-startup.bat`** in
+  this folder, once. From then on, every time this computer is turned on
+  and signed into, the print bridge starts automatically and silently —
+  no window appears, nothing to click, nothing to remember.
+  - To check it's running: open a browser on that same computer and go
+    to `http://127.0.0.1:9123/health` — it should show `{"ok":true}`.
+  - To stop it (e.g. before closing `cert.pem`/`key.pem` as mentioned
+    above, or just to troubleshoot), double-click **`stop-bridge.bat`**.
+  - To turn off auto-start entirely, double-click
+    **`uninstall-startup.bat`**.
+  - Since there's no window anymore, its startup messages (the computer's
+    IP address, HTTPS setup steps) are saved to `bridge-log.txt` in this
+    folder instead — open that file any time you need to check them again.
 - **Mac**: use `launchd`, or a tool like [pm2](https://pm2.keymetrics.io/)
   (`npm install -g pm2` then `pm2 start server.js` and `pm2 save`).
 
-This is optional — for a quick start, just leave a terminal window open
-with `node server.js` running.
+This is optional — for a quick start, or on a Mac, just leave a terminal
+window open with `node server.js` running instead.
