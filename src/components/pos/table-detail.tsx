@@ -161,7 +161,10 @@ function PlayerRow({
           {/* Per-player pricing-type override (§Mixed pricing per table)
               — e.g. one table split between Student and Regular. Left
               at "" (inherit the table's own type) unless staff picks one
-              for this specific customer. */}
+              for this specific customer. Before the table has started
+              playing there's no table-wide type yet to inherit, so
+              "Default" would mean nothing — hidden until notStarted
+              clears (§Default meaningless pre-start). */}
           {!locked && (
             <select
               value={player.pricingTypeId ?? ""}
@@ -174,9 +177,11 @@ function PlayerRow({
               }
               className="mt-1 h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground-muted"
             >
-              <option value="">
-                Default{tableDefaultPricingTypeName ? ` (${tableDefaultPricingTypeName})` : ""}
-              </option>
+              {!notStarted && (
+                <option value="">
+                  Default{tableDefaultPricingTypeName ? ` (${tableDefaultPricingTypeName})` : ""}
+                </option>
+              )}
               {pricingTypes.map((pt) => (
                 <option key={pt.id} value={pt.id}>
                   {pt.name}
