@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { cn } from "@/lib/cn";
+import { LiveTimer } from "@/components/pos/live-timer";
 
 interface ModifierOption {
   id: string;
@@ -99,10 +100,12 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
     },
   });
 
-  const { data: myOrders } = trpc.customer.listMyOrders.useQuery(
+  const { data: orderData } = trpc.customer.listMyOrders.useQuery(
     { qrToken },
     { refetchInterval: 8_000, enabled: view === "orders" },
   );
+  const myOrders = orderData?.orders;
+  const bill = orderData?.bill ?? null;
 
   const activeCategory =
     data?.categories.find((c) => c.id === activeCategoryId) ?? data?.categories[0];
@@ -249,6 +252,38 @@ export function CustomerOrderApp({ qrToken }: { qrToken: string }) {
 
       {view === "orders" ? (
         <div className="space-y-2">
+          {bill && (
+            <div className="space-y-2 rounded-2xl bg-white/10 p-4">
+              {bill.notStarted ? (
+                <p className="text-center text-sm text-white/70">
+                  Not playing yet — ask a Tavern Keeper to start your table.
+                </p>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-white/50">
+                      Playtime{bill.pricingTypeName ? ` (${bill.pricingTypeName})` : ""}
+                    </p>
+                    <p className="text-xl font-semibold text-white">
+                      {bill.timer ? <LiveTimer timer={bill.timer} /> : "00:00:00"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase tracking-wide text-white/50">Table fee so far</p>
+                    <p className="text-xl font-semibold text-white">฿{bill.tableFee.toFixed(0)}</p>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-white/10 pt-2">
+                <span className="text-sm text-white/70">Food &amp; drink</span>
+                <span className="text-sm text-white">฿{bill.foodDrinkSubtotal.toFixed(0)}</span>
+              </div>
+              <div className="flex items-center justify-between font-semibold text-white">
+                <span>Total so far</span>
+                <span>฿{bill.grandTotal.toFixed(0)}</span>
+              </div>
+            </div>
+          )}
           {(!myOrders || myOrders.length === 0) && (
             <p className="text-center text-white/60">No orders submitted yet.</p>
           )}

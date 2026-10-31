@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "../trpc";
 import { toNum } from "@/lib/decimal";
 import { createOrder, cartItemSchema, OPEN_ORDER_STATUSES } from "./orders";
+import { toPlayerRecord, toPricingConfig } from "./sessions";
+import { computeTableFee } from "@/server/domain/pricing";
 import type { PrismaClient } from "@/generated/prisma/client";
 
 const ACTIVE_SESSION_STATUSES = ["OPEN", "PAUSED", "READY_FOR_CHECKOUT"] as const;
@@ -173,34 +175,87 @@ export const customerRouter = router({
       return { orderId: order.id };
     }),
 
+  /** Also doubles as the customer-facing bill summary (§Show customers
+   * playtime + running total) — same computeTableFee used for the staff
+   * side's live bill, just trimmed to what a customer should see: no
+   * staff names, no per-player pricing overrides breakdown, no member/
+   * EXP data. "My Orders" already showed every order on the table (not
+   * just this device's own), so the bill fits naturally alongside it. */
   listMyOrders: publicProcedure
     .input(z.object({ qrToken: z.string() }))
     .query(async ({ ctx, input }) => {
       const table = await findTableByToken(ctx.prisma, input.qrToken);
       const session = await ctx.prisma.tableSession.findFirst({
         where: { tableId: table.id, status: { in: [...ACTIVE_SESSION_STATUSES] } },
+        include: {
+          players: { orderBy: { createdAt: "asc" }, include: { pricingType: true } },
+          pricingType: true,
+        },
       });
-      if (!session) return [];
+      if (!session) return { bill: null, orders: [] };
 
       const orders = await ctx.prisma.order.findMany({
         where: { sessionId: session.id, status: "SUBMITTED" },
         include: { items: { include: { modifiers: true, comboSelections: true } } },
         orderBy: { createdAt: "desc" },
       });
-      return orders.map((o) => ({
-        id: o.id,
-        source: o.source,
-        createdAt: o.createdAt,
-        items: o.items.map((i) => ({
-          id: i.id,
-          nameEn: i.nameSnapshotEn,
-          quantity: i.quantity,
-          unitPrice: toNum(i.unitPriceSnapshot),
-          modifiers: [
-            ...i.modifiers.map((m) => m.nameSnapshotEn),
-            ...i.comboSelections.map((cs) => `${cs.slotNameSnapshotEn}: ${cs.nameSnapshotEn}`),
-          ],
+      const foodDrinkSubtotal = orders.reduce(
+        (sum, order) =>
+          sum +
+          order.items.reduce((s, item) => s + toNum(item.unitPriceSnapshot) * item.quantity, 0),
+        0,
+      );
+      // Same "hasn't started playing yet" check as the staff side
+      // (sessions.ts's getTableDetail) — every player sits PAUSED at
+      // zero elapsed with no pricing type chosen until staff hits Start
+      // Playing, so there's no meaningful playtime/table-fee to show yet.
+      const notStarted = session.status === "PAUSED" && !session.pricingType;
+      const tableFee = notStarted
+        ? 0
+        : computeTableFee({
+            pricingType: toPricingConfig(session.pricingType),
+            players: session.players.map(toPlayerRecord),
+          }).total;
+      const firstPlayer = session.players[0] ?? null;
+
+      return {
+        bill: {
+          notStarted,
+          pricingTypeName: session.pricingType?.name ?? null,
+          isHourly: session.pricingType?.model === "HOURLY",
+          // Live-ticking inputs for the same clock math as the staff
+          // side's LiveTimer (src/components/pos/live-timer.tsx) — the
+          // first-seated player stands in for "how long the table's
+          // been going", same as everyone else at a table that started
+          // together, rather than summing/averaging every player.
+          timer: firstPlayer
+            ? {
+                startTime: firstPlayer.startTime,
+                pausedAt: firstPlayer.pausedAt,
+                accumulatedPausedMs: Number(firstPlayer.accumulatedPausedMs),
+                endTime: firstPlayer.endTime,
+                status: firstPlayer.status,
+              }
+            : null,
+          tableFee,
+          foodDrinkSubtotal,
+          grandTotal: tableFee + foodDrinkSubtotal,
+        },
+        orders: orders.map((o) => ({
+          id: o.id,
+          source: o.source,
+          createdAt: o.createdAt,
+          items: o.items.map((i) => ({
+            id: i.id,
+            nameEn: i.nameSnapshotEn,
+            quantity: i.quantity,
+            unitPrice: toNum(i.unitPriceSnapshot),
+            modifiers: [
+              ...i.modifiers.map((m) => m.nameSnapshotEn),
+              ...i.comboSelections.map((cs) => `${cs.slotNameSnapshotEn}: ${cs.nameSnapshotEn}`),
+            ],
+          })),
         })),
-      }));
+      };
     }),
 });
