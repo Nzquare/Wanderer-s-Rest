@@ -1,11 +1,33 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { isShiftStale, SHIFT_STALE_HOURS } from "@/lib/shift";
-import { openCashDrawer } from "@/lib/thermal-print";
+import { openCashDrawer, printShiftSummary } from "@/lib/thermal-print";
+
+type CategoryLine = { categoryId: string; categoryName: string; quantity: number; revenue: number };
+
+interface ShiftSummaryData {
+  openedAt: string | Date;
+  closedAt: string | Date;
+  openedByName: string;
+  closedByName: string;
+  startingCash: number;
+  byMethod: { methodId: string | null; name: string; total: number }[];
+  totalSales: number;
+  expectedCash: number;
+  actualCashCounted: number | null;
+  cashDifference: number | null;
+  playtimeRevenue: number;
+  foodDrinkRevenue: number;
+  discountsTotal: number;
+  sessionsServed: number;
+  ordersCount: number;
+  byCategory: CategoryLine[];
+}
 
 export function ShiftPanel() {
   const utils = trpc.useUtils();
@@ -13,13 +35,16 @@ export function ShiftPanel() {
     refetchInterval: 15_000,
   });
   const { data: checkoutSettings } = trpc.settings.getCheckout.useQuery();
+  const { data: cafeSettings } = trpc.settings.getCafe.useQuery();
+  const { data: me } = trpc.staff.me.useQuery();
+  const cafeName = cafeSettings?.nameEn ?? "Wanderer's Rest";
   const [startingCash, setStartingCash] = useState("");
   const [actualCash, setActualCash] = useState("");
-  const [closeResult, setCloseResult] = useState<{
-    expectedCash: number;
-    actualCashCounted: number | null;
-    cashDifference: number | null;
-  } | null>(null);
+  const [closeResult, setCloseResult] = useState<ShiftSummaryData | null>(null);
+  // Mirrors checkout-client.tsx's printMode pattern (§Daily summary on
+  // shift close) — a hidden-until-print area, armed only right when a
+  // close actually happens, not from page load.
+  const [showSummaryPrint, setShowSummaryPrint] = useState(false);
   // Force-close (§Automatic shift close) is a separate, deliberately
   // harder-to-reach flow — hidden behind its own toggle rather than
   // sitting next to the normal Close Shift button, so it's never the
@@ -37,9 +62,65 @@ export function ShiftPanel() {
       await utils.shifts.getCurrent.invalidate();
     },
   });
+  // Auto-prints the shift's daily summary the moment it closes (§Daily
+  // summary on shift close) — byMethod/totalSales/startingCash/openedAt
+  // all come from the `shift` query already loaded on screen (the same
+  // numbers staff were looking at right before closing), not refetched;
+  // only the extra sales-mix fields (playtime/food/discounts/category/
+  // orders) come from the mutation's own buildShiftSummary result.
+  function finishClose(
+    data: {
+      expectedCash: number;
+      actualCashCounted: number | null;
+      cashDifference: number | null;
+      sessionsServed: number;
+      ordersCount: number;
+      playtimeRevenue: number;
+      foodDrinkRevenue: number;
+      discountsTotal: number;
+      byCategory: CategoryLine[];
+    },
+    source: typeof shift,
+  ) {
+    if (!source) return;
+    const summary: ShiftSummaryData = {
+      openedAt: source.openedAt,
+      closedAt: new Date().toISOString(),
+      openedByName: source.openedByName,
+      closedByName: me?.name ?? "Staff",
+      startingCash: source.startingCash,
+      byMethod: source.byMethod,
+      totalSales: source.totalSales,
+      expectedCash: data.expectedCash,
+      actualCashCounted: data.actualCashCounted,
+      cashDifference: data.cashDifference,
+      playtimeRevenue: data.playtimeRevenue,
+      foodDrinkRevenue: data.foodDrinkRevenue,
+      discountsTotal: data.discountsTotal,
+      sessionsServed: data.sessionsServed,
+      ordersCount: data.ordersCount,
+      byCategory: data.byCategory,
+    };
+    setCloseResult(summary);
+    // Deferred a tick — printOnce's flushSync (see print-once.ts) can't
+    // run while React is still mid-commit for the setCloseResult above,
+    // which this call sits right inside of (a mutation's onSuccess) —
+    // without the defer, React throws "flushSync was called from inside
+    // a lifecycle method" instead of actually arming the print area.
+    setTimeout(() => {
+      printShiftSummary(
+        summary,
+        { cafeName },
+        checkoutSettings,
+        () => setShowSummaryPrint(true),
+        () => setShowSummaryPrint(false),
+        () => {},
+      );
+    }, 0);
+  }
   const close = trpc.shifts.close.useMutation({
     onSuccess: async (data) => {
-      setCloseResult(data);
+      finishClose(data, shift);
       setActualCash("");
       // Same at close — but not on forceClose below, which is
       // specifically for when nobody's around to count the drawer at
@@ -50,11 +131,7 @@ export function ShiftPanel() {
   });
   const forceClose = trpc.shifts.forceClose.useMutation({
     onSuccess: async (data) => {
-      setCloseResult({
-        expectedCash: data.expectedCash,
-        actualCashCounted: null,
-        cashDifference: null,
-      });
+      finishClose({ ...data, actualCashCounted: null, cashDifference: null }, shift);
       setShowForceClose(false);
       setForceCloseReason("");
       await utils.shifts.getCurrent.invalidate();
@@ -65,46 +142,214 @@ export function ShiftPanel() {
 
   if (closeResult) {
     return (
-      <Card className="space-y-2">
-        <p className="text-lg font-semibold text-foreground">Shift closed</p>
-        <div className="flex justify-between text-sm">
-          <span>Expected cash</span>
-          <span>฿{closeResult.expectedCash.toFixed(0)}</span>
-        </div>
-        {closeResult.actualCashCounted != null && closeResult.cashDifference != null ? (
-          <>
-            <div className="flex justify-between text-sm">
-              <span>Actual cash counted</span>
-              <span>฿{closeResult.actualCashCounted.toFixed(0)}</span>
-            </div>
-            <div className="flex justify-between text-sm font-semibold">
-              <span>Difference</span>
-              <span
-                className={
-                  closeResult.cashDifference === 0
-                    ? "text-status-success"
-                    : "text-status-warning"
-                }
-              >
-                {closeResult.cashDifference >= 0 ? "+" : ""}
-                ฿{closeResult.cashDifference.toFixed(0)}
-              </span>
-            </div>
-          </>
-        ) : (
-          // Force-closed (§Automatic shift close) — no physical count
-          // happened, so there's nothing to compare expected cash
-          // against. Said plainly rather than showing a difference of
-          // ฿0, which would misleadingly read as "counted and matched."
-          <p className="text-sm text-status-warning">
-            Force-closed without a cash count — reconcile the drawer
-            separately if needed.
+      <>
+        <Card className="space-y-2">
+          <p className="text-lg font-semibold text-foreground">Shift closed</p>
+          <p className="text-xs text-foreground-muted">
+            {new Date(closeResult.openedAt).toLocaleString()} – {new Date(closeResult.closedAt).toLocaleString()}
           </p>
-        )}
-        <Button className="w-full" onClick={() => setCloseResult(null)}>
-          Open a new shift
-        </Button>
-      </Card>
+          <div className="space-y-1 border-t border-border pt-2">
+            {closeResult.byMethod.map((m) => (
+              <div key={m.methodId ?? m.name} className="flex justify-between text-sm">
+                <span>{m.name}</span>
+                <span>฿{m.total.toFixed(0)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-sm font-semibold">
+              <span>Total sales</span>
+              <span>฿{closeResult.totalSales.toFixed(0)}</span>
+            </div>
+          </div>
+          <div className="space-y-1 border-t border-border pt-2">
+            <div className="flex justify-between text-sm">
+              <span>Playtime revenue</span>
+              <span>฿{closeResult.playtimeRevenue.toFixed(0)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span>Food &amp; drink</span>
+              <span>฿{closeResult.foodDrinkRevenue.toFixed(0)}</span>
+            </div>
+            {closeResult.discountsTotal > 0 && (
+              <div className="flex justify-between text-sm text-foreground-muted">
+                <span>Discounts given</span>
+                <span>-฿{closeResult.discountsTotal.toFixed(0)}</span>
+              </div>
+            )}
+          </div>
+          <div className="space-y-1 border-t border-border pt-2">
+            <div className="flex justify-between text-sm">
+              <span>Tables served</span>
+              <span>{closeResult.sessionsServed}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span>Orders</span>
+              <span>{closeResult.ordersCount}</span>
+            </div>
+            {closeResult.byCategory.length > 0 && (
+              <div className="space-y-0.5 pl-3">
+                {closeResult.byCategory.map((c) => (
+                  <div key={c.categoryId} className="flex justify-between text-xs text-foreground-muted">
+                    <span>{c.categoryName}</span>
+                    <span>฿{c.revenue.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="space-y-1 border-t border-border pt-2">
+            <div className="flex justify-between text-sm">
+              <span>Expected cash</span>
+              <span>฿{closeResult.expectedCash.toFixed(0)}</span>
+            </div>
+            {closeResult.actualCashCounted != null && closeResult.cashDifference != null ? (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span>Actual cash counted</span>
+                  <span>฿{closeResult.actualCashCounted.toFixed(0)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>Difference</span>
+                  <span
+                    className={
+                      closeResult.cashDifference === 0
+                        ? "text-status-success"
+                        : "text-status-warning"
+                    }
+                  >
+                    {closeResult.cashDifference >= 0 ? "+" : ""}
+                    ฿{closeResult.cashDifference.toFixed(0)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              // Force-closed (§Automatic shift close) — no physical count
+              // happened, so there's nothing to compare expected cash
+              // against. Said plainly rather than showing a difference of
+              // ฿0, which would misleadingly read as "counted and matched."
+              <p className="text-sm text-status-warning">
+                Force-closed without a cash count — reconcile the drawer
+                separately if needed.
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() =>
+                printShiftSummary(
+                  closeResult,
+                  { cafeName },
+                  checkoutSettings,
+                  () => setShowSummaryPrint(true),
+                  () => setShowSummaryPrint(false),
+                  () => {},
+                )
+              }
+            >
+              Print summary
+            </Button>
+            <Button className="flex-1" onClick={() => setCloseResult(null)}>
+              Open a new shift
+            </Button>
+          </div>
+        </Card>
+
+        {/* Printed Z-report slip — hidden on screen, shown only by
+            @media print, same pattern as checkout-client.tsx's invoice
+            print area. */}
+        <div
+          id="shift-summary-print-area"
+          style={
+            { "--receipt-print-width": `${checkoutSettings?.printerWidthMm ?? 80}mm` } as CSSProperties
+          }
+          className={showSummaryPrint ? "print-area hidden print:block" : "hidden"}
+        >
+          <div className="mx-auto max-w-xs space-y-2 p-4 font-mono text-sm">
+            <div className="text-center">
+              <p className="font-semibold">{cafeName}</p>
+              <p className="text-xs">Shift Summary</p>
+              <p className="text-xs">
+                Opened {new Date(closeResult.openedAt).toLocaleString()} — {closeResult.openedByName}
+              </p>
+              <p className="text-xs">
+                Closed {new Date(closeResult.closedAt).toLocaleString()} — {closeResult.closedByName}
+              </p>
+            </div>
+            <div className="border-t border-dashed border-border pt-2 space-y-1">
+              <div className="flex justify-between">
+                <span>Starting cash</span>
+                <span>฿{closeResult.startingCash.toFixed(0)}</span>
+              </div>
+              {closeResult.byMethod.map((m) => (
+                <div key={m.methodId ?? m.name} className="flex justify-between">
+                  <span>{m.name}</span>
+                  <span>฿{m.total.toFixed(0)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between font-semibold">
+                <span>Total sales</span>
+                <span>฿{closeResult.totalSales.toFixed(0)}</span>
+              </div>
+            </div>
+            <div className="border-t border-dashed border-border pt-2 space-y-1">
+              <div className="flex justify-between">
+                <span>Playtime revenue</span>
+                <span>฿{closeResult.playtimeRevenue.toFixed(0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Food &amp; drink</span>
+                <span>฿{closeResult.foodDrinkRevenue.toFixed(0)}</span>
+              </div>
+              {closeResult.discountsTotal > 0 && (
+                <div className="flex justify-between">
+                  <span>Discounts given</span>
+                  <span>-฿{closeResult.discountsTotal.toFixed(0)}</span>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-dashed border-border pt-2 space-y-1">
+              <div className="flex justify-between">
+                <span>Tables served</span>
+                <span>{closeResult.sessionsServed}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Orders</span>
+                <span>{closeResult.ordersCount}</span>
+              </div>
+              {closeResult.byCategory.map((c) => (
+                <div key={c.categoryId} className="flex justify-between pl-2 text-xs">
+                  <span>{c.categoryName}</span>
+                  <span>฿{c.revenue.toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-dashed border-border pt-2 space-y-1">
+              <div className="flex justify-between font-semibold">
+                <span>Expected cash</span>
+                <span>฿{closeResult.expectedCash.toFixed(0)}</span>
+              </div>
+              {closeResult.actualCashCounted != null && closeResult.cashDifference != null ? (
+                <>
+                  <div className="flex justify-between">
+                    <span>Actual cash counted</span>
+                    <span>฿{closeResult.actualCashCounted.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <span>Difference</span>
+                    <span>
+                      {closeResult.cashDifference >= 0 ? "+" : ""}
+                      ฿{closeResult.cashDifference.toFixed(0)}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-center text-xs">Force-closed — no cash count taken</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 

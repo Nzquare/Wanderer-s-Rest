@@ -5,9 +5,11 @@ import {
   buildOpenDrawerEscpos,
   buildQrSlipEscpos,
   buildReceiptEscpos,
+  buildShiftSummaryEscpos,
   printViaBridge,
   type EscposInvoiceSnapshot,
   type EscposReceiptSnapshot,
+  type EscposShiftSummarySnapshot,
   type PrintBridgeTarget,
 } from "./escpos";
 import type { KitchenTicketEntry } from "@/components/pos/kitchen-ticket";
@@ -89,6 +91,28 @@ export function printReceipt(
         onBridgeError?.((err as Error).message);
       }
     })();
+    return () => {};
+  }
+  return printOnce(show, hide);
+}
+
+/** Same idea as printKitchenTicket, for the Close Shift "Z report" slip
+ * (§Daily summary on shift close). */
+export function printShiftSummary(
+  snapshot: EscposShiftSummarySnapshot,
+  opts: { cafeName: string },
+  settings: CheckoutSettings | undefined,
+  show: () => void,
+  hide: () => void,
+  onBridgeError?: (message: string) => void,
+): () => void {
+  const target = bridgeTargetFrom(settings);
+  if (target) {
+    const bytes = buildShiftSummaryEscpos(snapshot, {
+      ...opts,
+      printerWidthMm: settings?.printerWidthMm ?? 80,
+    });
+    printViaBridge(bytes, target).catch((err: Error) => onBridgeError?.(err.message));
     return () => {};
   }
   return printOnce(show, hide);

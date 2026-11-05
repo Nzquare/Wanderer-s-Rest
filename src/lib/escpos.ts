@@ -443,6 +443,93 @@ export function buildInvoiceEscpos(
   return b.build();
 }
 
+export interface EscposShiftSummarySnapshot {
+  openedAt: string | Date;
+  closedAt: string | Date;
+  openedByName: string;
+  closedByName: string | null;
+  startingCash: number;
+  byMethod: { name: string; total: number }[];
+  totalSales: number;
+  playtimeRevenue: number;
+  foodDrinkRevenue: number;
+  discountsTotal: number;
+  sessionsServed: number;
+  ordersCount: number;
+  byCategory: { categoryName: string; revenue: number }[];
+  expectedCash: number;
+  /** Null for a force-closed shift (§Automatic shift close) — nothing was
+   * physically counted, so there's nothing to show here or compare
+   * against (see the forceClosed line below instead). */
+  actualCashCounted: number | null;
+  cashDifference: number | null;
+}
+
+/** The "Z report" printed (auto, on close) when a shift ends (§Daily
+ * summary on shift close) — everything that moved through this one shift,
+ * handed straight to whoever's reconciling the drawer instead of making
+ * them go dig it out of Back Office → Reports afterward. */
+export function buildShiftSummaryEscpos(
+  snapshot: EscposShiftSummarySnapshot,
+  opts: { cafeName: string; printerWidthMm: number },
+): Uint8Array {
+  const cols = columnsFor(opts.printerWidthMm);
+  const b = new EscposBuilder().init();
+
+  b.align("center")
+    .bold(true)
+    .line(opts.cafeName)
+    .line("Shift Summary")
+    .bold(false)
+    .line(`Opened ${new Date(snapshot.openedAt).toLocaleString()} - ${snapshot.openedByName}`)
+    .line(
+      `Closed ${new Date(snapshot.closedAt).toLocaleString()}${snapshot.closedByName ? ` - ${snapshot.closedByName}` : ""}`,
+    )
+    .align("left")
+    .hr(cols, "=");
+
+  b.line(row("Starting cash", money(snapshot.startingCash), cols));
+  for (const m of snapshot.byMethod) {
+    b.line(row(m.name, money(m.total), cols));
+  }
+  b.bold(true).line(row("Total sales", money(snapshot.totalSales), cols)).bold(false);
+
+  b.hr(cols, "-");
+  b.line(row("Playtime revenue", money(snapshot.playtimeRevenue), cols));
+  b.line(row("Food & drink", money(snapshot.foodDrinkRevenue), cols));
+  if (snapshot.discountsTotal > 0) {
+    b.line(row("Discounts given", `-${money(snapshot.discountsTotal)}`, cols));
+  }
+
+  b.hr(cols, "-");
+  b.line(row("Tables served", String(snapshot.sessionsServed), cols));
+  b.line(row("Orders", String(snapshot.ordersCount), cols));
+  if (snapshot.byCategory.length > 0) {
+    b.feed(1).line("Sales by category:");
+    for (const c of snapshot.byCategory) {
+      b.line(row(`  ${c.categoryName}`, money(c.revenue), cols));
+    }
+  }
+
+  b.hr(cols, "=");
+  b.line(row("Expected cash", money(snapshot.expectedCash), cols));
+  if (snapshot.actualCashCounted != null && snapshot.cashDifference != null) {
+    b.line(row("Actual cash counted", money(snapshot.actualCashCounted), cols));
+    b.bold(true).line(
+      row(
+        "Difference",
+        `${snapshot.cashDifference >= 0 ? "+" : ""}${money(snapshot.cashDifference)}`,
+        cols,
+      ),
+    ).bold(false);
+  } else {
+    b.align("center").line("Force-closed - no cash count taken").align("left");
+  }
+
+  b.feed(3).cut();
+  return b.build();
+}
+
 export interface EscposReceiptSnapshot {
   receiptNumber: string;
   table: { code: string; name: string };

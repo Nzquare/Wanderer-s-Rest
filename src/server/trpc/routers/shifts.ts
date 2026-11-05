@@ -4,6 +4,7 @@ import { router, permissionProcedure, cashierProcedure } from "../trpc";
 import { Permission } from "@/server/rbac/permissions";
 import { toNum } from "@/lib/decimal";
 import { logAudit } from "@/server/audit";
+import { buildShiftSummary } from "@/server/reports/build";
 
 export const shiftsRouter = router({
   getCurrent: cashierProcedure.query(async ({ ctx }) => {
@@ -126,7 +127,13 @@ export const shiftsRouter = router({
         },
       });
 
-      return { expectedCash, actualCashCounted: input.actualCashCounted, cashDifference };
+      const summary = await buildShiftSummary(ctx.prisma, shift.id);
+      return {
+        expectedCash,
+        actualCashCounted: input.actualCashCounted,
+        cashDifference,
+        ...summary,
+      };
     }),
 
   /**
@@ -180,6 +187,7 @@ export const shiftsRouter = router({
         reason: input.reason,
       });
 
-      return { ok: true, expectedCash };
+      const summary = await buildShiftSummary(ctx.prisma, shift.id);
+      return { ok: true, expectedCash, ...summary };
     }),
 });

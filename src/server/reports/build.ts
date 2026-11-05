@@ -483,6 +483,77 @@ export async function buildShiftReconciliationReport(prisma: PrismaClient, range
 export type ShiftReconciliationReport = Awaited<ReturnType<typeof buildShiftReconciliationReport>>;
 
 /**
+ * Daily summary shown (and auto-printed) right on the Close Shift screen
+ * (§Daily summary on shift close) — everything that moved through this one
+ * shift, not a date-range report. Scoped by Payment.shiftId (same field
+ * shifts.close already sums for the cash count) rather than by session
+ * endTime/createdAt, so it reflects exactly what this shift actually
+ * processed regardless of when the underlying table session itself
+ * started. byMethod/totalSales/cash figures are computed by the caller
+ * (shifts.ts already has that logic from getCurrent/close) — this only
+ * covers the extra sales-mix breakdown those don't.
+ */
+export async function buildShiftSummary(prisma: PrismaClient, shiftId: string) {
+  const payments = await prisma.payment.findMany({
+    where: { shiftId, status: "COMPLETED" },
+    select: { sessionId: true },
+  });
+  const sessionIds = [...new Set(payments.map((p) => p.sessionId))];
+  if (sessionIds.length === 0) {
+    return {
+      sessionsServed: 0,
+      ordersCount: 0,
+      playtimeRevenue: 0,
+      foodDrinkRevenue: 0,
+      discountsTotal: 0,
+      byCategory: [] as { categoryId: string; categoryName: string; quantity: number; revenue: number }[],
+    };
+  }
+
+  const [sessions, orders, items] = await Promise.all([
+    prisma.tableSession.findMany({
+      where: { id: { in: sessionIds } },
+      select: { subtotalTableFee: true, subtotalFoodDrink: true, discountTotal: true },
+    }),
+    prisma.order.count({ where: { sessionId: { in: sessionIds }, status: "SUBMITTED" } }),
+    prisma.orderItem.findMany({
+      where: { order: { sessionId: { in: sessionIds }, status: "SUBMITTED" } },
+      select: {
+        quantity: true,
+        unitPriceSnapshot: true,
+        menuItem: { select: { category: { select: { id: true, nameEn: true } } } },
+      },
+    }),
+  ]);
+
+  const byCategory = new Map<string, { categoryName: string; quantity: number; revenue: number }>();
+  for (const item of items) {
+    const catId = item.menuItem?.category.id ?? "__deleted__";
+    const existing = byCategory.get(catId) ?? {
+      categoryName: item.menuItem?.category.nameEn ?? "Other",
+      quantity: 0,
+      revenue: 0,
+    };
+    existing.quantity += item.quantity;
+    existing.revenue += toNum(item.unitPriceSnapshot) * item.quantity;
+    byCategory.set(catId, existing);
+  }
+
+  return {
+    sessionsServed: sessions.length,
+    ordersCount: orders,
+    playtimeRevenue: sessions.reduce((s, sess) => s + toNum(sess.subtotalTableFee), 0),
+    foodDrinkRevenue: sessions.reduce((s, sess) => s + toNum(sess.subtotalFoodDrink), 0),
+    discountsTotal: sessions.reduce((s, sess) => s + toNum(sess.discountTotal), 0),
+    byCategory: Array.from(byCategory.entries())
+      .map(([categoryId, v]) => ({ categoryId, ...v }))
+      .sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
+export type ShiftSummary = Awaited<ReturnType<typeof buildShiftSummary>>;
+
+/**
  * Void & Refund Detail — every void/refund in range, one row each, pulled
  * from the AuditLog (the only place that records precisely *when* the
  * action happened — a refunded session's own timestamps still reflect the
