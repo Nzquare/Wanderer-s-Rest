@@ -166,9 +166,23 @@ export function ShiftPanel() {
               <span>฿{closeResult.playtimeRevenue.toFixed(0)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Food &amp; drink</span>
+              <span>Menu sales</span>
               <span>฿{closeResult.foodDrinkRevenue.toFixed(0)}</span>
             </div>
+            {/* Every menu category that actually sold something this
+                shift — not just food/drink (§not only food & drinks
+                should be categorized), a café's menu can have its own
+                non-food categories too (e.g. Goods). */}
+            {closeResult.byCategory.length > 0 && (
+              <div className="space-y-0.5 pl-3">
+                {closeResult.byCategory.map((c) => (
+                  <div key={c.categoryId} className="flex justify-between text-xs text-foreground-muted">
+                    <span>{c.categoryName}</span>
+                    <span>฿{c.revenue.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {closeResult.discountsTotal > 0 && (
               <div className="flex justify-between text-sm text-foreground-muted">
                 <span>Discounts given</span>
@@ -185,16 +199,6 @@ export function ShiftPanel() {
               <span>Orders</span>
               <span>{closeResult.ordersCount}</span>
             </div>
-            {closeResult.byCategory.length > 0 && (
-              <div className="space-y-0.5 pl-3">
-                {closeResult.byCategory.map((c) => (
-                  <div key={c.categoryId} className="flex justify-between text-xs text-foreground-muted">
-                    <span>{c.categoryName}</span>
-                    <span>฿{c.revenue.toFixed(0)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
           <div className="space-y-1 border-t border-border pt-2">
             <div className="flex justify-between text-sm">
@@ -298,9 +302,15 @@ export function ShiftPanel() {
                 <span>฿{closeResult.playtimeRevenue.toFixed(0)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Food &amp; drink</span>
+                <span>Menu sales</span>
                 <span>฿{closeResult.foodDrinkRevenue.toFixed(0)}</span>
               </div>
+              {closeResult.byCategory.map((c) => (
+                <div key={c.categoryId} className="flex justify-between pl-2 text-xs">
+                  <span>{c.categoryName}</span>
+                  <span>฿{c.revenue.toFixed(0)}</span>
+                </div>
+              ))}
               {closeResult.discountsTotal > 0 && (
                 <div className="flex justify-between">
                   <span>Discounts given</span>
@@ -317,12 +327,6 @@ export function ShiftPanel() {
                 <span>Orders</span>
                 <span>{closeResult.ordersCount}</span>
               </div>
-              {closeResult.byCategory.map((c) => (
-                <div key={c.categoryId} className="flex justify-between pl-2 text-xs">
-                  <span>{c.categoryName}</span>
-                  <span>฿{c.revenue.toFixed(0)}</span>
-                </div>
-              ))}
             </div>
             <div className="border-t border-dashed border-border pt-2 space-y-1">
               <div className="flex justify-between font-semibold">

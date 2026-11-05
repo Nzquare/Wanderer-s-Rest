@@ -496,7 +496,13 @@ export function buildShiftSummaryEscpos(
 
   b.hr(cols, "-");
   b.line(row("Playtime revenue", money(snapshot.playtimeRevenue), cols));
-  b.line(row("Food & drink", money(snapshot.foodDrinkRevenue), cols));
+  b.line(row("Menu sales", money(snapshot.foodDrinkRevenue), cols));
+  // Every menu category that actually sold something this shift, not
+  // just food/drink (§not only food & drinks should be categorized) — a
+  // café's menu can have its own non-food categories too (e.g. Goods).
+  for (const c of snapshot.byCategory) {
+    b.line(row(`  ${c.categoryName}`, money(c.revenue), cols));
+  }
   if (snapshot.discountsTotal > 0) {
     b.line(row("Discounts given", `-${money(snapshot.discountsTotal)}`, cols));
   }
@@ -504,12 +510,6 @@ export function buildShiftSummaryEscpos(
   b.hr(cols, "-");
   b.line(row("Tables served", String(snapshot.sessionsServed), cols));
   b.line(row("Orders", String(snapshot.ordersCount), cols));
-  if (snapshot.byCategory.length > 0) {
-    b.feed(1).line("Sales by category:");
-    for (const c of snapshot.byCategory) {
-      b.line(row(`  ${c.categoryName}`, money(c.revenue), cols));
-    }
-  }
 
   b.hr(cols, "=");
   b.line(row("Expected cash", money(snapshot.expectedCash), cols));
