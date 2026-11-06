@@ -19,6 +19,28 @@ function daysAgoISO(n: number) {
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
+function startOfMonthISO() {
+  const d = new Date();
+  d.setDate(1);
+  return d.toISOString().slice(0, 10);
+}
+function startOfQuarterISO() {
+  const d = new Date();
+  d.setMonth(Math.floor(d.getMonth() / 3) * 3, 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Daily/monthly/quarterly summary (§Back Office daily/monthly/quarterly
+ * summary) — quick jumps to common ranges rather than a separate report;
+ * every tab already reads whatever from/to these set, same as typing
+ * dates in by hand. "This Month"/"This Quarter" are month-to-date/
+ * quarter-to-date (today, not the period's end) — reviewing a specific
+ * past month or quarter still works, just by typing the dates in. */
+const DATE_PRESETS = [
+  { label: "Today", from: todayISO, to: todayISO },
+  { label: "This Month", from: startOfMonthISO, to: todayISO },
+  { label: "This Quarter", from: startOfQuarterISO, to: todayISO },
+] as const;
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -861,7 +883,30 @@ export function ReportsView() {
           ))}
         </div>
         {tab !== "audit" && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1">
+              {DATE_PRESETS.map((p) => {
+                const presetFrom = p.from();
+                const presetTo = p.to();
+                const active = from === presetFrom && to === presetTo;
+                return (
+                  <button
+                    key={p.label}
+                    onClick={() => {
+                      setFrom(presetFrom);
+                      setTo(presetTo);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                      active
+                        ? "border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300"
+                        : "border-border text-foreground-muted hover:bg-black/5 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
             <input
               type="date"
               value={from}
@@ -891,7 +936,12 @@ export function ReportsView() {
                 <Stat label="Total revenue" value={`฿${data.sales.totalRevenue.toFixed(0)}`} />
                 <Stat label="Avg bill" value={`฿${data.sales.avgBill.toFixed(0)}`} />
                 <Stat label="Table fee revenue" value={`฿${data.sales.tableFeeRevenue.toFixed(0)}`} />
-                <Stat label="Food/drink revenue" value={`฿${data.sales.foodDrinkRevenue.toFixed(0)}`} />
+                {/* Everything that isn't the table fee — food, drinks,
+                    and any other menu categories a café has (e.g. Goods),
+                    same reasoning as the shift summary's "Menu sales"
+                    (§not only food & drinks should be categorized). The
+                    Sales by Category tab breaks this down further. */}
+                <Stat label="Menu revenue" value={`฿${data.sales.foodDrinkRevenue.toFixed(0)}`} />
                 <Stat label="Member revenue" value={`฿${data.sales.memberRevenue.toFixed(0)}`} />
                 <Stat label="Non-member revenue" value={`฿${data.sales.nonMemberRevenue.toFixed(0)}`} />
               </div>
