@@ -122,24 +122,98 @@ restart — that's the self-service fix.
 ## Keeping it running automatically
 
 For everyday use, you'll want this running in the background without
-having to remember to start it, or leave a Command Prompt window open.
+having to remember to start it, or keep a PC/laptop on at all.
 
-- **Windows**: after the one-time setup above (steps 1–2, so `npm
-  install` has already run), double-click **`install-startup.bat`** in
-  this folder, once. From then on, every time this computer is turned on
-  and signed into, the print bridge starts automatically and silently —
-  no window appears, nothing to click, nothing to remember.
-  - To check it's running: open a browser on that same computer and go
-    to `http://127.0.0.1:9123/health` — it should show `{"ok":true}`.
-  - To stop it (e.g. before closing `cert.pem`/`key.pem` as mentioned
-    above, or just to troubleshoot), double-click **`stop-bridge.bat`**.
-  - To turn off auto-start entirely, double-click
-    **`uninstall-startup.bat`**.
-  - Since there's no window anymore, its startup messages (the computer's
-    IP address, HTTPS setup steps) are saved to `bridge-log.txt` in this
-    folder instead — open that file any time you need to check them again.
-- **Mac**: use `launchd`, or a tool like [pm2](https://pm2.keymetrics.io/)
-  (`npm install -g pm2` then `pm2 start server.js` and `pm2 save`).
+### Raspberry Pi (recommended — no laptop, nothing to ever open again)
 
-This is optional — for a quick start, or on a Mac, just leave a terminal
-window open with `node server.js` running instead.
+A Raspberry Pi is a tiny, silent, no-screen computer (about the size of a
+deck of cards) that just sits plugged in behind your router, drawing about
+as much power as a phone charger. Unlike a laptop, there's genuinely
+nothing to open, sign into, or remember once it's set up — it just runs.
+
+**What you need:** a Raspberry Pi (4 Model B recommended, 2GB is plenty;
+a Pi Zero 2 W is cheaper but fiddlier), a microSD card (16GB+), its power
+supply, and your Windows PC to set it up from.
+
+1. **Flash the OS from your Windows PC** — download and open
+   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) (free).
+   - Choose OS: **Raspberry Pi OS Lite (64-bit)** (no desktop needed).
+   - Choose storage: your microSD card.
+   - Before clicking "Next" to write it, click the **gear icon** (⚙, or
+     press Ctrl+Shift+X) to open advanced options, and set:
+     - A hostname (e.g. `print-bridge`)
+     - **Enable SSH** → "Use password authentication"
+     - A username and password you'll remember
+     - Your **WiFi SSID and password** (the café's network — same one the
+       print-bridge PC used to be on) and your WiFi country.
+   - Save, then write the image to the card. This takes a few minutes.
+2. **Boot it.** Put the microSD card in the Pi, plug in power, and wait
+   about a minute for it to start up and join the WiFi. No monitor or
+   keyboard needed — the settings from step 1 handle everything.
+3. **Find its IP address.** Easiest way: check your WiFi router's admin
+   page for a device named `print-bridge` (or whatever hostname you
+   chose) in its connected-devices list. Note that IP address.
+4. **Copy this folder onto the Pi.** On your Windows PC, open PowerShell,
+   `cd` into the folder that *contains* this `print-bridge` folder (one
+   level up), then run (replace `<pi-ip>` and `<username>` with yours
+   from step 1):
+   ```
+   scp -r print-bridge <username>@<pi-ip>:~/print-bridge
+   ```
+   Type `yes` if asked to trust the connection, then your password.
+5. **SSH into the Pi** and set it up:
+   ```
+   ssh <username>@<pi-ip>
+   ```
+   Then, once connected (you'll see the Pi's own prompt):
+   ```
+   curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   cd ~/print-bridge
+   npm install
+   sh install-pi-service.sh
+   ```
+   The last command sets it up to start automatically on every boot and
+   restart itself if it ever crashes — this is the one-time step that
+   replaces `install-startup.bat` from the Windows instructions below.
+6. The install script prints the same kind of startup info `node
+   server.js` used to show in its window (the Pi's IP, HTTPS setup
+   steps) — if you need to see it again later: `journalctl -u
+   wanderers-print-bridge -f` (while SSH'd in).
+7. Use the Pi's IP address (from step 3) in **Back Office → Settings →
+   Checkout → Network thermal printer → Print bridge URL**, same as you
+   would have used the old laptop's IP.
+8. You're done with the Pi — unplug your laptop from this duty entirely.
+   The café WiFi's DHCP normally keeps giving the same device the same IP,
+   but if it ever changes, repeat step 3 and update Settings.
+
+To stop or remove the auto-start later, SSH in and run `sh
+~/print-bridge/uninstall-pi-service.sh`.
+
+### Windows
+
+After the one-time setup above (steps 1–2, so `npm install` has already
+run), double-click **`install-startup.bat`** in this folder, once. From
+then on, every time this computer is turned on and signed into, the print
+bridge starts automatically and silently — no window appears, nothing to
+click, nothing to remember.
+
+- To check it's running: open a browser on that same computer and go to
+  `http://127.0.0.1:9123/health` — it should show `{"ok":true}`.
+- To stop it (e.g. before closing `cert.pem`/`key.pem` as mentioned above,
+  or just to troubleshoot), double-click **`stop-bridge.bat`**.
+- To turn off auto-start entirely, double-click **`uninstall-startup.bat`**.
+- Since there's no window anymore, its startup messages (the computer's IP
+  address, HTTPS setup steps) are saved to `bridge-log.txt` in this folder
+  instead — open that file any time you need to check them again.
+
+### Mac
+
+Use `launchd`, or a tool like [pm2](https://pm2.keymetrics.io/) (`npm
+install -g pm2` then `pm2 start server.js` and `pm2 save`).
+
+---
+
+None of the above is required to just try it out — for a quick start on
+any platform, leave a terminal window open with `node server.js` running
+instead.
