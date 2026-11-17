@@ -812,6 +812,11 @@ model Member {
   adventurerName   String
   phone            String?          @unique
   lineUserId       String?          @unique
+  // Nullable even though registration now always asks for it (§request
+  // birthday for register member every time) — every member created
+  // before this requirement existed has none, and nothing backfills
+  // those retroactively.
+  birthday         DateTime?
   joinDate         DateTime         @default(now())
   classId          String?
   class            AdventurerClass? @relation(fields: [classId], references: [id])

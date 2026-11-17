@@ -28,6 +28,7 @@ export function MemberLinkPanel({
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newClassId, setNewClassId] = useState("");
+  const [newBirthday, setNewBirthday] = useState("");
   const { data: classes } = trpc.classes.list.useQuery();
 
   const search = trpc.members.search.useQuery(
@@ -46,6 +47,7 @@ export function MemberLinkPanel({
       setNewName("");
       setNewPhone("");
       setNewClassId("");
+      setNewBirthday("");
       setQuery("");
     },
   });
@@ -142,15 +144,29 @@ export function MemberLinkPanel({
               </option>
             ))}
           </select>
+          <label className="block text-xs text-foreground-muted">
+            Birthday
+            <input
+              type="date"
+              value={newBirthday}
+              onChange={(e) => setNewBirthday(e.target.value)}
+              className="mt-1 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-teal-500"
+            />
+          </label>
           {quickCreate.error && (
             <p className="text-xs text-status-danger">{quickCreate.error.message}</p>
           )}
           <Button
             size="md"
             className="w-full"
-            disabled={!newName.trim() || !newClassId || quickCreate.isPending}
+            disabled={!newName.trim() || !newClassId || !newBirthday || quickCreate.isPending}
             onClick={() =>
-              quickCreate.mutate({ adventurerName: newName, phone: newPhone, classId: newClassId })
+              quickCreate.mutate({
+                adventurerName: newName,
+                phone: newPhone,
+                classId: newClassId,
+                birthday: newBirthday,
+              })
             }
           >
             Create & Link

@@ -7,6 +7,19 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { describeBenefit } from "@/lib/benefits";
 
+/** "yyyy-MM-dd" for a date `<input>`'s value/defaultValue — birthday is
+ * stored/transmitted as a full Date but the input only ever shows/edits
+ * the calendar date. Reads the UTC fields, not local ones: the date
+ * `<input>`'s own string (e.g. "1990-05-20") is what gets coerced into
+ * that Date in the first place (as UTC midnight — see members.ts),
+ * so reading it back via UTC getters is what actually round-trips the
+ * same calendar date, regardless of the browser's own timezone. */
+function toDateInputValue(date: string | Date): string {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
 export function AdventurerProfile({ memberId }: { memberId: string }) {
   const router = useRouter();
   const utils = trpc.useUtils();
@@ -255,6 +268,21 @@ export function AdventurerProfile({ memberId }: { memberId: string }) {
           {updateProfile.error && (
             <p className="text-xs text-status-danger">{updateProfile.error.message}</p>
           )}
+          <label className="block text-xs text-foreground-muted">
+            Birthday
+            <input
+              type="date"
+              defaultValue={profile.birthday ? toDateInputValue(profile.birthday) : ""}
+              onBlur={(e) => {
+                const value = e.target.value;
+                const current = profile.birthday ? toDateInputValue(profile.birthday) : "";
+                if (value !== current) {
+                  updateProfile.mutate({ memberId, birthday: value || null });
+                }
+              }}
+              className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+            />
+          </label>
           <label className="block text-xs text-foreground-muted">
             Class
             <select

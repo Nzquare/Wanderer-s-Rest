@@ -13,6 +13,7 @@ function CreateMemberForm() {
   const [adventurerName, setAdventurerName] = useState("");
   const [phone, setPhone] = useState("");
   const [classId, setClassId] = useState("");
+  const [birthday, setBirthday] = useState("");
   const { data: classes } = trpc.classes.list.useQuery();
   const utils = trpc.useUtils();
   const create = trpc.members.quickCreate.useMutation({
@@ -20,6 +21,7 @@ function CreateMemberForm() {
       setAdventurerName("");
       setPhone("");
       setClassId("");
+      setBirthday("");
       setOpen(false);
       await utils.members.browse.invalidate();
       router.push(`/cashier/members/${member.id}`);
@@ -69,12 +71,26 @@ function CreateMemberForm() {
           ))}
         </select>
       </div>
+      <div className="w-40">
+        <label className="text-xs text-foreground-muted">Birthday</label>
+        <input
+          type="date"
+          value={birthday}
+          onChange={(e) => setBirthday(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border bg-background px-2 text-sm"
+        />
+      </div>
       {create.error && <p className="w-full text-xs text-status-danger">{create.error.message}</p>}
       <Button
         size="md"
-        disabled={!adventurerName.trim() || !classId || create.isPending}
+        disabled={!adventurerName.trim() || !classId || !birthday || create.isPending}
         onClick={() =>
-          create.mutate({ adventurerName: adventurerName.trim(), phone: phone.trim() || undefined, classId })
+          create.mutate({
+            adventurerName: adventurerName.trim(),
+            phone: phone.trim() || undefined,
+            classId,
+            birthday,
+          })
         }
       >
         {create.isPending ? "Creating…" : "Create member"}

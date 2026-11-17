@@ -92,6 +92,11 @@ export const membersRouter = router({
         // existed are left as-is (classId stays nullable on the model)
         // rather than being force-assigned one retroactively.
         classId: z.string().min(1),
+        // Required (§request birthday for register member every time) —
+        // same reasoning as classId above: every new member must have one
+        // from here on, but it stays nullable on the model since members
+        // created before this requirement existed have none.
+        birthday: z.coerce.date(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -116,6 +121,7 @@ export const membersRouter = router({
           adventurerName: input.adventurerName,
           phone: input.phone || null,
           classId: cls.id,
+          birthday: input.birthday,
         },
       });
       return { id: member.id, adventurerName: member.adventurerName };
@@ -190,6 +196,7 @@ export const membersRouter = router({
         memberCode: member.memberCode,
         adventurerName: member.adventurerName,
         phone: member.phone,
+        birthday: member.birthday,
         joinDate: member.joinDate,
         status: member.status,
         lastVisit: member.lastVisit,
@@ -324,6 +331,7 @@ export const membersRouter = router({
         staffNotes: z.string().optional(),
         adventurerName: z.string().min(1).optional(),
         phone: z.string().max(30).nullable().optional(),
+        birthday: z.coerce.date().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
